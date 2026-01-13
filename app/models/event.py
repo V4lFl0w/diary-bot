@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Integer, Text, TIMESTAMP, ForeignKey, text, DateTim, JSON
+from sqlalchemy import Integer, Text, TIMESTAMP, ForeignKey, text, DateTime, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 
