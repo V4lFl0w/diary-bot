@@ -1,5 +1,10 @@
 # app/models/event.py
 from __future__ import annotations
+from sqlalchemy.types import JSON
+from sqlalchemy.dialects.postgresql import JSONB
+
+
+JSONType = JSON().with_variant(JSONB, 'postgresql')
 
 from typing import TYPE_CHECKING, Optional
 
@@ -19,22 +24,31 @@ from sqlalchemy.types import TypeDecorator, TEXT
 class JSONText(TypeDecorator):
     impl = TEXT
     cache_ok = True
-
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
-        if isinstance(value, (dict, list)):
-            return value
-        return value  # если уже строка
 
+        # SQLite не умеет биндить dict/list -> сериализуем
+        if dialect.name == "sqlite":
+            if isinstance(value, (dict, list)):
+                return json.dumps(value, ensure_ascii=False)
+            return value  # уже строка/число/и т.д.
+
+        # Postgres (JSON/JSONB) нормально принимает dict/list
+        return value
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        # аккуратно: если там не JSON, вернём как есть
-        try:
-            return json.loads(value)
-        except Exception:
-            return value
+
+        # В sqlite это строка JSON -> парсим
+        if dialect.name == "sqlite":
+            try:
+                return json.loads(value)
+            except Exception:
+                return value
+
+        # В postgres обычно уже dict/list
+        return value
 
 
 class AnalyticsEvent(Base):
