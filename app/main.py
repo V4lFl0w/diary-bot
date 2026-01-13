@@ -1,6 +1,21 @@
 from __future__ import annotations
 
 
+async def log_db_info():
+    try:
+        from app.db import engine
+        url = str(engine.url)
+        # маскируем пароль
+        url = re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", url)
+        logging.getLogger("root").info("DB_URL=%s", url)
+
+        async with engine.begin() as conn:
+            r = await conn.execute(text("select version()"))
+            logging.getLogger("root").info("DB_VERSION=%s", r.scalar())
+    except Exception as e:
+        logging.getLogger("root").exception("DB_INFO_FAILED: %r", e)
+
+
 import os
 
 
@@ -10,6 +25,8 @@ import contextlib
 import importlib
 import inspect
 import logging
+import re
+from sqlalchemy import text
 import os
 import pkgutil
 from typing import Any, Awaitable, Callable, Dict
@@ -364,6 +381,7 @@ async def main() -> None:
     renewal_task = asyncio.create_task(_renewal_reminders_loop(), name="renewal_reminders_loop")
     proactive_task = asyncio.create_task(proactive_loop(bot, SessionLocal), name="proactive_loop")
 
+    await log_db_info()
     logging.info("✅ Bot is up. Starting polling…")
 
     try:

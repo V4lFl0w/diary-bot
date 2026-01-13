@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional
 from datetime import datetime, timezone
 import json
 
-from sqlalchemy import Integer, Text, TIMESTAMP, ForeignKey, text, DateTime, JSON
+from sqlalchemy import Integer, BigInteger, Text, TIMESTAMP, ForeignKey, text, DateTime, JSON, Identity
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator, TEXT
@@ -45,8 +45,8 @@ class JSONText(TypeDecorator):
 class AnalyticsEvent(Base):
     __tablename__ = "analytics_events"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
 
     user: Mapped[Optional["User"]] = relationship("User", back_populates="events")
 
@@ -67,7 +67,7 @@ class AnalyticsEvent(Base):
 class Event(Base):
     __tablename__ = "events"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
     tg_id: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     meta: Mapped[str | None] = mapped_column(Text, nullable=True)
