@@ -323,9 +323,9 @@ def _active_premium_kb(lang: str) -> InlineKeyboardMarkup:
 
 
 def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True) -> InlineKeyboardMarkup:
-    base = (getattr(settings, "public_url", "") or "https://example.com").strip()
+    base = (getattr(settings, "public_url", "") or "").strip()
     if not base.startswith("http"):
-        base = "https://example.com"
+        raise RuntimeError("PUBLIC_URL is not set or invalid")
 
     rows = [
         [InlineKeyboardButton(text=t_local(lang, "btn_sub"), url=CHANNEL_URL)],
