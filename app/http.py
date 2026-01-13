@@ -2,6 +2,10 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
+@router.get("/healthz")
+async def healthz():
+    return {"ok": True}
+
 @router.get("/_version")
 async def version():
     return {"ok": True}
