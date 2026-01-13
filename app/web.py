@@ -3,8 +3,8 @@ from app.http import router as http_router
 
 app = FastAPI()
 
+# базовые http роуты
 app.include_router(http_router)
 
-@app.get("/healthz")
-def healthz():
-    return {"ok": True}
+# 🔥 ВАЖНО: подключаем hooks, чтобы /pay реально добавился
+import app.hooks as _hooks  # noqa: F401
