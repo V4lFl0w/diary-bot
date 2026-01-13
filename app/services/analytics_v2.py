@@ -40,7 +40,8 @@ async def log_event_v2(
     Пишем событие в analytics_events.
     Никаких commit внутри — пусть решает вызывающий (как ты уже сделал).
     """
-    ev = AnalyticsEvent(
+        _ts_dt = datetime.now().astimezone()
+ev = AnalyticsEvent(
         user_id=user_id,
         event=event,
         props=props or None,
