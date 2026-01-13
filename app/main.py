@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+
 import os
 
-if os.getenv("APP_ROLE") != "worker":
-    raise RuntimeError("Polling is allowed ONLY in worker")
 
 from app.middlewares.ban import BanMiddleware
 import asyncio
