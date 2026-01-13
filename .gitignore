@@ -41,3 +41,18 @@ run.log
 *.log
 # backups
 *.bak
+
+# local env
+.env
+.env.*
+
+# backups / artifacts
+*.BAK_*
+*.bak_*
+
+# python
+__pycache__/
+*.pyc
+
+# local db
+*.db

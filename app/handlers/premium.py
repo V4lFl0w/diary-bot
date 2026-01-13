@@ -7,6 +7,18 @@ from app.urls import public_pay_url
 - выдача 24 часов за подписку на канал
 - сброс премиума админом
 
+from aiogram.types import InlineKeyboardButton
+
+def _safe_btn(*, text: str, url: str | None = None, cb: str | None = None) -> InlineKeyboardButton:
+    # Telegram запрещает "text-only" inline-кнопки
+    if url:
+        return InlineKeyboardButton(text=text, url=url)
+    if cb:
+        return InlineKeyboardButton(text=text, callback_data=cb)
+    # Фолбэк: если действие не определено — не создаём кнопку, а лучше кинем явную ошибку в логах
+    raise ValueError(f"Inline button '{text}' has no url/callback")
+
+
 Важно:
 - поддерживает callback_data="open_premium" (нужно для features_v2)
 - даёт кнопки:
@@ -328,12 +340,6 @@ def _active_premium_kb(lang: str) -> InlineKeyboardMarkup:
 
 
 def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True) -> InlineKeyboardMarkup:
-    base = (getattr(settings, "public_url", "") or "").strip()
-    if not base.startswith("http"):
-        base = (getattr(settings, "public_url", "") or "").strip().rstrip("/")
-    if not base.startswith("https://"):
-        base = ""
-
     rows = [
         [InlineKeyboardButton(text=t_local(lang, "btn_sub"), url=CHANNEL_URL)],
     ]
@@ -341,16 +347,22 @@ def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True) -> InlineKeybo
     if show_trial:
         rows.append([InlineKeyboardButton(text="🎁 Пробный доступ (24h)", callback_data=CB_TRIAL_START)])
 
-    rows.extend([
-        [InlineKeyboardButton(text=t_local(lang, "btn_check"), callback_data=CB_PREMIUM_CHECK)],
-        [InlineKeyboardButton(text=t_local(lang, "btn_pay"), url=public_pay_url(tg_id))],
-        [
-        InlineKeyboardButton(text=_stars_label(lang), callback_data=CB_PAY_STARS),
-    ],
-    [
-        InlineKeyboardButton(text={"ru": "💸 Возврат средств", "uk": "💸 Повернення коштів", "en": "💸 Refund"}.get(lang, "💸 Возврат средств"), callback_data="refund:open"),
-    ],
-    ])
+    # check
+    rows.append([InlineKeyboardButton(text=t_local(lang, "btn_check"), callback_data=CB_PREMIUM_CHECK)])
+
+    # pay by card (only if PUBLIC_URL is valid)
+    pay_link = public_pay_url(tg_id)
+    if pay_link:
+        rows.append([InlineKeyboardButton(text=t_local(lang, "btn_pay"), url=pay_link)])
+
+    # stars
+    rows.append([InlineKeyboardButton(text=_stars_label(lang), callback_data=CB_PAY_STARS)])
+
+    # refund
+    rows.append([InlineKeyboardButton(
+        text={"ru": "💸 Возврат средств", "uk": "💸 Повернення коштів", "en": "💸 Refund"}.get(lang, "💸 Возврат средств"),
+        callback_data="refund:open",
+    )])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

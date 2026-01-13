@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.urls import public_pay_url
 
 from datetime import timedelta, datetime
 from typing import Optional
@@ -37,25 +38,21 @@ def _stars_label(lang: str) -> str:
     }[loc]
 
 
-def _pay_kb_job(lang: str, tg_id: int, public_url: str):
-    # импортим тут, чтобы точно не было циклов и NameError
+def _pay_kb_job(lang: str, tg_id: int):
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
     loc = _normalize_lang(lang)
-    base = (getattr(settings, "public_url", "") or "").strip()
-    if not base.startswith("https://"):
-        base = (getattr(settings, "public_url", "") or "").strip().rstrip("/")
-    if not base.startswith("https://"):
-        return  # no public url -> skip sending pay buttons
-
     pay_text = {"ru": "Оплатить картой", "uk": "Оплатити карткою", "en": "Pay by card"}[loc]
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=pay_text, url=f"{base}/pay?tg_id={tg_id}")],
-            [InlineKeyboardButton(text=_stars_label(loc), callback_data="pay_stars")],
-        ]
-    )
+    rows = []
+
+    pay_link = public_pay_url(tg_id)  # вернёт str или None
+    if pay_link:
+        rows.append([InlineKeyboardButton(text=pay_text, url=pay_link)])
+
+    rows.append([InlineKeyboardButton(text=_stars_label(loc), callback_data="pay_stars")])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def _msg(lang: str, key: str, date_str: str) -> str:
     l = _normalize_lang(lang)
@@ -113,7 +110,7 @@ async def run_renewal_reminders(
 
         # показываем оплату (и cancel-кнопка сама появится, если is_premium=True — но тут нам не важно)
         from app.config import settings
-        kb = _pay_kb_job(lang, u.tg_id, getattr(settings, "public_url", ""))
+        kb = _pay_kb_job(lang, u.tg_id)
 
         try:
             await bot.send_message(u.tg_id, text, reply_markup=kb)
