@@ -285,9 +285,9 @@ def _pay_kb(lang: str, tg_id: int, is_premium: bool = False) -> InlineKeyboardMa
     - через Telegram Stars (внутри бота)
     - отмена подписки (если премиум активен)
     """
-    base = (getattr(settings, "public_url", None) or os.environ.get("PUBLIC_URL", "")).strip()
-    if not base.startswith("http"):
-        base = "https://example.com"
+    base = (getattr(settings, "public_url", "") or "").strip()
+    if not base.startswith("https://"):
+        raise RuntimeError("PUBLIC_URL is not set or invalid. Set PUBLIC_URL in environment variables.")
 
     rows = [
         [

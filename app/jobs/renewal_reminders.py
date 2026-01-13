@@ -6,6 +6,7 @@ from typing import Optional
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from app.config import settings
 
 from app.models.user import User
 from app.services.subscriptions import (
@@ -41,9 +42,9 @@ def _pay_kb_job(lang: str, tg_id: int, public_url: str):
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
     loc = _normalize_lang(lang)
-    base = (public_url or "").strip()
-    if not base.startswith("http"):
-        base = "https://example.com"
+    base = (getattr(settings, "public_url", "") or "").strip()
+    if not base.startswith("https://"):
+        raise RuntimeError("PUBLIC_URL is not set or invalid. Set PUBLIC_URL in environment variables.")
 
     pay_text = {"ru": "Оплатить картой", "uk": "Оплатити карткою", "en": "Pay by card"}[loc]
 
