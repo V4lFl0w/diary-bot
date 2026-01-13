@@ -97,6 +97,9 @@ class Settings:
         ).strip()
 
     def ensure_public_url(self) -> str:
+                # In production we never use ngrok discovery
+        if self.environment in {"prod", "production"}:
+            return self._public_url
         if self._public_url:
             return self._public_url
 
