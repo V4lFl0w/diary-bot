@@ -287,7 +287,10 @@ def _pay_kb(lang: str, tg_id: int, is_premium: bool = False) -> InlineKeyboardMa
     """
     base = (getattr(settings, "public_url", "") or "").strip()
     if not base.startswith("https://"):
-        raise RuntimeError("PUBLIC_URL is not set or invalid. Set PUBLIC_URL in environment variables.")
+        base = (getattr(settings, "public_url", "") or "").strip().rstrip("/")
+    # PUBLIC_URL not set -> show without payment button
+    if not base.startswith("https://"):
+        base = ""
 
     rows = [
         [
@@ -325,7 +328,9 @@ def _active_premium_kb(lang: str) -> InlineKeyboardMarkup:
 def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True) -> InlineKeyboardMarkup:
     base = (getattr(settings, "public_url", "") or "").strip()
     if not base.startswith("http"):
-        raise RuntimeError("PUBLIC_URL is not set or invalid")
+        base = (getattr(settings, "public_url", "") or "").strip().rstrip("/")
+    if not base.startswith("https://"):
+        base = ""
 
     rows = [
         [InlineKeyboardButton(text=t_local(lang, "btn_sub"), url=CHANNEL_URL)],

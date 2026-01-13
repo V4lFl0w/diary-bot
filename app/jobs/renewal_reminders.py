@@ -44,7 +44,9 @@ def _pay_kb_job(lang: str, tg_id: int, public_url: str):
     loc = _normalize_lang(lang)
     base = (getattr(settings, "public_url", "") or "").strip()
     if not base.startswith("https://"):
-        raise RuntimeError("PUBLIC_URL is not set or invalid. Set PUBLIC_URL in environment variables.")
+        base = (getattr(settings, "public_url", "") or "").strip().rstrip("/")
+    if not base.startswith("https://"):
+        return  # no public url -> skip sending pay buttons
 
     pay_text = {"ru": "Оплатить картой", "uk": "Оплатити карткою", "en": "Pay by card"}[loc]
 

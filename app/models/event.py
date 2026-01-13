@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Integer, Text, TIMESTAMP, ForeignKey, text, DateTime
+from sqlalchemy import Integer, Text, TIMESTAMP, ForeignKey, text, DateTim, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 
@@ -24,7 +24,7 @@ class JSONText(TypeDecorator):
         if value is None:
             return None
         if isinstance(value, (dict, list)):
-            return json.dumps(value, ensure_ascii=False)
+            return value
         return value  # если уже строка
 
     def process_result_value(self, value, dialect):
