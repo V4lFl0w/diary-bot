@@ -1,11 +1,9 @@
 
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, HTTPException , APIRouter
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from pathlib import Path
 import os, httpx
-
-app = FastAPI(title="Diary HTTP")
-
+router = APIRouter()
 def _load_env_chain():
     candidates = [
         "scripts/dev.env", "dev.env", ".env", ".env.local",
@@ -29,16 +27,16 @@ _load_env_chain()
 def _base():
     return os.getenv("PUBLIC_URL") or os.getenv("PUBLIC_BASE_URL") or ""
 
-@app.get("/env-check")
+@router.get("/env-check")
 async def env_check():
     keys = ["PUBLIC_URL","PUBLIC_BASE_URL","SUB_PRICE_UAH","SUB_PRICE_USD","NOWP_API_KEY","MONO_TOKEN"]
     return {k: bool(os.getenv(k)) for k in keys}
 
-@app.get("/health")
+@router.get("/health")
 async def health():
     return {"ok": True}
 
-@app.get("/pay", response_class=HTMLResponse)
+@router.get("/pay", response_class=HTMLResponse)
 async def pay(tg_id: str = Query(...)):
     html = f"""<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -57,7 +55,7 @@ a.card{{background:#5b39f0}} a.crypto{{background:#14a37f}}
 </div>"""
     return HTMLResponse(html)
 
-@app.get("/pay-crypto")
+@router.get("/pay-crypto")
 async def pay_crypto(tg_id: str = Query(...)):
     api_key = os.getenv("NOWP_API_KEY","")
     amount_usd = float(os.getenv("SUB_PRICE_USD", os.getenv("SUB_PRICE_USDT","10")))
@@ -81,7 +79,7 @@ async def pay_crypto(tg_id: str = Query(...)):
         raise HTTPException(502, detail=data)
     return RedirectResponse(data["invoice_url"], status_code=303)
 
-@app.get("/pay-mono")
+@router.get("/pay-mono")
 async def pay_mono(tg_id: str = Query(...)):
     token = os.getenv("MONO_TOKEN","")
     amount_uah = float(os.getenv("SUB_PRICE_UAH","99"))
@@ -106,14 +104,23 @@ async def pay_mono(tg_id: str = Query(...)):
         raise HTTPException(502, detail=data)
     return RedirectResponse(data["pageUrl"], status_code=303)
 
-@app.post("/payments/mono-callback")
+@router.post("/payments/mono-callback")
 async def mono_cb(body: dict):
     return {"ok": True}
 
-@app.get("/payments/success", response_class=HTMLResponse)
+@router.get("/payments/success", response_class=HTMLResponse)
 async def ok():
     return "<h1>Оплачено ✅</h1>"
 
-@app.get("/payments/cancel", response_class=HTMLResponse)
+@router.get("/payments/cancel", response_class=HTMLResponse)
 async def cancel():
     return "<h1>Платёж отменён</h1>"
+import os
+
+@app.get("/_version")
+def _version():
+    return {
+        "file": __file__,
+        "app": getattr(globals().get("app", None), "title", None) or "unknown",
+        "commit": os.getenv("GIT_SHA") or os.getenv("APP_COMMIT") or "unknown"
+    }
