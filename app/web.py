@@ -26,7 +26,12 @@ async def _shutdown() -> None:
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True}
+    return {
+        "ok": True,
+        "commit": os.getenv("GIT_SHA") or os.getenv("APP_COMMIT") or "unknown",
+        "entry": "app.web:app"
+    }
+
 import os
 
 @app.get("/_version")
