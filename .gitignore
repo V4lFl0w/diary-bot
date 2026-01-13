@@ -35,3 +35,9 @@ scripts/*.backup
 
 # macOS
 .DS_Store
+
+# local logs
+run.log
+*.log
+# backups
+*.bak
