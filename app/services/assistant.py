@@ -8,7 +8,10 @@ from typing import Optional, Any
 
 from zoneinfo import ZoneInfo
 from sqlalchemy import select, desc
-from openai import AsyncOpenAI
+try:
+    from openai import AsyncOpenAI
+except ModuleNotFoundError:
+    AsyncOpenAI = None  # type: ignore
 
 from app.models.user import User
 from app.models.journal import JournalEntry
@@ -253,6 +256,9 @@ async def run_assistant(
     *,
     session: Any = None,
 ) -> str:
+    if AsyncOpenAI is None:
+        return "🤖 Ассистент временно недоступен (сервер без openai).\nПопробуй позже или напиши в поддержку."
+
     api_key = _env("OPENAI_API_KEY")
     if not api_key:
         return {
