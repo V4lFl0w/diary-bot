@@ -4,9 +4,11 @@ from fastapi import FastAPI
 
 from app.api.coinbase import router as coinbase_router
 from app.main import main as run_bot  # <-- берем твой main() как запуск бота
+from app.http import router as http_router
 
 app = FastAPI(title="DiaryBot API", version="1.0")
 app.include_router(coinbase_router)
+app.include_router(http_router)
 
 _bot_task: asyncio.Task | None = None
 
@@ -25,3 +27,8 @@ async def _shutdown() -> None:
 @app.get("/healthz")
 def healthz():
     return {"ok": True}
+import os
+
+@app.get("/_version")
+def _version():
+    return {"app": "web", "commit": os.getenv("GIT_SHA") or os.getenv("APP_COMMIT") or "unknown"}

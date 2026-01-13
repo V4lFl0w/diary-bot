@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Integer, Text, TIMESTAMP, ForeignKey, text
+from sqlalchemy import Integer, Text, TIMESTAMP, ForeignKey, text, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from datetime import datetime, timezone
 
@@ -50,11 +50,11 @@ class AnalyticsEvent(Base):
 
     
 
-    ts: Mapped[str] = mapped_column(
-        Text,
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc).isoformat(),
-    )   # ISO string
+        default=lambda: datetime.now(timezone.utc),
+    )   # timestamptz
     event: Mapped[str] = mapped_column(Text, nullable=False)
     props: Mapped[dict | None] = mapped_column(JSONText, nullable=True)  # JSON string
 
