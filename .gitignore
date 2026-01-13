@@ -28,3 +28,7 @@ scripts/*.backup
 # sqlite runtime
 *.db-shm
 *.db-wal
+
+# sqlite runtime
+*.db-shm
+*.db-wal
