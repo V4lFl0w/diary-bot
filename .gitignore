@@ -1,0 +1,26 @@
+
+# secrets
+.env
+scripts/dev.env
+*.db
+*.sqlite3
+*.zip
+__pycache__/
+.venv/
+logs/
+
+# backups
+scripts/*.backup
+scripts/*.bak
+scripts/*.local.backup
+
+# backups
+scripts/*.backup
+scripts/*.bak
+scripts/*.local.backup
+
+# local env backups
+scripts/dev.env.local.backup
+scripts/*.local.backup
+scripts/*.bak
+scripts/*.backup

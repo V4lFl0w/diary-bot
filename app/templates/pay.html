@@ -1,0 +1,18 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Оплата</title>
+<style>
+body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;margin:0}
+.wrap{max-width:740px;margin:32px auto;padding:0 16px}
+h1{font-size:28px;margin:0 0 24px}
+a.btn,button.btn{display:block;width:100%;padding:18px 20px;border:0;border-radius:16px;font-size:20px;color:#fff;text-decoration:none;text-align:center;margin:14px 0;cursor:pointer}
+a.btn.card,button.btn.card{background:#5b39f0}
+a.btn.crypto,button.btn.crypto{background:#14a37f}
+</style>
+<div class="wrap">
+  <h1>Выберите способ оплаты</h1>
+  <a class="btn card"   target="_top" rel="noopener" href="/pay-mono">Картой (MonoPay, Apple/Google Pay)</a>
+  <a class="btn crypto" target="_top" rel="noopener" href="/pay-crypto">Криптой (USDT TRC20)</a>
+  <form method="get" action="/pay-mono"><button class="btn card" type="submit">Картой (MonoPay, Apple/Google Pay)</button></form>
+  <form method="get" action="/pay-crypto"><button class="btn crypto" type="submit">Криптой (USDT TRC20)</button></form>
+</div>

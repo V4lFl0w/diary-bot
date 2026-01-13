@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+SUPPORTED = {"ru","uk","en"}
+try:
+    TRANSLATIONS  # type: ignore
+except NameError:
+    TRANSLATIONS = {}
+
+def _is_lang(x: object) -> bool:
+    if not isinstance(x, str): return False
+    c = x.split("-",1)[0].lower()
+    return c in {"ru","uk","en","ua"}
+
+def _norm_lang(x: str | None) -> str:
+    c = (x or "ru").split("-",1)[0].lower()
+    if c == "ua": c = "uk"
+    return c if c in SUPPORTED else "ru"
+
+def t(a: str, b: str | None = None, **kw) -> str:
+    # Поддерживает оба порядка аргументов: t(key, lang) и t(lang, key).
+    if b is None:
+        key, lang = a, "ru"
+    else:
+        if _is_lang(a) and not _is_lang(b):
+            lang, key = _norm_lang(a), b          # t(lang, key)
+        elif _is_lang(b) and not _is_lang(a):
+            lang, key = _norm_lang(b), a          # t(key, lang)
+        else:
+            lang, key = _norm_lang(b), a          # неоднозначно — считаем (key, lang)
+
+    loc = TRANSLATIONS.get(key) if isinstance(TRANSLATIONS, dict) else None
+    if isinstance(loc, dict):
+        val = loc.get(lang) or loc.get("en") or loc.get("ru")
+        if isinstance(val, str):
+            try:
+                return val.format(**kw) if kw else val
+            except Exception:
+                return val
+    return f"[{key}]"

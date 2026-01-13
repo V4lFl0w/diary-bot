@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+import re
+from datetime import time
+
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from typing import Any
+
+
+from app.models.user import User
+
+router = Router()
+
+@router.callback_query(F.data == "assistant:proactive:open")
+async def proactive_open(call: CallbackQuery, session: Any, user: User, lang: str):
+    # просто открываем существующий экран настроек (тот же, что был раньше по кнопке "🤖 Помощник")
+    # если у тебя уже есть функция рендера клавиатуры/экрана — используй её тут.
+    # Ниже — универсальный fallback: вызываем show_proactive_menu если он есть.
+    if "show_proactive_menu" in globals():
+        await show_proactive_menu(call.message, session, user, lang)  # type: ignore
+        await call.answer()
+        return
+    await call.message.answer("⚡️ Проактивность: экран не подключён (нет show_proactive_menu).")
+    await call.answer()
+
+
+
+_TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*$")
+
+class ProactiveStates(StatesGroup):
+    waiting_time = State()
+
+
+def _fmt_time(t: time | str | None) -> str:
+    if t is None:
+        return "—"
+    if isinstance(t, str):
+        return t
+    return f"{t.hour:02d}:{t.minute:02d}"
+
+
+def _kb(u: User):
+    b = InlineKeyboardBuilder()
+
+    m_on = "✅ Вкл" if u.morning_auto else "⛔️ Выкл"
+    e_on = "✅ Вкл" if u.evening_auto else "⛔️ Выкл"
+
+    b.button(text=f"☀️ Утро: {m_on}", callback_data="assistant:proactive:toggle:morning")
+    b.button(text=f"🕘 Время утра: {_fmt_time(u.morning_time)}", callback_data="assistant:proactive:set_time:morning")
+
+    b.button(text=f"🌙 Вечер: {e_on}", callback_data="assistant:proactive:toggle:evening")
+    b.button(text=f"🕘 Время вечера: {_fmt_time(u.evening_time)}", callback_data="assistant:proactive:set_time:evening")
+
+    b.button(text="⬅️ Назад", callback_data="menu:home")  # если у тебя другое — поменяешь
+    b.adjust(1)
+    return b.as_markup()
+
+
+async def _get_user(session: AsyncSession, tg_id: int) -> User:
+    u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one()
+    return u
+
+
+@router.message(F.text == "⚡️ Проактивность")
+async def proactive_entry(message: Message, session: AsyncSession, lang: str = "ru"):
+    u = await _get_user(session, message.from_user.id)
+    await message.answer(
+        "🤖 **Проактивность**\n"
+        "Настрой утренний briefing и вечерний чек-ин.\n\n"
+        "Важно: если выключено — бот сам не пишет.",
+        reply_markup=_kb(u),
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(F.data.startswith("assistant:proactive:toggle:"))
+async def proactive_toggle(cb: CallbackQuery, session: AsyncSession):
+    u = await _get_user(session, cb.from_user.id)
+
+    _, _, part = cb.data.split(":")  # morning/evening
+    if part == "morning":
+        u.morning_auto = not bool(u.morning_auto)
+    elif part == "evening":
+        u.evening_auto = not bool(u.evening_auto)
+
+    await session.commit()
+
+    await cb.message.edit_reply_markup(reply_markup=_kb(u))
+    await cb.answer("Ок")
+
+
+@router.callback_query(F.data.startswith("assistant:proactive:set_time:"))
+async def proactive_set_time(cb: CallbackQuery, state: FSMContext):
+    _, _, part = cb.data.split(":")  # morning/evening
+    await state.set_state(ProactiveStates.waiting_time)
+    await state.update_data(part=part)
+
+    await cb.message.answer(
+        f"🕘 Введи время для **{('утра' if part=='morning' else 'вечера')}** в формате HH:MM\n"
+        "Пример: 09:30\n\n"
+        "Отмена: /cancel",
+        parse_mode="Markdown",
+    )
+    await cb.answer()
+
+@router.message(ProactiveStates.waiting_time)
+async def proactive_time_input(message: Message, session: AsyncSession, state: FSMContext):
+    txt = (message.text or "").strip()
+
+    if txt.lower() in ("/cancel", "cancel", "стоп", "stop"):
+        await state.clear()
+        await message.answer("Ок, отменил.")
+        return
+
+    m = _TIME_RE.match(txt)
+    if not m:
+        await message.answer("❌ Формат не тот. Введи HH:MM, например 09:30. Или /cancel")
+        return
+
+    hh = int(m.group(1))
+    mm = int(m.group(2))
+    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+        await message.answer("❌ Время вне диапазона. Введи 00:00–23:59. Или /cancel")
+        return
+
+    data = await state.get_data()
+    part = data.get("part")
+
+    u = await _get_user(session, message.from_user.id)
+
+    new_t = time(hh, mm)
+
+    if part == "morning":
+        u.morning_time = new_t
+        u.morning_auto = True
+        u.morning_last_sent_at = None  # чтобы новое время сработало сегодня
+    else:
+        u.evening_time = new_t
+        u.evening_auto = True
+        u.evening_last_sent_at = None
+
+    await session.commit()
+    await state.clear()
+
+    await message.answer(
+        f"✅ Поставил время: {hh:02d}:{mm:02d}\n"
+        f"{'☀️ Утро включено' if part=='morning' else '🌙 Вечер включен'}"
+    )
+    await message.answer("Открой 🤖 Помощник — увидишь обновлённые кнопки.")

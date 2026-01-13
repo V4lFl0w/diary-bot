@@ -1,0 +1,123 @@
+from __future__ import annotations
+
+from typing import Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.user import User
+from app.models.payment import Payment, PaymentPlan, PaymentStatus
+from app.services.analytics_v2 import log_event_v2
+from app.services.subscriptions import activate_subscription_from_payment
+
+
+PLAN_DAYS = {
+    PaymentPlan.TRIAL: 1,
+    PaymentPlan.MONTH: 30,
+    PaymentPlan.YEAR: 365,
+    # lifetime — отдельная ветка
+}
+
+
+def _val(x):
+    """Enum -> str для логов."""
+    return getattr(x, "value", x)
+
+
+async def _log_analytics_safe(
+    session: AsyncSession,
+    user: Optional[User],
+    payment: Payment,
+    result: str,
+) -> None:
+    await log_event_v2(
+        session,
+        user_id=getattr(user, "id", None),
+        event="premium_payment_applied",
+        props={
+            "provider": _val(payment.provider),
+            "plan": _val(payment.plan),
+            "status": _val(payment.status),
+            "amount_cents": payment.amount_cents,
+            "currency": payment.currency,
+            "payment_id": payment.id,
+            "result": result,
+        },
+    )
+
+
+async def apply_payment_to_premium(
+    session: AsyncSession,
+    payment: Payment,
+    *,
+    commit: bool = True,
+) -> bool:
+    """
+    Применяем PAID-платёж к подписке:
+    - TOPUP игнорируем
+    - TRIAL/MONTH/YEAR/LIFETIME -> activate_subscription_from_payment()
+    - всё логируем в analytics_v2
+    """
+
+    # 1) базовая валидация
+    if payment.status != PaymentStatus.PAID:
+        await _log_analytics_safe(session, user=None, payment=payment, result="skip_not_paid")
+        if commit:
+            await session.commit()
+        return False
+
+    if not payment.user_id:
+        await _log_analytics_safe(session, user=None, payment=payment, result="skip_no_user")
+        if commit:
+            await session.commit()
+        return False
+
+    if payment.plan == PaymentPlan.TOPUP:
+        await _log_analytics_safe(session, user=None, payment=payment, result="skip_topup")
+        if commit:
+            await session.commit()
+        return False
+
+    # 2) грузим user
+    user = await session.get(User, payment.user_id)
+    if not user:
+        await _log_analytics_safe(session, user=None, payment=payment, result="skip_user_not_found")
+        if commit:
+            await session.commit()
+        return False
+
+    # 3) применяем план -> подписка
+    if payment.plan == PaymentPlan.LIFETIME:
+        await activate_subscription_from_payment(
+            session,
+            user,
+            payment,
+            plan="lifetime",
+            duration_days=None,
+            auto_renew=False,
+        )
+        result = "lifetime_granted"
+    else:
+        days = PLAN_DAYS.get(payment.plan)
+        if not days:
+            await _log_analytics_safe(session, user=user, payment=payment, result="skip_unknown_plan")
+            if commit:
+                await session.commit()
+            return False
+
+        await activate_subscription_from_payment(
+            session,
+            user,
+            payment,
+            plan=_val(payment.plan),     # "trial" / "month" / "year"
+            duration_days=None,          # пусть PLAN_DAYS_MAP решает (или days передай сюда)
+            auto_renew=False,            # пока без рекуррента
+        )
+        result = f"extended_{days}_days"
+
+    # 4) логируем
+    await _log_analytics_safe(session, user=user, payment=payment, result=result)
+
+    if commit:
+        await session.commit()
+
+    return True
