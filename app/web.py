@@ -6,7 +6,7 @@ from app.api.coinbase import router as coinbase_router
 from app.main import main as run_bot  # <-- берем твой main() как запуск бота
 from app.http import router as http_router
 
-app = FastAPI(title="DiaryBot API", version="1.0")
+app = FastAPI(title="DiaryBot API DEPLOY_7575638", version="1.0")
 app.include_router(coinbase_router)
 app.include_router(http_router)
 

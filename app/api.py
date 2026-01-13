@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.webhooks.coinbase import router as coinbase_router
 
-app = FastAPI()
+app = FastAPI(title="DiaryBot API DEPLOY_7575638")
 app.include_router(coinbase_router)
 
 @app.get('/healthz')
