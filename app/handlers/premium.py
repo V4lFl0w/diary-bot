@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.urls import public_pay_url
 
 """
 Премиум-модуль:
@@ -20,6 +21,7 @@ from typing import Any, Dict, Optional
 
 from aiogram import Router, F
 from aiogram.filters import StateFilter, Command
+from app.urls import pay_url
 from aiogram.types import (
     Message,
     CallbackQuery,
@@ -296,7 +298,7 @@ def _pay_kb(lang: str, tg_id: int, is_premium: bool = False) -> InlineKeyboardMa
         [
             InlineKeyboardButton(
                 text=t_local(lang, "btn_pay"),
-                url=f"{base}/pay?tg_id={tg_id}",
+                url=public_pay_url(tg_id),
             )
         ],
         [
@@ -341,7 +343,7 @@ def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True) -> InlineKeybo
 
     rows.extend([
         [InlineKeyboardButton(text=t_local(lang, "btn_check"), callback_data=CB_PREMIUM_CHECK)],
-        [InlineKeyboardButton(text=t_local(lang, "btn_pay"), url=f"{base}/pay?tg_id={tg_id}")],
+        [InlineKeyboardButton(text=t_local(lang, "btn_pay"), url=public_pay_url(tg_id))],
         [
         InlineKeyboardButton(text=_stars_label(lang), callback_data=CB_PAY_STARS),
     ],
