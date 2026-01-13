@@ -32,3 +32,6 @@ scripts/*.backup
 # sqlite runtime
 *.db-shm
 *.db-wal
+
+# macOS
+.DS_Store
