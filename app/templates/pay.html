@@ -13,3 +13,22 @@ a.btn.crypto,button.btn.crypto{background:#14a37f}
   <h1>Выберите способ оплаты</h1>
   <a class="btn card"   target="_top" rel="noopener" href="/pay-mono">Картой (MonoPay, Apple/Google Pay)</a>
   <a class="btn crypto" target="_top" rel="noopener" href="/pay-crypto">Криптой (USDT TRC20)</a></div>
+
+<script>
+  const p = new URLSearchParams(window.location.search);
+  const tg = p.get("tg_id");
+  if (tg) {
+    document.querySelectorAll('a[href^="/pay-"]').forEach(a => {
+      const u = new URL(a.getAttribute("href"), window.location.origin);
+      u.searchParams.set("tg_id", tg);
+      a.setAttribute("href", u.pathname + "?" + u.searchParams.toString());
+    });
+    document.querySelectorAll('form[action^="/pay-"]').forEach(f => {
+      const u = new URL(f.getAttribute("action"), window.location.origin);
+      u.searchParams.set("tg_id", tg);
+      f.setAttribute("action", u.pathname + "?" + u.searchParams.toString());
+    });
+  }
+</script>
+</body>
+</html>

@@ -36,11 +36,11 @@ async def create_coinbase_charge(
 
     pay = Payment(
         user_id=user.id,
-        provider="coinbase",
+        provider=PaymentProvider.CRYPTO,
         plan=plan,
         amount_cents=amount_cents,
         currency="USD",
-        status="pending",
+        status=PaymentStatus.PENDING,
         payload=f"user:{user.id};plan:{plan}",
     )
     session.add(pay)
@@ -63,7 +63,7 @@ async def create_coinbase_charge(
             data = await resp.json()
             if resp.status >= 300:
                 # отметим ошибку в платеже и пробросим исключение
-                pay.status = "error"
+                pay.status = PaymentStatus.FAILED
                 pay.payload = (pay.payload or "") + f";err:{resp.status}"
                 await session.commit()
                 raise RuntimeError(f"Coinbase create charge error {resp.status}: {data}")
