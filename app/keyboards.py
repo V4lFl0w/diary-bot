@@ -1,3 +1,6 @@
+import logging
+logger = logging.getLogger(__name__)
+
 from __future__ import annotations
 
 import re
@@ -388,6 +391,8 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMar
             text=_t(lang, "btn_back", {"ru": "⬅️ Назад", "uk": "⬅️ Назад", "en": "⬅️ Back"})
         )
     ])
+
+    logger.info("PAY_KB(premium_menu): lang=%s is_premium=%s keyboard=%s", lang, is_premium, [[b.text for b in row] for row in keyboard])
 
     return ReplyKeyboardMarkup(
         resize_keyboard=True,
