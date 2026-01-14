@@ -10,6 +10,14 @@ async def healthz():
 async def version():
     return {"ok": True}
 
+
+def _base() -> str:
+    public = (os.getenv("PUBLIC_URL") or os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    if not public.startswith("http"):
+        # чтобы сразу было понятно в логах
+        raise HTTPException(status_code=500, detail="PUBLIC_URL/PUBLIC_BASE_URL not set")
+    return public
+
 # --- MonoPay (restored from http.py.bak_fix_8000) ---
 from fastapi import Query, HTTPException
 from fastapi.responses import RedirectResponse, PlainTextResponse, HTMLResponse
