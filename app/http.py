@@ -27,7 +27,7 @@ import os
 @router.get("/pay-mono")
 async def pay_mono(tg_id: str = Query(...)):
     token = os.getenv("MONO_TOKEN","")
-    amount_uah = float(os.getenv("SUB_PRICE_UAH","99"))
+    amount_uah = float(os.getenv("SUB_PRICE_UAH","299"))
     amount = int(round(amount_uah*100))
     success = _base()+"/payments/success"
     webhook = _base()+"/payments/mono-callback"
