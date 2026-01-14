@@ -683,13 +683,16 @@ async def journal_search(
     query_text = parts[1].strip()
 
     q_norm = query_text.strip().lower()
+    pattern = f"%{q_norm}%"
+
     q = (
         select(JournalEntry)
         .where(JournalEntry.user_id == user.id)
-        .where(func.lower(JournalEntry.text).like(f"%{q_norm}%"))
+        .where(JournalEntry.text.ilike(pattern))
         .order_by(JournalEntry.created_at.desc())
         .limit(10)
     )
+
     rows = (await session.execute(q)).scalars().all()
 
     if not rows:

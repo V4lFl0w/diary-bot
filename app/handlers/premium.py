@@ -431,18 +431,18 @@ async def _cancel_subscription(session: AsyncSession, tg_id: int) -> bool:
 
     # берём активную подписку по user_id
     q = sql_text(
-        "UPDATE subscriptions "
-        "SET auto_renew=0, status='canceled' "
-        "WHERE user_id=:uid AND status='active' "
+    "UPDATE subscriptions "
+    "SET auto_renew=false, status='canceled' "
+    "WHERE user_id=:uid AND status='active' "
     )
     res = await session.execute(q, {"uid": user_db_id})
-
-    # res.rowcount может быть None в некоторых драйверах, поэтому перестрахуемся:
     await session.commit()
 
-    # Если ничего не обновилось — считаем, что активной подписки нет
-    # (можно сделать SELECT перед UPDATE, но MVP ок)
-    return True
+    # Если реально ничего не обновилось — активной подписки нет
+    try:
+        return (res.rowcount or 0) > 0
+    except Exception:
+        return True  # fallback для редких драйверов
 
 
 async def maybe_grant_trial(session: AsyncSession, tg_id: int) -> None:
