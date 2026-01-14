@@ -56,15 +56,15 @@ class Payment(TimestampMixin, Base):
 
     # ✅ валидируем на уровне SQLAlchemy (в БД может быть CHECK/enum, зависит от миграций)
     provider: Mapped[PaymentProvider] = mapped_column(
-        SAEnum(PaymentProvider, name="payment_provider"),
+        SAEnum(PaymentProvider, name="payment_provider", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
     plan: Mapped[PaymentPlan] = mapped_column(
-        SAEnum(PaymentPlan, name="payment_plan"),
+        SAEnum(PaymentPlan, name="payment_plan", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
     status: Mapped[PaymentStatus] = mapped_column(
-        SAEnum(PaymentStatus, name="payment_status"),
+        SAEnum(PaymentStatus, name="payment_status", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=PaymentStatus.PENDING,
     )
