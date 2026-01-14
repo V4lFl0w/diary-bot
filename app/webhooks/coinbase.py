@@ -103,7 +103,7 @@ async def coinbase_buy(user_id: int | None = None, tg_id: int | None = None):
         pay, hosted = await create_coinbase_charge(
             session=s,
             user=user,
-            plan="monthly",
+            plan=PaymentPlan.MONTH,
             amount_usd=settings.premium_price_usd,
             description="Diary Assistant Premium — 1 month",
         )

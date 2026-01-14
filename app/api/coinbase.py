@@ -40,8 +40,8 @@ async def coinbase_webhook(request: Request):
             return {"ok": True}
         pay = Payment(
             user_id=user_id,
-            provider="coinbase",
-            plan="monthly",
+            provider=PaymentProvider.CRYPTO,
+            plan=PaymentPlan.MONTH,
             amount_cents=amount_cents,
             currency=currency,
             status="succeeded",

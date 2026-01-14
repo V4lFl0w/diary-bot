@@ -91,7 +91,7 @@ async def apply_payment_to_premium(
             session,
             user,
             payment,
-            plan="lifetime",
+            plan=PaymentPlan.LIFETIME,
             duration_days=None,
             auto_renew=False,
         )
