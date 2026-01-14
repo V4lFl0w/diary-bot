@@ -22,6 +22,7 @@ from app.models.mixins import TimestampMixin
 
 
 class PaymentStatus(str, enum.Enum):
+    CANCELLED = "cancelled"
     PENDING = "pending"
     PAID = "paid"
     REFUNDED = "refunded"

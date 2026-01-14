@@ -5,7 +5,7 @@ from __future__ import annotations
 
 Flow:
 1) Пользователь нажимает кнопку «⭐ Оплатить Telegram Stars» (callback_data="pay_stars").
-2) Мы создаём Payment(provider="STARS", currency="XTR") со статусом pending.
+2) Мы создаём Payment(provider=PaymentProvider.STARS, currency="XTR") со статусом pending.
 3) Шлём invoice через answer_invoice (currency="XTR", amount = кол-во звёзд).
 4) Обрабатываем successful_payment:
    - помечаем Payment как paid
@@ -29,7 +29,7 @@ from sqlalchemy import select
 
 from app.config import settings
 from app.models.user import User
-from app.models.payment import Payment, PaymentStatus
+from app.models.payment import Payment, PaymentStatus, PaymentProvider, PaymentPlan
 from app.services.subscriptions import activate_subscription_from_payment, log_event
 
 # main kb (optional)
@@ -61,7 +61,7 @@ CB_PAY_STARS = "pay_stars"
 
 # pricing
 PREMIUM_STARS_PRICE = 499  # stars count (XTR)
-PREMIUM_STARS_PLAN = "month"  # must match your plan mapping in subscriptions service
+PREMIUM_STARS_PLAN = PaymentPlan.MONTH  # must match your plan mapping in subscriptions service
 
 
 def _utcnow() -> datetime:
@@ -161,7 +161,7 @@ async def pay_premium_with_stars(c: CallbackQuery, session: AsyncSession) -> Non
     # 1) create pending payment and persist it
     payment = Payment(
         user_id=user.id,
-        provider="STARS",
+        provider=PaymentProvider.STARS,
         plan=PREMIUM_STARS_PLAN,
         amount_cents=int(PREMIUM_STARS_PRICE),  # for XTR we store stars count here
         currency="XTR",
@@ -193,7 +193,7 @@ async def pay_premium_with_stars(c: CallbackQuery, session: AsyncSession) -> Non
         event="pay_click",
         props={
             "provider": "stars",
-            "plan": PREMIUM_STARS_PLAN,
+            "plan": PREMIUM_STARS_PLAN.value,
             "stars_amount": int(PREMIUM_STARS_PRICE),
             "currency": "XTR",
         },
@@ -316,7 +316,7 @@ async def on_successful_payment_stars(m: Message, session: AsyncSession) -> None
         event="pay_success",
         props={
             "provider": "stars",
-            "plan": payment.plan or PREMIUM_STARS_PLAN,
+            "plan": (payment.plan or PREMIUM_STARS_PLAN).value,
             "payment_id": payment.id,
             "currency": sp.currency,
             "tg_charge_id": sp.telegram_payment_charge_id,
