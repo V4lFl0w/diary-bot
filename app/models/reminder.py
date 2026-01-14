@@ -5,6 +5,7 @@ from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import text
 
 from app.db import Base
 from app.models.mixins import TimestampMixin
@@ -40,7 +41,7 @@ class Reminder(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
-        default=True,
+        server_default=text("true"),
     )
 
     __table_args__ = (
