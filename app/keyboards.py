@@ -128,7 +128,7 @@ def get_main_kb(
 
     row_proactive = [
         KeyboardButton(text=_t(lang, "menu_proactive_root", {"ru":"⚡️ Проактивность","uk":"⚡️ Проактивність","en":"⚡️ Proactivity"})),
-        KeyboardButton(text=_t(lang, "menu_motivation_root", {"ru":"🔥 Мотивация","uk":"🔥 Мотивація","en":"🔥 Motivation"})),
+        KeyboardButton(text=_t(lang, "menu_motivation_root", {"ru":"🥇 Мотивация","uk":"🥇 Мотивація","en":"🥇 Motivation"})),
     ]
 
 # Помощник / Медиа

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, cast
 
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text as sql_text
 
@@ -593,8 +593,7 @@ async def journal_history(
         await m.answer(_tr(loc, "Нажми /start", "Натисни /start", "Press /start"))
         return
 
-    tz = _user_tz(user)
-
+    # /history [N]  (если N>5 → premium gate как было)
     parts = (m.text or "").split()
     requested: Optional[int] = None
     if len(parts) > 1 and parts[1].isdigit():
@@ -609,43 +608,217 @@ async def journal_history(
     elif requested:
         limit = requested
 
+    await _render_history(m, session, user, loc, offset=0, limit=limit, edit=False)
+
+# -------------------- history ui --------------------
+
+
+async def _render_history(m: Message, session: AsyncSession, user: User, loc: str, *, offset: int, limit: int, edit: bool) -> None:
+    total = (
+        await session.execute(
+            select(func.count())
+            .select_from(JournalEntry)
+            .where(JournalEntry.user_id == user.id)
+        )
+    ).scalar() or 0
+
     q = (
         select(JournalEntry)
         .where(JournalEntry.user_id == user.id)
         .order_by(JournalEntry.created_at.desc())
+        .offset(offset)
         .limit(limit)
     )
     rows = (await session.execute(q)).scalars().all()
 
     if not rows:
-        await m.answer(
-            _tr(
-                loc,
-                "Записей пока не было.",
-                "Записів поки не було.",
-                "No entries yet.",
-            )
-        )
+        text = _tr(loc, "Записей пока нет.", "Записів поки немає.", "No entries yet.")
+        if edit:
+            try:
+                await m.edit_text(text)
+            except Exception:
+                await m.answer(text)
+        else:
+            await m.answer(text)
         return
 
-    lines: list[str] = []
+    tz = _user_tz(user)
+    lines = []
     for e in rows:
         dt_local = e.created_at
         if dt_local.tzinfo is None:
             dt_local = dt_local.replace(tzinfo=timezone.utc)
         dt_local = dt_local.astimezone(tz)
+
         snippet = (e.text or "").strip()
         if len(snippet) > 80:
             snippet = snippet[:77] + "…"
-        lines.append(f"{dt_local:%Y-%m-%d %H:%M} — {snippet}")
+
+        lines.append(
+            _tr(
+                loc,
+                f"• {dt_local:%Y-%m-%d %H:%M} — {snippet}\n  /open_{e.id}",
+                f"• {dt_local:%Y-%m-%d %H:%M} — {snippet}\n  /open_{e.id}",
+                f"• {dt_local:%Y-%m-%d %H:%M} — {snippet}\n  /open_{e.id}",
+            )
+        )
 
     header = _tr(
         loc,
-        f"Последние {len(rows)} записей:",
-        f"Останні {len(rows)} записів:",
-        f"Last {len(rows)} entries:",
+        f"🕘 История ({offset+1}-{min(offset+limit,total)} из {total})",
+        f"🕘 Історія ({offset+1}-{min(offset+limit,total)} із {total})",
+        f"🕘 History ({offset+1}-{min(offset+limit,total)} of {total})",
     )
-    await m.answer(header + "\n\n" + "\n".join(lines))
+
+    kb = _history_kb(offset=offset, limit=limit, total=total, loc=loc)
+
+    out = header + "\n\n" + "\n\n".join(lines)
+
+    if edit:
+        try:
+            await m.edit_text(out, reply_markup=kb)
+        except Exception:
+            await m.answer(out, reply_markup=kb)
+    else:
+        await m.answer(out, reply_markup=kb)
+
+
+def _history_kb(offset: int, limit: int, total: int, loc: str) -> InlineKeyboardMarkup:
+    prev_off = max(0, offset - limit)
+    next_off = offset + limit
+
+    prev_btn = InlineKeyboardButton(
+        text=_tr(loc, "⬅️ Назад", "⬅️ Назад", "⬅️ Back"),
+        callback_data=f"journal:history:{prev_off}:{limit}",
+    )
+    next_btn = InlineKeyboardButton(
+        text=_tr(loc, "➡️ Далее", "➡️ Далі", "➡️ Next"),
+        callback_data=f"journal:history:{next_off}:{limit}",
+    )
+
+    row = []
+    if offset > 0:
+        row.append(prev_btn)
+    if next_off < total:
+        row.append(next_btn)
+
+    return InlineKeyboardMarkup(inline_keyboard=[row] if row else [])
+
+
+@router.callback_query(F.data.startswith("journal:history:"))
+async def cb_journal_history(call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None):
+    if not call.from_user:
+        return
+
+    user = await _get_user(session, call.from_user.id)
+    loc = _user_lang(user, lang)
+
+    if not user:
+        await call.answer()
+        return
+
+    # journal:history:{offset}:{limit}
+    try:
+        _, _, off_s, lim_s = (call.data or "").split(":", 3)
+        offset = max(0, int(off_s))
+        limit = max(1, min(50, int(lim_s)))
+    except Exception:
+        await call.answer()
+        return
+
+    msg = cast(Message, call.message)
+
+    await _render_history(msg, session, user, loc, offset=offset, limit=limit, edit=True)
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("journal:open:"))
+async def cb_journal_open(call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None):
+    if not call.from_user:
+        return
+
+    user = await _get_user(session, call.from_user.id)
+    loc = _user_lang(user, lang)
+
+    if not user:
+        await call.answer()
+        return
+
+    try:
+        entry_id = int((call.data or "").split(":", 2)[2])
+    except Exception:
+        await call.answer()
+        return
+
+    q = select(JournalEntry).where(JournalEntry.user_id == user.id, JournalEntry.id == entry_id).limit(1)
+    entry = (await session.execute(q)).scalar_one_or_none()
+    if not entry:
+        await call.answer(_tr(loc, "Запись не найдена.", "Запис не знайдено.", "Entry not found."), show_alert=True)
+        return
+
+    tz = _user_tz(user)
+    dt_local = entry.created_at
+    if dt_local.tzinfo is None:
+        dt_local = dt_local.replace(tzinfo=timezone.utc)
+    dt_local = dt_local.astimezone(tz)
+
+    text = (entry.text or "").strip()
+    if not text:
+        text = _tr(loc, "(пусто)", "(порожньо)", "(empty)")
+
+    msg = _tr(
+        loc,
+        f"📖 Запись {dt_local:%Y-%m-%d %H:%M}\n\n{text}",
+        f"📖 Запис {dt_local:%Y-%m-%d %H:%M}\n\n{text}",
+        f"📖 Entry {dt_local:%Y-%m-%d %H:%M}\n\n{text}",
+    )
+
+    await call.message.answer(msg)
+    await call.answer()
+
+
+
+@router.message(F.text.regexp(r"^/open_(\d+)$"))
+async def journal_open_cmd(m: Message, session: AsyncSession, lang: Optional[str] = None):
+    if not m.from_user:
+        return
+    user = await _get_user(session, m.from_user.id)
+    loc = _user_lang(user, lang)
+
+    if not user:
+        await m.answer(_tr(loc, "Нажми /start", "Натисни /start", "Press /start"))
+        return
+
+    import re as _re
+    mm = _re.match(r"^/open_(\d+)$", (m.text or "").strip())
+    if not mm:
+        return
+    entry_id = int(mm.group(1))
+
+    q = select(JournalEntry).where(JournalEntry.user_id == user.id, JournalEntry.id == entry_id).limit(1)
+    entry = (await session.execute(q)).scalar_one_or_none()
+    if not entry:
+        await m.answer(_tr(loc, "Запись не найдена.", "Запис не знайдено.", "Entry not found."))
+        return
+
+    tz = _user_tz(user)
+    dt_local = entry.created_at
+    if dt_local.tzinfo is None:
+        dt_local = dt_local.replace(tzinfo=timezone.utc)
+    dt_local = dt_local.astimezone(tz)
+
+    text = (entry.text or "").strip()
+    if not text:
+        text = _tr(loc, "(пусто)", "(порожньо)", "(empty)")
+
+    await m.answer(
+        _tr(
+            loc,
+            f"📖 Запись {dt_local:%Y-%m-%d %H:%M}\n\n{text}",
+            f"📖 Запис {dt_local:%Y-%m-%d %H:%M}\n\n{text}",
+            f"📖 Entry {dt_local:%Y-%m-%d %H:%M}\n\n{text}",
+        )
+    )
 
 
 # -------------------- search --------------------

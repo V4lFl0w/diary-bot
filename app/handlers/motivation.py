@@ -27,7 +27,7 @@ BTN_ANTISLIP = "🧩 Антислив"
 BTN_QUOTE = "🪶 Цитата"
 BTN_BACK = "⬅️ Назад"
 
-OPEN_TRIGGERS = ("🥇 Мотивация", "Мотивация", "Motivation")
+OPEN_TRIGGERS = ("🥇 Мотивация", "🥇 Мотивація", "🥇 Motivation", "Мотивация", "Мотивація", "Motivation")
 
 
 def _kb() -> ReplyKeyboardMarkup:

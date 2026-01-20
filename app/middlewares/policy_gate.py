@@ -51,11 +51,26 @@ ALLOWED_TEXT_BUTTONS = {
     "Продовжити",
     "Continue",
     "📓 Журнал",
+    "📓 Journal",
+    "📓 Щоденник",
+
     "🧘 Медиа",
-    "🔥 Мотивация",
+    "🧘 Media",
+    "🧘 Медіа",
+
+    "🥇 Мотивация",
+    "🥇 Мотивація",
+    "🥇 Motivation",
+
     "⚡️ Проактивность",
     "⚡ Проактивность",
     "Проактивность",
+    "⚡️ Проактивність",
+    "⚡ Проактивність",
+    "Проактивність",
+    "⚡️ Proactive",
+    "⚡ Proactive",
+    "Proactive",
 }
 
 class PolicyGateMiddleware(BaseMiddleware):
