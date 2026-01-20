@@ -324,7 +324,7 @@ async def journal_save(
     try:
         await maybe_grant_trial(session, m.from_user.id)
     except Exception:
-        pass
+        await session.rollback()
 
     await state.clear()
 
