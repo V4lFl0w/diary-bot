@@ -286,6 +286,7 @@ async def privacy_show(
 # -------------------- commands --------------------
 
 @router.message(Command("privacy"))
+@router.message(Command("policy"))
 @router.message(F.text.func(is_privacy_btn))
 async def privacy_cmd(m: Message, session: AsyncSession) -> None:
     await privacy_show(m, session)

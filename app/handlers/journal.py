@@ -45,6 +45,9 @@ router = Router(name="journal")
 class JournalFSM(StatesGroup):
     waiting_text = State()
 
+class JournalSearch(StatesGroup):
+    waiting_query = State()
+
 
 SUPPORTED_LANGS = {"ru", "uk", "en"}
 
@@ -648,14 +651,16 @@ async def journal_history(
 # -------------------- search --------------------
 
 @router.message(Command("search"))
-@router.message(F.text.func(is_search_btn))
-async def journal_search(
+async def journal_search_cmd(
     m: Message,
     session: AsyncSession,
+    state: FSMContext,
     lang: Optional[str] = None,
 ):
+    # /search слово
     if not m.from_user:
         return
+    await state.clear()
 
     user = await _get_user(session, m.from_user.id)
     loc = _user_lang(user, lang)
@@ -670,28 +675,70 @@ async def journal_search(
 
     parts = (m.text or "").split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
-        await m.answer(
-            _tr(
-                loc,
-                "Формат: /search слово",
-                "Формат: /search слово",
-                "Format: /search word",
-            )
-        )
+        await m.answer(_tr(loc, "Формат: /search слово", "Формат: /search слово", "Format: /search word"))
         return
 
-    query_text = parts[1].strip()
+    await _run_journal_search(m, session, user, loc, parts[1].strip())
 
-    # Поиск предсказуемый:
-    # - экранируем спецсимволы %, _, \ чтобы они не ломали LIKE/ILIKE
-    # - ищем подстроку (частичное совпадение)
+
+@router.message(F.text.func(is_search_btn))
+async def journal_search_btn(
+    m: Message,
+    session: AsyncSession,
+    state: FSMContext,
+    lang: Optional[str] = None,
+):
+    # Нажали кнопку "🔎 Поиск" → просим слово
+    if not m.from_user:
+        return
+
+    user = await _get_user(session, m.from_user.id)
+    loc = _user_lang(user, lang)
+
+    if not user:
+        await m.answer(_tr(loc, "Нажми /start", "Натисни /start", "Press /start"))
+        return
+
+    ok = await require_feature_v2(m, session, user, "journal_search")
+    if not ok and not _is_premium_user(user):
+        return
+
+    await state.set_state(JournalSearch.waiting_query)
+    await m.answer(_tr(loc, "Введи слово или фразу для поиска.", "Введи слово або фразу для пошуку.", "Type a word or phrase to search."))
+
+
+@router.message(JournalSearch.waiting_query)
+async def journal_search_query(
+    m: Message,
+    session: AsyncSession,
+    state: FSMContext,
+    lang: Optional[str] = None,
+):
+    # Следующее сообщение пользователя — это запрос
+    if not m.from_user:
+        return
+
+    user = await _get_user(session, m.from_user.id)
+    loc = _user_lang(user, lang)
+
+    await state.clear()
+
+    if not user:
+        await m.answer(_tr(loc, "Нажми /start", "Натисни /start", "Press /start"))
+        return
+
+    query_text = (m.text or "").strip()
+    if not query_text:
+        await m.answer(_tr(loc, "Пустой запрос. Напиши слово.", "Порожній запит. Напиши слово.", "Empty query. Type a word."))
+        return
+
+    await _run_journal_search(m, session, user, loc, query_text)
+
+
+async def _run_journal_search(m: Message, session: AsyncSession, user: User, loc: str, query_text: str) -> None:
+    # экранируем %, _, \ чтобы LIKE не ломался
     q_raw = query_text.strip()
-    q_esc = (
-        q_raw
-        .replace("\\", "\\\\")
-        .replace("%", "\\%")
-        .replace("_", "\\_")
-    )
+    q_esc = q_raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     pattern = f"%{q_esc}%"
 
     q = (
@@ -701,18 +748,10 @@ async def journal_search(
         .order_by(JournalEntry.created_at.desc())
         .limit(10)
     )
-
     rows = (await session.execute(q)).scalars().all()
 
     if not rows:
-        await m.answer(
-            _tr(
-                loc,
-                "Ничего не нашёл по этому запросу.",
-                "Нічого не знайшов за цим запитом.",
-                "No matches found.",
-            )
-        )
+        await m.answer(_tr(loc, "Ничего не нашёл по запросу.", "Нічого не знайшов за запитом.", "No matches found."))
         return
 
     tz = _user_tz(user)
@@ -722,19 +761,14 @@ async def journal_search(
         if dt_local.tzinfo is None:
             dt_local = dt_local.replace(tzinfo=timezone.utc)
         dt_local = dt_local.astimezone(tz)
+
         snippet = (e.text or "").strip()
-        if len(snippet) > 90:
-            snippet = snippet[:87] + "…"
+        if len(snippet) > 120:
+            snippet = snippet[:117] + "…"
+
         lines.append(f"{dt_local:%Y-%m-%d %H:%M} — {snippet}")
 
-    await m.answer(
-        _tr(
-            loc,
-            "Нашёл вот что:",
-            "Знайшов ось що:",
-            "Here’s what I found:",
-        ) + "\n\n" + "\n".join(lines)
-    )
+    await m.answer(_tr(loc, "Нашёл:", "Знайшов:", "Found:") + "\n\n" + "\n".join(lines))
 
 
 # -------------------- range --------------------
