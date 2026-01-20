@@ -24,6 +24,9 @@ ALLOWED_CALLBACK_PREFIXES = (
 )
 
 ALLOWED_TEXT_BUTTONS = {
+    "🔐 Данные и приватность",
+    "🔐 Дані та приватність",
+    "🔐 Data & Privacy",
     # policy
     "🔐 Политика",
     "⚠️ Политика",
