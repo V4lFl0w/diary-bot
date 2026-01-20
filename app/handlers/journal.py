@@ -171,14 +171,15 @@ def _is_admin_user(user: Optional[User], tg_id: Optional[int] = None) -> bool:
         return False
 
 
-def _main_kb_for(user: Optional[User], lang: str, *, tg_id: Optional[int] = None):
+def _main_kb_for(user: Optional[User], lang: str, *, tg_id: Optional[int] = None, is_premium=None):
     """
     Безопасный вызов get_main_kb:
     - премиум считаем по _is_premium_user(user)
     - админ считаем через is_admin_tg(tg_id) (а не только user.is_admin)
     """
     if is_premium is None:
-        is_premium = _is_premium_user(user)
+        if is_premium is None:
+            is_premium = _is_premium_user(user)
     is_admin = _is_admin_user(user, tg_id=tg_id)
 
     try:
