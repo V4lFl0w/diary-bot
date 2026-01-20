@@ -292,6 +292,8 @@ async def journal_save(
         )
         return
 
+    user_id = user.id
+
     if not _policy_ok(user):
         await state.clear()
         await m.answer(
@@ -317,7 +319,7 @@ async def journal_save(
         )
         return
 
-    entry = JournalEntry(user_id=user.id, text=text)
+    entry = JournalEntry(user_id=user_id, text=text)
     session.add(entry)
     await session.commit()
 
@@ -332,7 +334,7 @@ async def journal_save(
         await session.execute(
             select(func.count())
             .select_from(JournalEntry)
-            .where(JournalEntry.user_id == user.id)
+            .where(JournalEntry.user_id == user_id)
         )
     ).scalar() or 0
 
