@@ -682,13 +682,22 @@ async def journal_search(
 
     query_text = parts[1].strip()
 
-    q_norm = query_text.strip().lower()
-    pattern = f"%{q_norm}%"
+    # Поиск предсказуемый:
+    # - экранируем спецсимволы %, _, \ чтобы они не ломали LIKE/ILIKE
+    # - ищем подстроку (частичное совпадение)
+    q_raw = query_text.strip()
+    q_esc = (
+        q_raw
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    pattern = f"%{q_esc}%"
 
     q = (
         select(JournalEntry)
         .where(JournalEntry.user_id == user.id)
-        .where(JournalEntry.text.ilike(pattern))
+        .where(JournalEntry.text.ilike(pattern, escape="\\"))
         .order_by(JournalEntry.created_at.desc())
         .limit(10)
     )
