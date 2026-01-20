@@ -36,6 +36,7 @@ from app.keyboards import (
 
     # settings submenu
     is_language_btn, is_privacy_btn,
+    is_data_privacy_btn,
 
     # shared
     is_back_btn,
@@ -124,7 +125,7 @@ def _is_menu_click(text: str) -> bool:
         is_premium_info_btn, is_premium_card_btn, is_premium_stars_btn,
 
         # settings submenu
-        is_language_btn, is_privacy_btn,
+        is_language_btn, is_privacy_btn, is_data_privacy_btn,
 
         # shared
         is_back_btn,
@@ -194,6 +195,44 @@ async def assistant_exit(
             is_admin=is_admin,
         ),
     )
+
+
+
+@router.message(AssistantFSM.waiting_question, F.photo)
+async def assistant_photo(
+    m: Message,
+    state: FSMContext,
+    session: AsyncSession,
+) -> None:
+    if not m.from_user:
+        return
+
+    user = await _get_user(session, m.from_user.id)
+    lang = _detect_lang(user, m)
+
+    if not _has_premium(user):
+        await state.clear()
+        await m.answer(
+            "Assistant is Premium-only. Open Premium in menu.",
+            reply_markup=get_main_kb(lang, is_premium=False, is_admin=is_admin_tg(m.from_user.id)),
+        )
+        return
+
+    from app.services.assistant import _assistant_plan, run_assistant_vision
+    plan = _assistant_plan(user)
+    if plan != "pro":
+        await m.answer("Photo search is available in PRO plan.")
+        return
+
+    ph = m.photo[-1]
+    from app.bot import bot
+    f = await bot.get_file(ph.file_id)
+    b = await bot.download_file(f.file_path)
+    img_bytes = b.read()
+
+    caption = (m.caption or "").strip()
+    reply = await run_assistant_vision(user, img_bytes, caption, lang, session=session)
+    await m.answer(reply)
 
 
 # =============== DIALOG (ВАЖНО: НЕ ЖРЁМ МЕНЮ) ===============

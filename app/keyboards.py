@@ -422,6 +422,16 @@ def get_settings_menu_kb(lang: str) -> ReplyKeyboardMarkup:
             )
         ),
     ]
+    row2 = [
+        KeyboardButton(
+            text=_t(
+                lang,
+                "btn_data_privacy",
+                {"ru": "🔐 Данные и приватность", "uk": "🔐 Дані та приватність", "en": "🔐 Data & Privacy"},
+            )
+        )
+    ]
+
     row_back = [
         KeyboardButton(
             text=_t(
@@ -431,7 +441,7 @@ def get_settings_menu_kb(lang: str) -> ReplyKeyboardMarkup:
             )
         )
     ]
-    return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[row1, row_back])
+    return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[row1, row2, row_back])
 
 
 # -------------------------------------------------------------------
@@ -582,6 +592,15 @@ PRIVACY_TXT = {
     )
 }
 
+DATA_PRIVACY_TXT = {
+    _norm_btn(x)
+    for x in (
+        "🔐 данные и приватность", "данные и приватность",
+        "🔐 дані та приватність", "дані та приватність",
+        "🔐 data & privacy", "data & privacy", "data privacy",
+    )
+}
+
 BACK_TXT = {_norm_btn(x) for x in ("⬅️ назад", "назад", "⬅️ back", "back")}
 
 
@@ -703,6 +722,10 @@ def is_language_btn(text: str) -> bool:
 
 def is_privacy_btn(text: str) -> bool:
     return _norm_btn(text) in PRIVACY_TXT
+
+def is_data_privacy_btn(text: str) -> bool:
+    return _norm_btn(text) in DATA_PRIVACY_TXT
+
 
 
 def is_policy_btn(text: str) -> bool:

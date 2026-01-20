@@ -90,7 +90,8 @@ from app.handlers import (
     refund,
     refund_ui,
     proactive,
-    motivation
+    motivation,
+    data_privacy,
 )
 
 # меню (открывает подменю: Журнал/Медиа/Настройки/Премиум и т.д.)
@@ -328,6 +329,7 @@ def build_dispatcher() -> Dispatcher:
         dp.include_router(admin.router)
 
     dp.include_router(privacy.router)
+    dp.include_router(data_privacy.router)
     dp.include_router(start.router)
 
     if menus_router is not None:

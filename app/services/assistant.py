@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 from datetime import datetime, timezone, timedelta, time as dtime
 from typing import Optional, Any
@@ -46,6 +47,34 @@ def _user_tz(user: Optional[User]) -> ZoneInfo:
         return ZoneInfo(str(tz_name))
     except Exception:
         return ZoneInfo("UTC")
+    
+def _assistant_plan(user: Optional[User]) -> str:
+    # default
+    plan = "basic"
+
+    if not user:
+        return plan
+
+    # 1) пробуем из assistant_profile_json
+    prof = getattr(user, "assistant_profile_json", None)
+    if isinstance(prof, str) and prof.strip():
+        try:
+            prof = json.loads(prof)
+        except Exception:
+            prof = None
+    if isinstance(prof, dict):
+        v = str(prof.get("plan") or "").strip().lower()
+        if v in {"basic", "pro"}:
+            return v
+
+    # 2) fallback: если у тебя есть только is_premium — пусть премиум = pro
+    try:
+        if bool(getattr(user, "is_premium", False)):
+            return "pro"
+    except Exception:
+        pass
+
+    return plan
 
 
 def _now_str_user(user: Optional[User]) -> str:
@@ -186,7 +215,7 @@ async def _fetch_recent_journal(
     return out
 
 
-async def build_context(session: Any, user: Optional[User], lang: str) -> str:
+async def build_context(session: Any, user: Optional[User], lang: str, plan: str) -> str:
     parts: list[str] = []
     parts.append(f"Time now: {_now_str_user(user)}")
 
@@ -208,7 +237,9 @@ async def build_context(session: Any, user: Optional[User], lang: str) -> str:
             parts.append("Assistant profile (long-term):")
             parts.append(str(profile)[:2000])
 
-    recent = await _fetch_recent_journal(session, user, limit=30, take=5)
+    take = 0 if plan == "basic" else 5
+
+    recent = await _fetch_recent_journal(session, user, limit=30, take=take)
     if recent:
         parts.append("Recent journal entries:")
         for ts, txt in recent:
@@ -217,35 +248,49 @@ async def build_context(session: Any, user: Optional[User], lang: str) -> str:
     return "\n".join(parts)
 
 
-def _instructions(lang: str) -> str:
-    if lang == "uk":
-        return (
-            "Ти — приватний помічник у щоденнику. Дуже практичний.\n"
-            "Формат: 1) Суть 2) План (3 кроки) 3) Один маленький наступний крок.\n"
-            "Якщо про завтра — блоки (ранок/день/вечір) + 1 пріоритет.\n"
-            "Якщо мало даних — постав 1–2 уточнення.\n"
-            "Без моралі і без води.\n"
-            "Якщо питають погоду/курси/факти, які ти не можеш перевірити — "
-            "дай 2 сценарії (якщо X / якщо Y) і що зробити прямо зараз.\n"
+
+def _instructions(lang: str, plan: str) -> str:
+    base_map = {
+        "ru": (
+            "Ты — личный помощник в Telegram. Пиши по-русски.\n"
+            "Не оценивай настроение и не делай психоанализ.\n"
+            "Если данных не хватает — задай 1 уточняющий вопрос.\n"
+        ),
+        "uk": (
+            "Ти — особистий помічник у Telegram. Пиши українською.\n"
+            "Не оцінюй настрій і не роби психоаналіз.\n"
+            "Якщо бракує даних — постав 1 уточнювальне питання.\n"
+        ),
+        "en": (
+            "You are a personal Telegram assistant. Reply in English.\n"
+            "Do not psychoanalyze mood.\n"
+            "If info is missing — ask 1 clarifying question.\n"
+        ),
+    }
+
+    base = base_map.get(lang, base_map["en"])
+
+    style = (
+        "Правила ответа:\n"
+        "- Не используй шаблоны 'Суть/План/Шаги' и нумерацию, если не просят.\n"
+        "- Без психоанализа и диагнозов.\n"
+        "- Коротко и по делу.\n"
+    )
+
+    if plan == "basic":
+        return base + style + (
+            "Режим BASIC:\n"
+            "- 2–6 предложений.\n"
+            "- Без планов и стратегий без запроса.\n"
+            "- Журнал не использовать как память.\n"
         )
-    if lang == "en":
-        return (
-            "You are a private diary assistant. Very practical.\n"
-            "Format: 1) Summary 2) 3-step plan 3) One tiny next action.\n"
-            "If asked for tomorrow — morning/afternoon/evening + 1 priority.\n"
-            "If missing info — ask 1–2 clarifying questions.\n"
-            "No fluff.\n"
-            "If asked about weather/exchange rates/facts you can't verify — "
-            "give 2 scenarios (if X / if Y) and what to do right now.\n"
-        )
-    return (
-        "Ты — приватный помощник дневника. Максимально практичный.\n"
-        "Формат: 1) Суть 2) План (3 шага) 3) Один маленький следующий шаг.\n"
-        "Если про завтра — блоки (утро/день/вечер) + 1 приоритет.\n"
-        "Если не хватает вводных — задай 1–2 уточняющих вопроса.\n"
-        "Без морали и без воды.\n"
-        "Если спрашивают погоду/курсы/факты, которые ты не можешь проверить — "
-        "дай 2 сценария (если X / если Y) и что сделать прямо сейчас.\n"
+
+    return base + style + (
+        "Режим PRO:\n"
+        "- Можно использовать последние записи журнала как контекст.\n"
+        "- Можно предлагать чеклисты и структуру.\n"
+        "- Можно задать до 2 уточняющих вопросов.\n"
+        "- Стиль: умный близкий помощник.\n"
     )
 
 
@@ -270,7 +315,9 @@ async def run_assistant(
     client = AsyncOpenAI(api_key=api_key)
     model = _pick_model()
 
-    ctx = await build_context(session, user, lang)
+    plan = _assistant_plan(user)
+
+    ctx = await build_context(session, user, lang, plan)
 
     prev_id = getattr(user, "assistant_prev_response_id", None) if user else None
 
@@ -288,9 +335,9 @@ async def run_assistant(
     resp = await client.responses.create(
         previous_response_id=prev_id,
         model=model,
-        instructions=_instructions(lang),
+        instructions=_instructions(lang, plan),
         input=prompt,                 # <-- важно: строкой
-        max_output_tokens=450,
+        max_output_tokens=(260 if plan == "basic" else 650),
     )
 
     out = getattr(resp, "output_text", None)
@@ -316,3 +363,14 @@ async def run_assistant(
         return str(getattr(resp, "output", "")).strip() or "⚠️ Empty response."
     except Exception:
         return "⚠️ Не смог прочитать ответ модели."
+
+async def run_assistant_vision(
+    user: Optional[User],
+    image_bytes: bytes,
+    caption: str,
+    lang: str,
+    *,
+    session: Any = None,
+) -> str:
+    # TODO: implement vision recognition via OpenAI
+    return "Vision: not implemented yet."
