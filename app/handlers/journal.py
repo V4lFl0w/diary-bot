@@ -177,7 +177,8 @@ def _main_kb_for(user: Optional[User], lang: str, *, tg_id: Optional[int] = None
     - премиум считаем по _is_premium_user(user)
     - админ считаем через is_admin_tg(tg_id) (а не только user.is_admin)
     """
-    is_premium = _is_premium_user(user)
+    if is_premium is None:
+        is_premium = _is_premium_user(user)
     is_admin = _is_admin_user(user, tg_id=tg_id)
 
     try:
@@ -293,6 +294,7 @@ async def journal_save(
         return
 
     user_id = user.id
+    is_premium = _is_premium_user(user)
 
     if not _policy_ok(user):
         await state.clear()
@@ -303,7 +305,7 @@ async def journal_save(
                 "Потрібно прийняти політику: натисни 🔒 Політика",
                 "You need to accept the policy: tap 🔒 Privacy",
             ),
-            reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id),
+            reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id, is_premium=is_premium),
         )
         return
 
@@ -351,7 +353,7 @@ async def journal_save(
             "Quick actions are in the menu.\n"
             "Premium expands: search, ranges, extended history and stats.",
         ),
-        reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id),
+        reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id, is_premium=is_premium),
     )
 
 
