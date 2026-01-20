@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import time
+from datetime import datetime, time as dtime
 from typing import Any
 
 from aiogram import Router, F
@@ -33,10 +34,34 @@ async def _get_user(session: AsyncSession, tg_id: int) -> User:
     ).scalar_one()
 
 
-def _fmt_time(t: time | None) -> str:
-    if not t:
+def _fmt_time(t) -> str:
+    if t is None:
         return "—"
-    return f"{t.hour:02d}:{t.minute:02d}"
+
+    # если пришёл datetime
+    if isinstance(t, datetime):
+        t = t.time()
+
+    # если пришёл time
+    if isinstance(t, dtime):
+        return f"{t.hour:02d}:{t.minute:02d}"
+
+    # если пришла строка "HH:MM" или "HH:MM:SS"
+    if isinstance(t, str):
+        s = t.strip()
+        if not s:
+            return "—"
+        parts = s.split(":")
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            h = int(parts[0])
+            m = int(parts[1])
+            if 0 <= h <= 23 and 0 <= m <= 59:
+                return f"{h:02d}:{m:02d}"
+        # если формат неожиданный — вернём как есть, чтобы не крашить меню
+        return s
+
+    # всё остальное — безопасный фоллбек
+    return str(t)
 
 
 def proactive_kb(u: User):
