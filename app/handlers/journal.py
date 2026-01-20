@@ -178,8 +178,7 @@ def _main_kb_for(user: Optional[User], lang: str, *, tg_id: Optional[int] = None
     - админ считаем через is_admin_tg(tg_id) (а не только user.is_admin)
     """
     if is_premium is None:
-        if is_premium is None:
-            is_premium = _is_premium_user(user)
+        is_premium = _is_premium_user(user)
     is_admin = _is_admin_user(user, tg_id=tg_id)
 
     try:
