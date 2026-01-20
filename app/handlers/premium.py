@@ -408,7 +408,7 @@ async def _grant_24h(session: AsyncSession, tg_id: int) -> bool:
     until = datetime.now(timezone.utc) + timedelta(days=1)
     await session.execute(
         sql_text(
-            "UPDATE users SET is_premium=1, premium_until=:u, premium_trial_given=1 "
+            "UPDATE users SET is_premium=True, premium_until=:u, premium_trial_given=True "
             "WHERE tg_id=:tg"
         ),
         {"u": until, "tg": tg_id},
