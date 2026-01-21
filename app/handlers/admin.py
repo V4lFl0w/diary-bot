@@ -25,6 +25,9 @@ from app.models.user import User
 from app.models.llm_usage import LLMUsage
 
 from app.services.admin_audit import log_admin_action
+from app.models.subscription import Subscription
+from app.services.subscriptions import get_current_subscription, sync_user_premium_flags
+from app.services.subscriptions import utcnow  # если нет — скажи, я под твой проект путь подстрою
 
 # Если модель аналитики существует — используем её (ORM)
 try:
@@ -850,12 +853,35 @@ async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContex
         await c.answer(_tr(l, "user_not_found"), show_alert=True)
         return
 
-    # tier
-    if hasattr(user, "premium_plan"):
-        user.premium_plan = tier  # type: ignore[attr-defined]
+    now = utcnow()
+    existing_sub = await get_current_subscription(session, user.id, now=now)
 
-    # premium 24h
-    _apply_premium(user, hours=24)
+    if existing_sub:
+        # продлеваем/реактивируем
+        existing_sub.status = "active"
+        base_from = existing_sub.expires_at or now
+        if base_from < now:
+            base_from = now
+        existing_sub.expires_at = base_from + timedelta(days=1)  # 24h
+        existing_sub.auto_renew = False
+        existing_sub.plan = tier   # 'basic' или 'pro'
+        existing_sub.source = "admin"
+        session.add(existing_sub)
+    else:
+        sub = Subscription(
+            user_id=user.id,
+            plan=tier,              # 'basic' или 'pro'
+            status="active",
+            started_at=now,
+            expires_at=now + timedelta(days=1),
+            auto_renew=False,
+            source="admin",
+        )
+        session.add(sub)
+
+    # синхронизируем user.is_premium/premium_until/premium_plan из подписки
+    await sync_user_premium_flags(session, user, now=now)
+
     await session.commit()
 
     # audit (best-effort)
