@@ -362,6 +362,19 @@ def _take_top(rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3
 
 # -------------------- premium ops --------------------
 
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+CB_GIVE_TIER = "admin:give_tier:"  # admin:give_tier:<user_id>:<tier>
+
+def _kb_give_tier(l: str, user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="💎 BASIC", callback_data=f"{CB_GIVE_TIER}{user_id}:basic"),
+            InlineKeyboardButton(text="👑 PRO", callback_data=f"{CB_GIVE_TIER}{user_id}:pro"),
+        ]
+    ])
+
+
 def _apply_premium(user: User, hours: int = 24) -> None:
     now = datetime.now(timezone.utc)
     until = now + timedelta(hours=hours)
@@ -805,22 +818,60 @@ async def on_give_id(m: Message, session: AsyncSession, state: FSMContext) -> No
         await m.answer(_tr(l, "user_not_found"))
         await state.clear()
         return
+    await m.answer("Выбери, какой Premium выдать:", reply_markup=_kb_give_tier(l, user.id))
+    return
 
+
+@router.callback_query(F.data.startswith(CB_GIVE_TIER))
+async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    me = await _get_user(session, c.from_user.id)
+    if not is_admin(c.from_user.id, me):
+        await state.clear()
+        await c.answer("not allowed", show_alert=True)
+        return
+
+    l = _user_lang(me, getattr(c.from_user, "language_code", None))
+
+    raw = (c.data or "")[len(CB_GIVE_TIER):]
+    try:
+        user_id_str, tier = raw.split(":", 1)
+        user_id = int(user_id_str)
+        tier = (tier or "").strip().lower()
+    except Exception:
+        await c.answer("bad payload", show_alert=True)
+        return
+
+    if tier not in {"basic", "pro"}:
+        await c.answer("bad tier", show_alert=True)
+        return
+
+    user = await session.get(User, user_id)
+    if not user:
+        await c.answer(_tr(l, "user_not_found"), show_alert=True)
+        return
+
+    # tier
+    if hasattr(user, "premium_plan"):
+        user.premium_plan = tier  # type: ignore[attr-defined]
+
+    # premium 24h
     _apply_premium(user, hours=24)
-    session.add(user)
     await session.commit()
 
-    await log_admin_action(
-        session,
-        admin_tg_id=m.from_user.id,
-        action="premium_user",
-        target_tg_id=tg_id,
-    )
+    # audit (best-effort)
+    try:
+        await log_admin_action(
+            session,
+            admin_tg_id=c.from_user.id,
+            action=f"premium_user_{tier}",
+            target_tg_id=getattr(user, "tg_id", None) or 0,
+        )
+    except Exception:
+        pass
 
-    await m.answer(_tr(l, "done_user"))
+    await c.message.answer(f"Done ✅ Premium {tier.upper()} granted to the user.")
+    await c.answer()
     await state.clear()
-
-
 @router.message(AdminStates.wait_reset_id)
 async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> None:
     me = await _get_user(session, m.from_user.id)
