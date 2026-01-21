@@ -41,12 +41,37 @@ async def pay_mono(tg_id: str = Query(...)):
         "webHookUrl": webhook
     }
     async with httpx.AsyncClient(timeout=20) as cli:
-        r = await cli.post("https://api.monobank.ua/api/merchant/invoice/create",
-                           headers={"X-Token": token, "Content-Type":"application/json"},
-                           json=payload)
-    data = r.json()
+        r = await cli.post(
+            "https://api.monobank.ua/api/merchant/invoice/create",
+            headers={"X-Token": token, "Content-Type": "application/json"},
+            json=payload,
+        )
+
+    # DEBUG: всегда логируем, что пришло (коротко)
+    body_text = (r.text or "")[:2000]
+
+    try:
+        data = r.json()
+    except Exception:
+        # Mono вернул не-JSON (HTML/пусто/текст)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "mono_status": r.status_code,
+                "mono_body": body_text,
+            },
+        )
+
     if r.status_code != 200 or "pageUrl" not in data:
-        raise HTTPException(502, detail=data)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "mono_status": r.status_code,
+                "mono_json": data,
+                "mono_body": body_text,
+            },
+        )
+
     return RedirectResponse(data["pageUrl"], status_code=303)
 
 @router.post("/payments/mono-callback")

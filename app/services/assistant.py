@@ -16,6 +16,7 @@ except ModuleNotFoundError:
 
 from app.models.user import User
 from app.models.journal import JournalEntry
+from app.services.llm_usage import log_llm_usage
 
 
 MENU_NOISE = {
@@ -54,6 +55,11 @@ def _assistant_plan(user: Optional[User]) -> str:
 
     if not user:
         return plan
+
+    # 0) tier from user.premium_plan (highest priority)
+    v0 = str(getattr(user, 'premium_plan', '') or '').strip().lower()
+    if v0 in {'basic', 'pro'}:
+        return v0
 
     # 1) пробуем из assistant_profile_json
     prof = getattr(user, "assistant_profile_json", None)
@@ -340,6 +346,17 @@ async def run_assistant(
         max_output_tokens=(260 if plan == "basic" else 650),
     )
 
+    if session:
+        await log_llm_usage(
+            session,
+            user_id=getattr(user, "id", None) if user else None,
+            feature="assistant",
+            model=model,
+            plan=plan,
+            resp=resp,
+            meta={"lang": lang},
+        )
+
     out = getattr(resp, "output_text", None)
     out_text = (out or "").strip()
 
@@ -363,6 +380,7 @@ async def run_assistant(
         return str(getattr(resp, "output", "")).strip() or "⚠️ Empty response."
     except Exception:
         return "⚠️ Не смог прочитать ответ модели."
+    
 
 async def run_assistant_vision(
     user: Optional[User],
@@ -372,5 +390,93 @@ async def run_assistant_vision(
     *,
     session: Any = None,
 ) -> str:
-    # TODO: implement vision recognition via OpenAI
-    return "Vision: not implemented yet."
+    if AsyncOpenAI is None:
+        return "🤖 Vision временно недоступен (сервер без openai)."
+
+    api_key = _env("OPENAI_API_KEY")
+    if not api_key:
+        return {
+            "uk": "❌ Не задано OPENAI_API_KEY.",
+            "en": "❌ OPENAI_API_KEY is missing.",
+            "ru": "❌ Не задан OPENAI_API_KEY.",
+        }.get(lang, "❌ OPENAI_API_KEY missing.")
+
+    plan = _assistant_plan(user)
+    if plan != "pro":
+        return {"ru": "Фото доступно только в PRO.", "uk": "Фото доступне лише в PRO.", "en": "Photos are PRO-only."}.get(lang, "PRO-only.")
+
+    client = AsyncOpenAI(api_key=api_key)
+
+    prompt_text = (caption or "").strip()
+    if not prompt_text:
+        prompt_text = {
+            "ru": "Определи, что на фото, и дай краткий полезный вывод.",
+            "uk": "Визнач, що на фото, і дай короткий корисний висновок.",
+            "en": "Identify what’s in the photo and give a short helpful takeaway.",
+        }.get(lang, "Identify the image and give a short helpful takeaway.")
+
+    # ✅ авто-усиление модели только для “сложных” задач (скрины/текст/ошибки)
+    hard_keywords = (
+        "текст", "что написано", "прочитай", "скрин", "скриншот",
+        "ошибка", "error", "traceback", "лог", "qr", "кьюар",
+        "инструкция", "меню", "чек", "рецепт", "состав"
+    )
+    is_hard = any(k in prompt_text.lower() for k in hard_keywords)
+
+    model_default = _env("ASSISTANT_VISION_MODEL", _pick_model())
+    model_hard = _env("ASSISTANT_VISION_MODEL_HARD", model_default)
+    model = model_hard if is_hard else model_default
+
+    # ✅ data-url
+    import base64
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:image/jpeg;base64,{b64}"  # для F.photo почти всегда jpeg
+
+    instr = _instructions(lang, plan) + "\n" + (
+        "Ты видишь изображение. Отвечай по делу. "
+        "Если есть неопределенность — скажи об этом. "
+        "Не выдумывай детали."
+    )
+
+    try:
+        resp = await client.responses.create(
+            model=model,
+            instructions=instr,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": prompt_text},
+                        {"type": "input_image", "image_url": data_url},
+                    ],
+                }
+            ],
+            max_output_tokens=450,
+        )
+    except Exception as e:
+        # ✅ понятный фолбэк для юзера вместо падения
+        return {
+            "ru": f"⚠️ Не смог обработать фото ({type(e).__name__}). Попробуй отправить фото меньшего размера или сжать скрин.",
+            "uk": f"⚠️ Не зміг обробити фото ({type(e).__name__}). Спробуй надіслати менше фото або стиснути скрін.",
+            "en": f"⚠️ I couldn’t process the photo ({type(e).__name__}). Try sending a smaller image or compressing the screenshot.",
+        }.get(lang, f"⚠️ Vision error: {type(e).__name__}")
+    
+    if session:
+        await log_llm_usage(
+            session,
+            user_id=getattr(user, "id", None) if user else None,
+            feature="vision",
+            model=model,
+            plan=plan,
+            resp=resp,
+            meta={"lang": lang},
+        )
+
+    out_text = (getattr(resp, "output_text", None) or "").strip()
+    if out_text:
+        return out_text
+
+    try:
+        return str(getattr(resp, "output", "")).strip() or "⚠️ Empty response."
+    except Exception:
+        return "⚠️ Не смог прочитать ответ vision."

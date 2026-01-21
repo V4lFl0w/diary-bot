@@ -40,6 +40,7 @@ class PaymentPlan(str, enum.Enum):
     TRIAL = "trial"
     MONTH = "month"
     YEAR = "year"
+    QUARTER = "quarter"
     LIFETIME = "lifetime"
     TOPUP = "topup"
 
@@ -81,6 +82,8 @@ class Payment(TimestampMixin, Base):
     )
 
     payload: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    sku: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
     # ✅ единое поле времени успешной оплаты
     paid_at: Mapped[Optional[datetime]] = mapped_column(
@@ -137,6 +140,7 @@ class Payment(TimestampMixin, Base):
     def is_subscription(self) -> bool:
         return self.plan in {
             PaymentPlan.MONTH,
+            PaymentPlan.QUARTER,
             PaymentPlan.YEAR,
             PaymentPlan.LIFETIME,
             PaymentPlan.TRIAL,

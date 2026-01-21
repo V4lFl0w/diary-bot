@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.user import User
+from app.models.llm_usage import LLMUsage
 
 from app.services.admin_audit import log_admin_action
 
@@ -636,6 +637,52 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 await session.rollback()
             except Exception:
                 pass
+        # --- LLM usage (7d) ---
+        try:
+            q = select(
+                func.count(LLMUsage.id),
+                func.coalesce(func.sum(LLMUsage.total_tokens), 0),
+                func.coalesce(func.sum(LLMUsage.input_tokens), 0),
+                func.coalesce(func.sum(LLMUsage.output_tokens), 0),
+                func.coalesce(func.sum(LLMUsage.cost_usd_micros), 0),
+            ).where(LLMUsage.created_at >= since)
+
+            n, total, inp, out, cost = (await session.execute(q)).one()
+
+            lines += [
+                "",
+                "🧠 LLM usage (7d):",
+                f"• requests: {int(n or 0)}",
+                f"• tokens: {int(total or 0)} (in {int(inp or 0)} / out {int(out or 0)})",
+                f"• cost: ${float(cost or 0)/1_000_000:.4f}",
+            ]
+
+            q2 = (
+                select(
+                    LLMUsage.feature,
+                    LLMUsage.model,
+                    func.count(LLMUsage.id).label("req"),
+                    func.coalesce(func.sum(LLMUsage.total_tokens), 0).label("tok"),
+                    func.coalesce(func.sum(LLMUsage.cost_usd_micros), 0).label("c"),
+                )
+                .where(LLMUsage.created_at >= since)
+                .group_by(LLMUsage.feature, LLMUsage.model)
+                .order_by(func.sum(LLMUsage.total_tokens).desc())
+                .limit(8)
+            )
+            top = (await session.execute(q2)).all()
+            if top:
+                lines += ["", "Топ LLM (feature:model):"]
+                for feature, model, req, tok, c in top:
+                    lines.append(f"• {feature}:{model} — {int(req)} req | {int(tok)} tok | ${float(c)/1_000_000:.4f}")
+        except Exception:
+            # не ломаем админку из-за аналитики
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            lines += ["", "🧠 LLM usage (7d): (нет данных)"]
+
 
         if c.message:
             await c.message.answer("\n".join(lines))
@@ -654,7 +701,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                         "FROM analytics_events e "
                         "JOIN users u ON u.id = e.user_id "
                         "WHERE e.ts >= :since AND e.user_id IS NOT NULL "
-                        "GROUP BY u.tg_id, u.id, u.locale, u.lang "
+                        "GROUP BY u.tg_id, u.id, u.locale, u.lang, u.last_seen_at, u.is_premium, u.premium_until, u.premium_plan "
                         "ORDER BY last_ts DESC "
                         "LIMIT 30"
                     ),
@@ -669,13 +716,17 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                         User.id,
                         User.locale,
                         User.lang,
+                        User.last_seen_at,
+                        User.is_premium,
+                        User.premium_until,
+                        User.premium_plan,
                         func.max(AnalyticsEvent.ts).label("last_ts"),
                         func.count(AnalyticsEvent.id).label("cnt"),
                     )
                     .join(AnalyticsEvent, AnalyticsEvent.user_id == User.id)
                     .where(AnalyticsEvent.ts >= since)
                     .where(AnalyticsEvent.user_id.is_not(None))
-                    .group_by(User.tg_id, User.id, User.locale, User.lang)
+                    .group_by(User.tg_id, User.id, User.locale, User.lang, User.last_seen_at, User.is_premium, User.premium_until, User.premium_plan)
                     .order_by(func.max(AnalyticsEvent.ts).desc())
                     .limit(30)
                 )
@@ -687,8 +738,25 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             return
 
         lines = ["👥 Active users (7d):"]
-        for tg_id, uid, loc, langx, last_ts, cnt in rows:
-            lines.append(f"• tg_id={tg_id} | user_id={uid} | {(loc or langx or '-') } | events={cnt}")
+        now = datetime.now(timezone.utc)
+
+        # rows может быть из ORM или raw SQL — расклад одинаковый после наших правок
+        for row in rows:
+            # поддержим оба формата: tuple или RowMapping
+            if isinstance(row, (tuple, list)):
+                tg_id, uid, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_ts, cnt = row
+            else:
+                tg_id = row[0]; uid = row[1]; loc = row[2]; langx = row[3]
+                last_seen_at = row[4]; is_prem = row[5]; prem_until = row[6]; prem_plan = row[7]
+                last_ts = row[8]; cnt = row[9]
+
+            link = f"tg://user?id={tg_id}"
+            prem_active = bool(is_prem) or (prem_until is not None and prem_until > now)
+            prem_flag = "💎" if prem_active else ""
+            loc2 = (loc or langx or "-")
+            lines.append(
+                f"• {prem_flag} tg_id={tg_id} | user_id={uid} | {loc2} | events={cnt} | last_ts={last_ts} | {link}"
+            )
 
         if c.message:
             await c.message.answer("\n".join(lines))
@@ -783,14 +851,18 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
 
 
 def _format_user_card(l: str, u: User) -> str:
-    # NOTE: не валим бота, если поля нет
+    tg_id = getattr(u, "tg_id", "-")
+    link = f"tg://user?id={tg_id}" if str(tg_id).isdigit() else "-"
     lines = [
         _tr(l, "user_card_title"),
-        f"• tg_id: {getattr(u, 'tg_id', '-')}",
+        f"• tg_id: {tg_id}",
+        f"• link: {link}",
         f"• user_id: {getattr(u, 'id', '-')}",
         f"• locale: {getattr(u, 'locale', '-')}",
         f"• tz: {getattr(u, 'tz', '-')}",
+        f"• last_seen_at: {getattr(u, 'last_seen_at', None)}",
         f"• is_admin: {bool(getattr(u, 'is_admin', False))}",
+        f"• premium_plan: {getattr(u, 'premium_plan', None)}",
         f"• is_premium: {bool(getattr(u, 'is_premium', False) or getattr(u, 'has_premium', False))}",
         f"• premium_until: {getattr(u, 'premium_until', None)}",
         f"• banned: {_is_banned(u)}",

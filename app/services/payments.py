@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.payment import Payment, PaymentPlan, PaymentStatus
 from app.services.analytics_v2 import log_event_v2
 from app.services.subscriptions import activate_subscription_from_payment
+from app.services.pricing import get_spec
 
 
 PLAN_DAYS = {
@@ -54,6 +55,7 @@ async def apply_payment_to_premium(
     """
     Применяем PAID-платёж к подписке:
     - TOPUP игнорируем
+    - SKU (basic/pro × month/quarter/year) приоритетнее plan
     - TRIAL/MONTH/YEAR/LIFETIME -> activate_subscription_from_payment()
     - всё логируем в analytics_v2
     """
@@ -85,36 +87,58 @@ async def apply_payment_to_premium(
             await session.commit()
         return False
 
-    # 3) применяем план -> подписка
-    if payment.plan == PaymentPlan.LIFETIME:
+    # 3) применяем SKU (basic/pro × month/quarter/year), если он есть
+    sku = (getattr(payment, "sku", None) or "").strip().lower()
+    spec = get_spec(sku) if sku else None
+
+    if spec and int(spec.days or 0) > 0:
         await activate_subscription_from_payment(
             session,
             user,
             payment,
-            plan=PaymentPlan.LIFETIME,
-            duration_days=None,
+            plan=sku,
+            duration_days=int(spec.days),
             auto_renew=False,
         )
-        result = "lifetime_granted"
+        # фиксируем tier на пользователе (если поле есть)
+        try:
+            user.premium_plan = spec.tier
+        except Exception:
+            pass
+        result = f"sku_{sku}"
+
     else:
-        days = PLAN_DAYS.get(payment.plan)
-        if not days:
-            await _log_analytics_safe(session, user=user, payment=payment, result="skip_unknown_plan")
-            if commit:
-                await session.commit()
-            return False
+        # 4) применяем plan -> подписка
+        if payment.plan == PaymentPlan.LIFETIME:
+            await activate_subscription_from_payment(
+                session,
+                user,
+                payment,
+                plan=PaymentPlan.LIFETIME,
+                duration_days=None,
+                auto_renew=False,
+            )
+            result = "lifetime_granted"
 
-        await activate_subscription_from_payment(
-            session,
-            user,
-            payment,
-            plan=_val(payment.plan),     # "trial" / "month" / "year"
-            duration_days=None,          # пусть PLAN_DAYS_MAP решает (или days передай сюда)
-            auto_renew=False,            # пока без рекуррента
-        )
-        result = f"extended_{days}_days"
+        else:
+            days = PLAN_DAYS.get(payment.plan)
+            if not days:
+                await _log_analytics_safe(session, user=user, payment=payment, result="skip_unknown_plan")
+                if commit:
+                    await session.commit()
+                return False
 
-    # 4) логируем
+            await activate_subscription_from_payment(
+                session,
+                user,
+                payment,
+                plan=_val(payment.plan),     # "trial" / "month" / "year" / "quarter" (если придёт как строка)
+                duration_days=None,          # PLAN_DAYS_MAP решит по ключу или ставь days, если хочешь жёстко
+                auto_renew=False,
+            )
+            result = f"extended_{days}_days"
+
+    # 5) логируем
     await _log_analytics_safe(session, user=user, payment=payment, result=result)
 
     if commit:

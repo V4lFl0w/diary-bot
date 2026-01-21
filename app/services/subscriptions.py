@@ -140,6 +140,15 @@ async def sync_user_premium_flags(
         else:
             user.premium_until = sub.expires_at
         user.is_premium = True
+        # update tier from subscription plan (basic_/pro_)
+        try:
+            p = str(getattr(sub, 'plan', '') or '').lower()
+            if p.startswith('pro_'):
+                user.premium_plan = 'pro'
+            elif p.startswith('basic_'):
+                user.premium_plan = 'basic'
+        except Exception:
+            pass
     else:
         # Нет активной подписки
         # NOTE: если подписки нет — НЕ перезаписываем ручной/админский премиум
@@ -174,6 +183,8 @@ PLAN_DAYS_MAP: Dict[str, int] = {
     "stars_trial": 1,
     "stars_month": 30,
     "stars_year": 365,
+    "quarter": 90,
+    "stars_quarter": 90,
 }
 
 
@@ -214,7 +225,11 @@ async def activate_subscription_from_payment(
     auto_renew: bool = False,
 ) -> Subscription:
     now = utcnow()
-    plan_name = plan or (payment.plan or "premium")
+    plan_name = (
+        (getattr(payment, "sku", None) or "").strip()
+        or plan
+        or (payment.plan or "premium")
+    )
 
     # 1) Находим "текущую" подписку (active или canceled, но ещё действующая)
     existing_sub = await get_current_subscription(session, user.id, now=now)

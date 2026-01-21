@@ -38,12 +38,14 @@ from aiogram.types import BotCommand
 
 from app.middlewares.policy_gate import PolicyGateMiddleware
 from app.middlewares.rate_limit import RateLimitMiddleware
+from app.middlewares.last_seen import LastSeenMiddleware
 from app.bot import bot
 from app.config import settings
 from app.db import Base, async_session as SessionLocal, engine
 
 import app.hooks  # noqa: F401
 import app.models as _models_pkg
+from app.handlers import export
 
 # ---------- сервисы ----------
 
@@ -306,6 +308,8 @@ def build_dispatcher() -> Dispatcher:
     except Exception:
         pass
 
+    dp.update.outer_middleware(LastSeenMiddleware(min_update_seconds=60))
+
     # 3) Политика — железно глобально
     dp.message.outer_middleware(PolicyGateMiddleware())
     dp.callback_query.outer_middleware(PolicyGateMiddleware())
@@ -351,6 +355,7 @@ def build_dispatcher() -> Dispatcher:
 
     dp.include_router(features_router)
     dp.include_router(reminders.router)
+    dp.include_router(export.router)
     dp.include_router(language.router)
 
     return dp

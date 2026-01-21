@@ -4,6 +4,8 @@ import csv
 import io
 import json
 from datetime import datetime, timezone
+from decimal import Decimal
+from datetime import date
 from typing import Optional
 
 from aiogram import Router, F
@@ -16,6 +18,26 @@ router = Router()
 BTN_MENU_RU = "🔐 Данные и приватность"
 BTN_MENU_UA = "🔐 Дані та приватність"
 BTN_MENU_EN = "🔐 Data & Privacy"
+
+def _jsonable(v):
+    if v is None:
+        return None
+    if isinstance(v, (str, int, float, bool)):
+        return v
+    if isinstance(v, (datetime, date)):
+        return v.isoformat()
+    if isinstance(v, Decimal):
+        return float(v)
+    if isinstance(v, dict):
+        return {k: _jsonable(val) for k, val in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_jsonable(x) for x in v]
+    # fallback — чтобы не падало
+    return str(v)
+
+def _row_to_dict(row) -> dict:
+    # RowMapping умеет items()
+    return {k: _jsonable(v) for k, v in dict(row).items()}
 
 def _dp_title(lang: str) -> str:
     l = (lang or "ru").lower()
@@ -104,10 +126,12 @@ async def _fetch_all_data(session: AsyncSession, tg_id: int) -> dict:
         try:
             res = await session.execute(sql_text(q), {"tg": tg_id})
             rows = res.mappings().all()
+            norm = [_row_to_dict(r) for r in rows]
+
             if single:
-                data[key] = rows[0] if rows else None
+                data[key] = norm[0] if norm else None
             else:
-                data[key] = rows
+                data[key] = norm
         except Exception:
             data[key] = None
 

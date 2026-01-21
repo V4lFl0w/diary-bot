@@ -149,6 +149,26 @@ class User(TimestampMixin, Base):
         nullable=False,
     )
 
+    # -------------------- premium tiers & trials --------------------
+    # tier: basic/pro (для ассистента и фич)
+    premium_plan: Mapped[str] = mapped_column(
+        String(16),
+        default="basic",
+        nullable=False,
+    )
+
+    basic_trial_given: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    pro_trial_given: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
     # -------------------- morning assistant --------------------
 
     morning_auto: Mapped[bool] = mapped_column(

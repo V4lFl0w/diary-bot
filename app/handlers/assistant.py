@@ -44,6 +44,8 @@ from app.keyboards import (
 
 from app.models.user import User
 from app.services.assistant import run_assistant
+from app.bot import bot
+import io
 
 # admin check (best-effort)
 try:
@@ -224,11 +226,12 @@ async def assistant_photo(
         await m.answer("Photo search is available in PRO plan.")
         return
 
-    ph = m.photo[-1]
-    from app.bot import bot
-    f = await bot.get_file(ph.file_id)
-    b = await bot.download_file(f.file_path)
-    img_bytes = b.read()
+    # ✅ берём не самый огромный размер (дешевле, почти без потери качества)
+    ph = m.photo[-2] if len(m.photo) >= 2 else m.photo[-1]
+
+    buf = io.BytesIO()
+    await bot.download(ph, destination=buf)
+    img_bytes = buf.getvalue()
 
     caption = (m.caption or "").strip()
     reply = await run_assistant_vision(user, img_bytes, caption, lang, session=session)
