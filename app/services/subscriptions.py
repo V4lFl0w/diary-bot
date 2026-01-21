@@ -143,9 +143,9 @@ async def sync_user_premium_flags(
         # update tier from subscription plan (basic_/pro_)
         try:
             p = str(getattr(sub, 'plan', '') or '').lower()
-            if p.startswith('pro_'):
+            if p == 'pro' or p.startswith('pro_'):
                 user.premium_plan = 'pro'
-            elif p.startswith('basic_'):
+            elif p == 'basic' or p.startswith('basic_'):
                 user.premium_plan = 'basic'
         except Exception:
             pass
