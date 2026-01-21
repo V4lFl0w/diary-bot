@@ -367,7 +367,7 @@ def _take_top(rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-CB_GIVE_TIER = "admin:give_tier:"  # admin:give_tier:<user_id>:<tier>
+CB_GIVE_TIER = "give_tier:"  # admin:give_tier:<user_id>:<tier>
 
 def _kb_give_tier(l: str, user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
