@@ -108,11 +108,21 @@ def _has_premium(user: Optional[User]) -> bool:
     return bool(getattr(user, "has_premium", False))
 
 
+def _is_noise_msg(text: str) -> bool:
+    t = (text or "").strip()
+    # пусто/очень коротко — почти всегда мусор
+    if not t or len(t) <= 2:
+        return True
+    # одно слово до 3 букв — мусор
+    if " " not in t and len(t) <= 3:
+        return True
+    return False
+
 def _is_menu_click(text: str) -> bool:
     return any(fn(text) for fn in (
         # root
         is_root_journal_btn, is_root_reminders_btn, is_root_calories_btn, is_root_stats_btn,
-        is_root_assistant_btn, is_root_media_btn, is_root_premium_btn, is_root_settings_btn, is_root_proactive_btn, is_root_proactive_btn,
+        is_root_assistant_btn, is_root_media_btn, is_root_premium_btn, is_root_settings_btn, is_root_proactive_btn,
         is_report_bug_btn, is_admin_btn,
 
         # journal submenu
@@ -200,6 +210,17 @@ async def assistant_exit(
 
 
 
+
+@router.message(AssistantFSM.waiting_question, F.text.func(_is_menu_click))
+async def assistant_menu_exit(
+    m: Message,
+    state: FSMContext,
+) -> None:
+    # Любой клик по меню/кнопкам — выходим из режима ассистента,
+    # чтобы FSM не перехватывал дальнейшие сообщения.
+    await state.clear()
+
+
 @router.message(AssistantFSM.waiting_question, F.photo)
 async def assistant_photo(
     m: Message,
@@ -266,6 +287,10 @@ async def assistant_dialog(
         return
 
     text = (m.text or "").strip()
+
+    if _is_noise_msg(text):
+        return
+
     if not text:
         return
 
