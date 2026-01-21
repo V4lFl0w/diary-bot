@@ -878,6 +878,7 @@ async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContex
             source="admin",
         )
         session.add(sub)
+        await session.flush()
 
     # синхронизируем user.is_premium/premium_until/premium_plan из подписки
     await sync_user_premium_flags(session, user, now=now)
