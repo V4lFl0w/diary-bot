@@ -51,3 +51,9 @@ async def log_llm_usage(
     )
     session.add(row)
     await session.flush()
+    # IMPORTANT: on prod the session may not be auto-committed anywhere
+    # so LLMUsage rows could be lost. Best-effort commit.
+    try:
+        await session.commit()
+    except Exception:
+        pass
