@@ -148,32 +148,33 @@ def _csv_journal(rows: list[dict]) -> bytes:
         w.writerow(dict(r))
     return out.getvalue().encode("utf-8")
 
+async def _get_user_id(session: AsyncSession, tg_id: int) -> int | None:
+    r = await session.execute(sql_text("SELECT id FROM users WHERE tg_id=:tg LIMIT 1"), {"tg": tg_id})
+    row = r.first()
+    return int(row[0]) if row and row[0] is not None else None
+
 async def _wipe_data(session: AsyncSession, tg_id: int) -> None:
-    stmts = [
-        "DELETE FROM journal_entries WHERE user_id=(SELECT id FROM users WHERE tg_id=:tg LIMIT 1)",
-        "DELETE FROM events WHERE tg_id=:tg",
-        "DELETE FROM analytics_events WHERE tg_id=:tg",
-    ]
-    for s in stmts:
-        try:
-            await session.execute(sql_text(s), {"tg": tg_id})
-        except Exception:
-            pass
+    user_id = await _get_user_id(session, tg_id)
+    if not user_id:
+        return
+
+    await session.execute(sql_text("DELETE FROM journal_entries WHERE user_id=:uid"), {"uid": user_id})
+    await session.execute(sql_text("DELETE FROM analytics_events WHERE user_id=:uid"), {"uid": user_id})
+    await session.execute(sql_text("DELETE FROM events WHERE tg_id=:tg"), {"tg": tg_id})
+
     await session.commit()
 
 async def _delete_account(session: AsyncSession, tg_id: int) -> None:
-    stmts = [
-        "DELETE FROM journal_entries WHERE user_id=(SELECT id FROM users WHERE tg_id=:tg LIMIT 1)",
-        "DELETE FROM events WHERE tg_id=:tg",
-        "DELETE FROM analytics_events WHERE tg_id=:tg",
-        "DELETE FROM subscriptions WHERE user_id=(SELECT id FROM users WHERE tg_id=:tg LIMIT 1)",
-        "DELETE FROM users WHERE tg_id=:tg",
-    ]
-    for s in stmts:
-        try:
-            await session.execute(sql_text(s), {"tg": tg_id})
-        except Exception:
-            pass
+    user_id = await _get_user_id(session, tg_id)
+    if not user_id:
+        return
+
+    await session.execute(sql_text("DELETE FROM journal_entries WHERE user_id=:uid"), {"uid": user_id})
+    await session.execute(sql_text("DELETE FROM analytics_events WHERE user_id=:uid"), {"uid": user_id})
+    await session.execute(sql_text("DELETE FROM events WHERE tg_id=:tg"), {"tg": tg_id})
+    await session.execute(sql_text("DELETE FROM subscriptions WHERE user_id=:uid"), {"uid": user_id})
+    await session.execute(sql_text("DELETE FROM users WHERE id=:uid"), {"uid": user_id})
+
     await session.commit()
 
 @router.message(F.text.in_({BTN_MENU_RU, BTN_MENU_UA, BTN_MENU_EN}))
