@@ -29,7 +29,7 @@
       return u.searchParams.get(name) ?? defVal;
     }
 
-    const durationS = parseInt(qs("duration_s", "600"), 10); // default 10 min
+    const durationS = parseInt(qs("duration_s", "600"), 10);
     const leftEl = document.getElementById("left");
     const btn = document.getElementById("start");
 
@@ -49,7 +49,7 @@
       return audioCtx;
     }
 
-    // короткий "дзынь" (похоже на колокольчик)
+    // “дзынь” через WebAudio (без mp3)
     function bell(){
       const ctx = ensureAudio();
       const now = ctx.currentTime;
@@ -83,7 +83,6 @@
       if (left <= 0){
         clearInterval(timer);
         timer = null;
-
         try { navigator.vibrate && navigator.vibrate([200,100,200,100,400]); } catch(e){}
         try { bell(); } catch(e){}
       }
@@ -106,5 +105,6 @@
 
     leftEl.textContent = `Длительность: ${fmt(durationS)}`;
   </script>
+  <script src="./meditation.js"></script>
 </body>
 </html>

@@ -13,6 +13,7 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    WebAppInfo,
 )
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -328,6 +329,14 @@ async def _lang_by_tg_id(session: AsyncSession, tg_id: int) -> str:
     code = getattr(u, "locale", None) or getattr(u, "lang", None) or "ru"
     l = _normalize_lang(str(code))
     return l if l in SUPPORTED_LANGS else "ru"
+
+
+def _medit_webapp_url(duration_s: int) -> str | None:
+    base = (os.getenv("PUBLIC_BASE_URL") or "").strip()
+    if not base:
+        return None
+    base = base[:-1] if base.endswith("/") else base
+    return f"{base}/static/mini/meditation/index.html?duration_s={int(duration_s)}"
 
 def _get_audio_ids() -> dict:
     """
@@ -693,6 +702,18 @@ async def cb_start(c: CallbackQuery, session: AsyncSession, state: FSMContext) -
     except Exception:
         pass
 
+
+
+    # 🔊 webapp-таймер со звуком (автоматический дзынь в конце)
+    try:
+        url = _medit_webapp_url(duration_s)
+        if url:
+            kb = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🔔 Таймер со звуком", web_app=WebAppInfo(url=url))
+            ]])
+            await c.message.answer("Открой таймер, чтобы в конце был звук 🔔", reply_markup=kb)
+    except Exception:
+        pass
 
 @router.callback_query(F.data == f"{CB}:pause")
 async def cb_pause(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
