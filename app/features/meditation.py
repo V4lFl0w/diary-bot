@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import asyncio
+import os
 from typing import Optional, Dict, Any
 
 from aiogram import Router, F
@@ -37,6 +39,9 @@ except Exception:  # pragma: no cover
 router = Router(name="meditation")
 
 
+
+# in-memory tasks per tg_id (MVP)
+MED2_TIMER_TASKS: dict[int, asyncio.Task] = {}
 # -------------------- i18n --------------------
 
 TXT: Dict[str, Dict[str, str]] = {
@@ -314,6 +319,106 @@ def _now_ts() -> float:
     return datetime.now(timezone.utc).timestamp()
 
 
+
+async def _lang_by_tg_id(session: AsyncSession, tg_id: int) -> str:
+    try:
+        u = await _get_user(session, tg_id)
+    except Exception:
+        u = None
+    code = getattr(u, "locale", None) or getattr(u, "lang", None) or "ru"
+    l = _normalize_lang(str(code))
+    return l if l in SUPPORTED_LANGS else "ru"
+
+def _get_audio_ids() -> dict:
+    """
+    Источник истины:
+    1) settings.meditation_audio_file_ids (если есть)
+    2) ENV overrides:
+       MEDIT_BELL_END_FILE_ID
+       MEDIT_BG_RAIN_FILE_ID
+       MEDIT_BG_FOREST_FILE_ID
+       MEDIT_BG_WHITE_FILE_ID
+    """
+    ids: dict = {}
+    try:
+        cfg = getattr(settings, "meditation_audio_file_ids", None) if settings else None
+        if isinstance(cfg, dict):
+            ids.update(cfg)
+    except Exception:
+        pass
+
+    env_map = {
+        "bell": os.getenv("MEDIT_BELL_END_FILE_ID"),
+        "rain": os.getenv("MEDIT_BG_RAIN_FILE_ID"),
+        "forest": os.getenv("MEDIT_BG_FOREST_FILE_ID"),
+        "white": os.getenv("MEDIT_BG_WHITE_FILE_ID"),
+    }
+    for k, v in env_map.items():
+        if isinstance(v, str) and v.strip():
+            ids[k] = v.strip()
+    return ids
+
+
+async def _cancel_timer_task(tg_id: int) -> None:
+    t = MED2_TIMER_TASKS.pop(tg_id, None)
+    if t and not t.done():
+        t.cancel()
+
+
+async def _finish_session(bot, session: AsyncSession, state: FSMContext, tg_id: int, chat_id: int) -> None:
+    data = await state.get_data()
+    if not data.get("running"):
+        return
+
+    l = await _lang_by_tg_id(session, tg_id)
+    cfg = await _get_cfg(state)
+    ids = _get_audio_ids()
+
+    # bell at end (не для sleep)
+    if cfg.mode != MODE_SLEEP and cfg.bell:
+        bell_id = ids.get("bell")
+        if isinstance(bell_id, str) and bell_id.strip():
+            try:
+                await bot.send_audio(chat_id, audio=bell_id.strip())
+            except Exception:
+                pass
+
+    await _set_cfg(state, running=False, paused=False, start_ts=0.0, duration_s=0, paused_total=0, last_pause_ts=0.0)
+    await _cancel_timer_task(tg_id)
+
+    try:
+        await bot.send_message(chat_id, _tr(l, "done_sleep") if cfg.mode == MODE_SLEEP else _tr(l, "done_timer"))
+    except Exception:
+        pass
+
+    # обновим UI (кнопки вернутся)
+    try:
+        text = _screen_text(l, cfg)
+        kb = _kb(l, cfg, running=False, paused=False)
+        await bot.send_message(chat_id, text, reply_markup=kb)
+    except Exception:
+        pass
+
+
+async def _schedule_finish(bot, session: AsyncSession, state: FSMContext, tg_id: int, chat_id: int) -> None:
+    await _cancel_timer_task(tg_id)
+
+    left = await _session_left_seconds(state)
+    if left <= 0:
+        await _finish_session(bot, session, state, tg_id, chat_id)
+        return
+
+    async def runner():
+        try:
+            await asyncio.sleep(left)
+            await _finish_session(bot, session, state, tg_id, chat_id)
+        except asyncio.CancelledError:
+            return
+
+    MED2_TIMER_TASKS[tg_id] = asyncio.create_task(runner())
+
+
+
 async def _is_running(state: FSMContext) -> tuple[bool, bool]:
     d = await state.get_data()
     running = bool(d.get("running", False))
@@ -432,7 +537,8 @@ async def custom_duration_input(m: Message, session: AsyncSession, state: FSMCon
         return
 
     await _set_cfg(state, duration_min=mins)
-    await state.clear()
+    # снимаем состояние ожидания, но НЕ очищаем data (иначе duration_min потеряется)
+    await state.set_state(None)
     # восстановим дефолтные флаги сессии (если их уже нет)
     data = await state.get_data()
     if "running" not in data:
@@ -550,14 +656,8 @@ async def cb_start(c: CallbackQuery, session: AsyncSession, state: FSMContext) -
             bell=_bell_label(l, cfg.bell),
         )
     )
-
-    # IMPORTANT: музыку и колокол отправляем максимально аккуратно.
-    # Файлы лучше слать по file_id (кэш телеги). Можно переопределить через settings:
-    # settings.meditation_audio_file_ids = {"rain": "<file_id>", "forest": "...", "white": "...", "bell": "..."}
-    try:
-        ids = getattr(settings, "meditation_audio_file_ids", None) if settings else None
-    except Exception:
-        ids = None
+    # IMPORTANT: музыку/фон шлём по file_id (кэш Telegram). Берём из settings + ENV.
+    ids = _get_audio_ids()
 
     # bell at start
     if cfg.bell and ids and isinstance(ids, dict):
@@ -579,6 +679,12 @@ async def cb_start(c: CallbackQuery, session: AsyncSession, state: FSMContext) -
 
     await _render(c, session, state, edit=False)
 
+    # авто-финиш таймера (без кнопки Статус)
+    try:
+        await _schedule_finish(c.bot, session, state, c.from_user.id, c.message.chat.id)
+    except Exception:
+        pass
+
 
 @router.callback_query(F.data == f"{CB}:pause")
 async def cb_pause(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
@@ -589,6 +695,10 @@ async def cb_pause(c: CallbackQuery, session: AsyncSession, state: FSMContext) -
         return
 
     await _set_cfg(state, paused=True, last_pause_ts=_now_ts())
+    try:
+        await _cancel_timer_task(c.from_user.id)
+    except Exception:
+        pass
     await c.answer(_tr(l, "saved"))
     await c.message.answer(_tr(l, "paused"))
     await _render(c, session, state, edit=True)
@@ -609,6 +719,10 @@ async def cb_resume(c: CallbackQuery, session: AsyncSession, state: FSMContext) 
     add = int(now - last_pause_ts) if last_pause_ts else 0
 
     await _set_cfg(state, paused=False, last_pause_ts=0.0, paused_total=paused_total + max(0, add))
+    try:
+        await _schedule_finish(c.bot, session, state, c.from_user.id, c.message.chat.id)
+    except Exception:
+        pass
     await c.answer(_tr(l, "saved"))
     await c.message.answer(_tr(l, "resumed"))
     await _render(c, session, state, edit=True)
@@ -618,6 +732,10 @@ async def cb_resume(c: CallbackQuery, session: AsyncSession, state: FSMContext) 
 async def cb_stop(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     l = await _lang(c, session)
 
+    try:
+        await _cancel_timer_task(c.from_user.id)
+    except Exception:
+        pass
     await _set_cfg(state, running=False, paused=False, start_ts=0.0, duration_s=0, paused_total=0, last_pause_ts=0.0)
     await c.answer(_tr(l, "saved"))
     await c.message.answer(_tr(l, "stopped"))
