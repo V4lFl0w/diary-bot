@@ -690,7 +690,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             top = (await session.execute(q2)).all()
             if top:
                 lines += ["", "Топ LLM (feature:model):"]
-                for feature, model, req, tok, c in top:
+                for feature, model, req, tok, cost in top:
                     lines.append(f"• {feature}:{model} — {int(req)} req | {int(tok)} tok | ${float(c)/1_000_000:.4f}")
         except Exception:
             # не ломаем админку из-за аналитики
