@@ -17,6 +17,7 @@ except ModuleNotFoundError:
 from app.models.user import User
 from app.models.journal import JournalEntry
 from app.services.llm_usage import log_llm_usage
+from app.services.media_id import trace_moe_identify
 
 
 MENU_NOISE = {
@@ -481,6 +482,22 @@ async def run_assistant_vision(
         )
 
     out_text = (getattr(resp, "output_text", None) or "").strip()
+    # 🎞️ Anime / cartoon frame detection via trace.moe
+    if any(k in out_text.lower() for k in ("аниме", "anime", "мульт", "cartoon")):
+        result = await trace_moe_identify(image_bytes)
+        if result and result["similarity"] >= 0.9:
+            return (
+                f"🎬 Это кадр из аниме.\n\n"
+                f"Название: {result['title']}\n"
+                f"Серия: {result['episode']}\n"
+                f"Совпадение: {result['similarity']:.1%}"
+            )
+        elif result:
+            return (
+                "🎬 Похоже на аниме, но не уверен.\n\n"
+                f"Возможный источник: {result['title']}\n"
+                f"Совпадение: {result['similarity']:.1%}"
+            )
     if out_text:
         return out_text
 
