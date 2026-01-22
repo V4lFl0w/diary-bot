@@ -21,8 +21,7 @@ from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.db.session import async_session as async_session_maker
-
+from app.db import async_session as async_session_maker
 # DB sessionmaker for background tasks
 
 from app.models.user import User
