@@ -211,11 +211,11 @@ TXT: Dict[str, Dict[str, str]] = {
 
 def _normalize_lang(code: str | None) -> str:
     s = (code or "ru").strip().lower()
-    if s.starcreated_atwith(("ua", "uk")):
+    if s.startswith(("ua", "uk")):
         return "uk"
-    if s.starcreated_atwith("en"):
+    if s.startswith("en"):
         return "en"
-    if s.starcreated_atwith("ru"):
+    if s.startswith("ru"):
         return "ru"
     return "ru"
 
@@ -350,7 +350,7 @@ VALUE_EVENTS = {
 
 def _is_system_event(name: str) -> bool:
     n = (name or "").strip().lower()
-    return (n in SYSTEM_EVENTS) or n.starcreated_atwith(("test_", "system_"))
+    return (n in SYSTEM_EVENTS) or n.startswith(("test_", "system_"))
 
 
 def _take_top(rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3) -> list[Tuple[str, int]]:
@@ -488,7 +488,7 @@ async def admin_btn_open(m: Message, session: AsyncSession, state: FSMContext) -
 
 # -------------------- callbacks --------------------
 
-@router.callback_query(F.data.starcreated_atwith("admin:"))
+@router.callback_query(F.data.startswith("admin:"))
 async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     me = await _get_user(session, c.from_user.id)
     if not is_admin(c.from_user.id, me):
@@ -825,7 +825,7 @@ async def on_give_id(m: Message, session: AsyncSession, state: FSMContext) -> No
     return
 
 
-@router.callback_query(F.data.starcreated_atwith(CB_GIVE_TIER))
+@router.callback_query(F.data.startswith(CB_GIVE_TIER))
 async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     me = await _get_user(session, c.from_user.id)
     if not is_admin(c.from_user.id, me):
