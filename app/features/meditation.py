@@ -334,6 +334,7 @@ def _get_audio_ids() -> dict:
     Источник истины:
     1) settings.meditation_audio_file_ids (если есть)
     2) ENV overrides:
+       MEDIT_BELL_START_FILE_ID
        MEDIT_BELL_END_FILE_ID
        MEDIT_BG_RAIN_FILE_ID
        MEDIT_BG_FOREST_FILE_ID
@@ -348,7 +349,8 @@ def _get_audio_ids() -> dict:
         pass
 
     env_map = {
-        "bell": os.getenv("MEDIT_BELL_END_FILE_ID"),
+        "bell_start": os.getenv("MEDIT_BELL_START_FILE_ID"),
+        "bell_end": os.getenv("MEDIT_BELL_END_FILE_ID"),
         "rain": os.getenv("MEDIT_BG_RAIN_FILE_ID"),
         "forest": os.getenv("MEDIT_BG_FOREST_FILE_ID"),
         "white": os.getenv("MEDIT_BG_WHITE_FILE_ID"),
@@ -376,12 +378,15 @@ async def _finish_session(bot, session: AsyncSession, state: FSMContext, tg_id: 
 
     # bell at end (не для sleep)
     if cfg.mode != MODE_SLEEP and cfg.bell:
-        bell_id = ids.get("bell")
+        bell_id = ids.get("bell_end")
         if isinstance(bell_id, str) and bell_id.strip():
             try:
-                await bot.send_audio(chat_id, audio=bell_id.strip())
+                await bot.send_voice(chat_id, voice=bell_id.strip())
             except Exception:
-                pass
+                try:
+                    await bot.send_audio(chat_id, audio=bell_id.strip())
+                except Exception:
+                    pass
 
     await _set_cfg(state, running=False, paused=False, start_ts=0.0, duration_s=0, paused_total=0, last_pause_ts=0.0)
     await _cancel_timer_task(tg_id)
@@ -661,12 +666,15 @@ async def cb_start(c: CallbackQuery, session: AsyncSession, state: FSMContext) -
 
     # bell at start
     if cfg.bell and ids and isinstance(ids, dict):
-        bell_id = ids.get("bell")
+        bell_id = ids.get("bell_start")
         if isinstance(bell_id, str) and bell_id.strip():
             try:
-                await c.message.answer_audio(audio=bell_id.strip())
+                await c.message.answer_voice(voice=bell_id.strip())
             except Exception:
-                pass
+                try:
+                    await c.message.answer_audio(audio=bell_id.strip())
+                except Exception:
+                    pass
 
     # background
     if cfg.bg != BG_OFF and ids and isinstance(ids, dict):
@@ -759,18 +767,17 @@ async def cb_status(c: CallbackQuery, session: AsyncSession, state: FSMContext) 
         await _set_cfg(state, running=False, paused=False, start_ts=0.0, duration_s=0, paused_total=0, last_pause_ts=0.0)
 
         # bell at end (не для sleep, либо мягко)
-        try:
-            ids = getattr(settings, "meditation_audio_file_ids", None) if settings else None
-        except Exception:
-            ids = None
-
+        ids = _get_audio_ids()
         if cfg.mode != MODE_SLEEP and cfg.bell and ids and isinstance(ids, dict):
-            bell_id = ids.get("bell")
+            bell_id = ids.get("bell_end")
             if isinstance(bell_id, str) and bell_id.strip():
                 try:
-                    await c.message.answer_audio(audio=bell_id.strip())
+                    await c.message.answer_voice(voice=bell_id.strip())
                 except Exception:
-                    pass
+                    try:
+                        await c.message.answer_audio(audio=bell_id.strip())
+                    except Exception:
+                        pass
 
         await c.message.answer(_tr(l, "done_sleep") if cfg.mode == MODE_SLEEP else _tr(l, "done_timer"))
         await c.answer()
