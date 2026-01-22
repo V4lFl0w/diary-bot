@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Meditation Timer</title>
+  <style>
+    body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial; padding: 16px; }
+    .box { max-width: 520px; margin: 0 auto; }
+    button { padding: 12px 14px; font-size: 16px; width: 100%; }
+    .muted { opacity: .7; font-size: 13px; margin-top: 10px; }
+    .big { font-size: 22px; margin: 14px 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h2>⏱ Таймер медитации</h2>
+    <div id="left" class="big">Готов</div>
+    <button id="start">▶️ Старт</button>
+    <div class="muted">
+      Важно: в Telegram нужен 1 клик “Старт”, чтобы браузер разрешил звук.
+      После этого в конце прозвенит автоматически.
+    </div>
+  </div>
+
+  <script>
+    function qs(name, defVal=null){
+      const u = new URL(window.location.href);
+      return u.searchParams.get(name) ?? defVal;
+    }
+
+    const durationS = parseInt(qs("duration_s", "600"), 10); // default 10 min
+    const leftEl = document.getElementById("left");
+    const btn = document.getElementById("start");
+
+    let t0 = 0;
+    let timer = null;
+    let audioCtx = null;
+
+    function fmt(sec){
+      sec = Math.max(0, sec|0);
+      const m = Math.floor(sec/60);
+      const s = sec%60;
+      return `${m}:${String(s).padStart(2,"0")}`;
+    }
+
+    function ensureAudio(){
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      return audioCtx;
+    }
+
+    // короткий "дзынь" (похоже на колокольчик)
+    function bell(){
+      const ctx = ensureAudio();
+      const now = ctx.currentTime;
+
+      const o1 = ctx.createOscillator();
+      const o2 = ctx.createOscillator();
+      const g = ctx.createGain();
+
+      o1.type = "sine"; o2.type = "sine";
+      o1.frequency.setValueAtTime(880, now);
+      o2.frequency.setValueAtTime(1320, now);
+
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.22, now + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.8);
+
+      o1.connect(g); o2.connect(g);
+      g.connect(ctx.destination);
+
+      o1.start(now); o2.start(now);
+      o1.stop(now + 0.85); o2.stop(now + 0.85);
+    }
+
+    function tick(){
+      const now = Date.now();
+      const passed = Math.floor((now - t0)/1000);
+      const left = durationS - passed;
+
+      leftEl.textContent = left > 0 ? `Осталось: ${fmt(left)}` : "✅ Готово";
+
+      if (left <= 0){
+        clearInterval(timer);
+        timer = null;
+
+        try { navigator.vibrate && navigator.vibrate([200,100,200,100,400]); } catch(e){}
+        try { bell(); } catch(e){}
+      }
+    }
+
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+
+      // первый клик — разблокирует звук
+      try {
+        ensureAudio();
+        if (audioCtx.state === "suspended") await audioCtx.resume();
+        bell(); // стартовый дзынь
+      } catch(e){}
+
+      t0 = Date.now();
+      leftEl.textContent = `Осталось: ${fmt(durationS)}`;
+      timer = setInterval(tick, 250);
+    });
+
+    leftEl.textContent = `Длительность: ${fmt(durationS)}`;
+  </script>
+</body>
+</html>
