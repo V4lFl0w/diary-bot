@@ -71,7 +71,7 @@ TXT: Dict[str, Dict[str, str]] = {
             "• Analytics (7d) — top actions + active users\n"
             "• Users (7d active) — active list\n"
             "• Find user — card by TG ID\n"
-            "• Ban/Unban — by TG ID (if ban field exiscreated_at in model)"
+            "• Ban/Unban — by TG ID (if ban field exists in model)"
         ),
     },
     "btn_self": {
@@ -172,7 +172,7 @@ TXT: Dict[str, Dict[str, str]] = {
     "analytics_empty": {
         "ru": "Событий за 7 дней пока нет.",
         "uk": "Подій за 7 днів поки немає.",
-        "en": "No evencreated_at for the last 7 days yet.",
+        "en": "No events for the last 7 days yet.",
     },
     "analytics_title": {
         "ru": "📊 Analytics за 7 дней:",
@@ -460,7 +460,7 @@ def _is_banned(user: User) -> bool:
     return False
 
 
-# -------------------- entrypoincreated_at --------------------
+# -------------------- entrypoints --------------------
 
 async def _show_admin_panel(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
@@ -550,7 +550,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             raw_rows = (
                 await session.execute(
                     select(AnalyticsEvent.event, func.count(AnalyticsEvent.id))
-                    .where(AnalyticsEvent.created_at >= since)
+                    .where(AnalyticsEvent.ts >= since)
                     .group_by(AnalyticsEvent.event)
                     .order_by(func.count(AnalyticsEvent.id).desc())
                 )
@@ -559,7 +559,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             active_users = (
                 await session.execute(
                     select(func.count(func.distinct(AnalyticsEvent.user_id)))
-                    .where(AnalyticsEvent.created_at >= since)
+                    .where(AnalyticsEvent.ts >= since)
                     .where(AnalyticsEvent.user_id.is_not(None))
                 )
             ).scalar_one()
@@ -568,8 +568,8 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 await session.execute(
                     sql_text(
                         "SELECT event, COUNT(*) as cnt "
-                        "FROM analytics_evencreated_at "
-                        "WHERE created_at >= :since "
+                        "FROM analytics_events "
+                        "WHERE ts >= :since "
                         "GROUP BY event "
                         "ORDER BY cnt DESC"
                     ),
@@ -581,8 +581,8 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 await session.execute(
                     sql_text(
                         "SELECT COUNT(DISTINCT user_id) "
-                        "FROM analytics_evencreated_at "
-                        "WHERE created_at >= :since AND user_id IS NOT NULL"
+                        "FROM analytics_events "
+                        "WHERE ts >= :since AND user_id IS NOT NULL"
                     ),
                     {"since": since.isoformat()},
                 )
@@ -616,21 +616,21 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
 
         # --- Trial (7d) ---
         try:
-            has_evencreated_at = (
+            has_events = (
                 await session.execute(
                     sql_text(
                         "SELECT 1 FROM sqlite_master "
-                        "WHERE type='table' AND name='evencreated_at' LIMIT 1;"
+                        "WHERE type='table' AND name='events' LIMIT 1;"
                     )
                 )
             ).scalar_one_or_none()
 
-            if has_evencreated_at:
+            if has_events:
                 rows_trial = (
                     await session.execute(
                         sql_text(
                             "SELECT name, COUNT(*) AS cnt "
-                            "FROM evencreated_at "
+                            "FROM events "
                             "WHERE created_at >= datetime('now','-7 day') "
                             "  AND name IN ('trial_click','trial_granted','trial_denied') "
                             "GROUP BY name;"
@@ -668,7 +668,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             lines += [
                 "",
                 "🧠 LLM usage (7d):",
-                f"• requescreated_at: {int(n or 0)}",
+                f"• requests: {int(n or 0)}",
                 f"• tokens: {int(total or 0)} (in {int(inp or 0)} / out {int(out or 0)})",
                 f"• cost: ${float(cost or 0)/1_000_000:.4f}",
             ]
@@ -713,12 +713,12 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 await session.execute(
                     sql_text(
                         "SELECT u.tg_id, u.id, u.locale, u.lang, "
-                        "MAX(e.created_at) as last_created_at, COUNT(*) as cnt "
-                        "FROM analytics_evencreated_at e "
+                        "MAX(e.ts) as last_ts, COUNT(*) as cnt "
+                        "FROM analytics_events e "
                         "JOIN users u ON u.id = e.user_id "
-                        "WHERE e.created_at >= :since AND e.user_id IS NOT NULL "
+                        "WHERE e.ts >= :since AND e.user_id IS NOT NULL "
                         "GROUP BY u.tg_id, u.id, u.locale, u.lang, u.last_seen_at, u.is_premium, u.premium_until, u.premium_plan "
-                        "ORDER BY last_created_at DESC "
+                        "ORDER BY last_ts DESC "
                         "LIMIT 30"
                     ),
                     {"since": since.isoformat()},
@@ -736,14 +736,14 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                         User.is_premium,
                         User.premium_until,
                         User.premium_plan,
-                        func.max(AnalyticsEvent.created_at).label("last_created_at"),
+                        func.max(AnalyticsEvent.ts).label("last_ts"),
                         func.count(AnalyticsEvent.id).label("cnt"),
                     )
                     .join(AnalyticsEvent, AnalyticsEvent.user_id == User.id)
-                    .where(AnalyticsEvent.created_at >= since)
+                    .where(AnalyticsEvent.ts >= since)
                     .where(AnalyticsEvent.user_id.is_not(None))
                     .group_by(User.tg_id, User.id, User.locale, User.lang, User.last_seen_at, User.is_premium, User.premium_until, User.premium_plan)
-                    .order_by(func.max(AnalyticsEvent.created_at).desc())
+                    .order_by(func.max(AnalyticsEvent.ts).desc())
                     .limit(30)
                 )
             ).all()
@@ -760,18 +760,18 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
         for row in rows:
             # поддержим оба формата: tuple или RowMapping
             if isinstance(row, (tuple, list)):
-                tg_id, uid, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_created_at, cnt = row
+                tg_id, uid, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_ts, cnt = row
             else:
                 tg_id = row[0]; uid = row[1]; loc = row[2]; langx = row[3]
                 last_seen_at = row[4]; is_prem = row[5]; prem_until = row[6]; prem_plan = row[7]
-                last_created_at = row[8]; cnt = row[9]
+                last_ts = row[8]; cnt = row[9]
 
             link = f"tg://user?id={tg_id}"
             prem_active = bool(is_prem) or (prem_until is not None and prem_until > now)
             prem_flag = "💎" if prem_active else ""
             loc2 = (loc or langx or "-")
             lines.append(
-                f"• {prem_flag} tg_id={tg_id} | user_id={uid} | {loc2} | evencreated_at={cnt} | last_created_at={last_created_at} | {link}"
+                f"• {prem_flag} tg_id={tg_id} | user_id={uid} | {loc2} | events={cnt} | last_ts={last_ts} | {link}"
             )
 
         if c.message:
