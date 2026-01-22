@@ -71,7 +71,7 @@ TXT: Dict[str, Dict[str, str]] = {
             "• Analytics (7d) — top actions + active users\n"
             "• Users (7d active) — active list\n"
             "• Find user — card by TG ID\n"
-            "• Ban/Unban — by TG ID (if ban field exists in model)"
+            "• Ban/Unban — by TG ID (if ban field exiscreated_at in model)"
         ),
     },
     "btn_self": {
@@ -172,7 +172,7 @@ TXT: Dict[str, Dict[str, str]] = {
     "analytics_empty": {
         "ru": "Событий за 7 дней пока нет.",
         "uk": "Подій за 7 днів поки немає.",
-        "en": "No events for the last 7 days yet.",
+        "en": "No evencreated_at for the last 7 days yet.",
     },
     "analytics_title": {
         "ru": "📊 Analytics за 7 дней:",
@@ -211,11 +211,11 @@ TXT: Dict[str, Dict[str, str]] = {
 
 def _normalize_lang(code: str | None) -> str:
     s = (code or "ru").strip().lower()
-    if s.startswith(("ua", "uk")):
+    if s.starcreated_atwith(("ua", "uk")):
         return "uk"
-    if s.startswith("en"):
+    if s.starcreated_atwith("en"):
         return "en"
-    if s.startswith("ru"):
+    if s.starcreated_atwith("ru"):
         return "ru"
     return "ru"
 
@@ -350,7 +350,7 @@ VALUE_EVENTS = {
 
 def _is_system_event(name: str) -> bool:
     n = (name or "").strip().lower()
-    return (n in SYSTEM_EVENTS) or n.startswith(("test_", "system_"))
+    return (n in SYSTEM_EVENTS) or n.starcreated_atwith(("test_", "system_"))
 
 
 def _take_top(rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3) -> list[Tuple[str, int]]:
@@ -460,7 +460,7 @@ def _is_banned(user: User) -> bool:
     return False
 
 
-# -------------------- entrypoints --------------------
+# -------------------- entrypoincreated_at --------------------
 
 async def _show_admin_panel(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
@@ -488,7 +488,7 @@ async def admin_btn_open(m: Message, session: AsyncSession, state: FSMContext) -
 
 # -------------------- callbacks --------------------
 
-@router.callback_query(F.data.startswith("admin:"))
+@router.callback_query(F.data.starcreated_atwith("admin:"))
 async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     me = await _get_user(session, c.from_user.id)
     if not is_admin(c.from_user.id, me):
@@ -550,7 +550,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             raw_rows = (
                 await session.execute(
                     select(AnalyticsEvent.event, func.count(AnalyticsEvent.id))
-                    .where(AnalyticsEvent.ts >= since)
+                    .where(AnalyticsEvent.created_at >= since)
                     .group_by(AnalyticsEvent.event)
                     .order_by(func.count(AnalyticsEvent.id).desc())
                 )
@@ -559,7 +559,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             active_users = (
                 await session.execute(
                     select(func.count(func.distinct(AnalyticsEvent.user_id)))
-                    .where(AnalyticsEvent.ts >= since)
+                    .where(AnalyticsEvent.created_at >= since)
                     .where(AnalyticsEvent.user_id.is_not(None))
                 )
             ).scalar_one()
@@ -568,8 +568,8 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 await session.execute(
                     sql_text(
                         "SELECT event, COUNT(*) as cnt "
-                        "FROM analytics_events "
-                        "WHERE ts >= :since "
+                        "FROM analytics_evencreated_at "
+                        "WHERE created_at >= :since "
                         "GROUP BY event "
                         "ORDER BY cnt DESC"
                     ),
@@ -581,8 +581,8 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 await session.execute(
                     sql_text(
                         "SELECT COUNT(DISTINCT user_id) "
-                        "FROM analytics_events "
-                        "WHERE ts >= :since AND user_id IS NOT NULL"
+                        "FROM analytics_evencreated_at "
+                        "WHERE created_at >= :since AND user_id IS NOT NULL"
                     ),
                     {"since": since.isoformat()},
                 )
@@ -616,21 +616,21 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
 
         # --- Trial (7d) ---
         try:
-            has_events = (
+            has_evencreated_at = (
                 await session.execute(
                     sql_text(
                         "SELECT 1 FROM sqlite_master "
-                        "WHERE type='table' AND name='events' LIMIT 1;"
+                        "WHERE type='table' AND name='evencreated_at' LIMIT 1;"
                     )
                 )
             ).scalar_one_or_none()
 
-            if has_events:
+            if has_evencreated_at:
                 rows_trial = (
                     await session.execute(
                         sql_text(
                             "SELECT name, COUNT(*) AS cnt "
-                            "FROM events "
+                            "FROM evencreated_at "
                             "WHERE created_at >= datetime('now','-7 day') "
                             "  AND name IN ('trial_click','trial_granted','trial_denied') "
                             "GROUP BY name;"
@@ -668,7 +668,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             lines += [
                 "",
                 "🧠 LLM usage (7d):",
-                f"• requests: {int(n or 0)}",
+                f"• requescreated_at: {int(n or 0)}",
                 f"• tokens: {int(total or 0)} (in {int(inp or 0)} / out {int(out or 0)})",
                 f"• cost: ${float(cost or 0)/1_000_000:.4f}",
             ]
@@ -713,12 +713,12 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 await session.execute(
                     sql_text(
                         "SELECT u.tg_id, u.id, u.locale, u.lang, "
-                        "MAX(e.ts) as last_ts, COUNT(*) as cnt "
-                        "FROM analytics_events e "
+                        "MAX(e.created_at) as last_created_at, COUNT(*) as cnt "
+                        "FROM analytics_evencreated_at e "
                         "JOIN users u ON u.id = e.user_id "
-                        "WHERE e.ts >= :since AND e.user_id IS NOT NULL "
+                        "WHERE e.created_at >= :since AND e.user_id IS NOT NULL "
                         "GROUP BY u.tg_id, u.id, u.locale, u.lang, u.last_seen_at, u.is_premium, u.premium_until, u.premium_plan "
-                        "ORDER BY last_ts DESC "
+                        "ORDER BY last_created_at DESC "
                         "LIMIT 30"
                     ),
                     {"since": since.isoformat()},
@@ -736,14 +736,14 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                         User.is_premium,
                         User.premium_until,
                         User.premium_plan,
-                        func.max(AnalyticsEvent.ts).label("last_ts"),
+                        func.max(AnalyticsEvent.created_at).label("last_created_at"),
                         func.count(AnalyticsEvent.id).label("cnt"),
                     )
                     .join(AnalyticsEvent, AnalyticsEvent.user_id == User.id)
-                    .where(AnalyticsEvent.ts >= since)
+                    .where(AnalyticsEvent.created_at >= since)
                     .where(AnalyticsEvent.user_id.is_not(None))
                     .group_by(User.tg_id, User.id, User.locale, User.lang, User.last_seen_at, User.is_premium, User.premium_until, User.premium_plan)
-                    .order_by(func.max(AnalyticsEvent.ts).desc())
+                    .order_by(func.max(AnalyticsEvent.created_at).desc())
                     .limit(30)
                 )
             ).all()
@@ -760,18 +760,18 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
         for row in rows:
             # поддержим оба формата: tuple или RowMapping
             if isinstance(row, (tuple, list)):
-                tg_id, uid, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_ts, cnt = row
+                tg_id, uid, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_created_at, cnt = row
             else:
                 tg_id = row[0]; uid = row[1]; loc = row[2]; langx = row[3]
                 last_seen_at = row[4]; is_prem = row[5]; prem_until = row[6]; prem_plan = row[7]
-                last_ts = row[8]; cnt = row[9]
+                last_created_at = row[8]; cnt = row[9]
 
             link = f"tg://user?id={tg_id}"
             prem_active = bool(is_prem) or (prem_until is not None and prem_until > now)
             prem_flag = "💎" if prem_active else ""
             loc2 = (loc or langx or "-")
             lines.append(
-                f"• {prem_flag} tg_id={tg_id} | user_id={uid} | {loc2} | events={cnt} | last_ts={last_ts} | {link}"
+                f"• {prem_flag} tg_id={tg_id} | user_id={uid} | {loc2} | evencreated_at={cnt} | last_created_at={last_created_at} | {link}"
             )
 
         if c.message:
@@ -825,7 +825,7 @@ async def on_give_id(m: Message, session: AsyncSession, state: FSMContext) -> No
     return
 
 
-@router.callback_query(F.data.startswith(CB_GIVE_TIER))
+@router.callback_query(F.data.starcreated_atwith(CB_GIVE_TIER))
 async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     me = await _get_user(session, c.from_user.id)
     if not is_admin(c.from_user.id, me):
