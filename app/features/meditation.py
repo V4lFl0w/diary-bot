@@ -21,6 +21,10 @@ from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.db.session import async_session as async_session_maker
+
+# DB sessionmaker for background tasks
+
 from app.models.user import User
 
 # кнопка из главного меню (если есть)
@@ -419,13 +423,13 @@ async def _schedule_finish(bot, session: AsyncSession, state: FSMContext, tg_id:
 
     left = await _session_left_seconds(state)
     if left <= 0:
-        await _finish_session(bot, session, state, tg_id, chat_id)
+        async with async_session_maker() as session:
+                await _finish_session(bot, session, state, tg_id, chat_id)
         return
 
     async def runner():
         try:
             await asyncio.sleep(left)
-            await _finish_session(bot, session, state, tg_id, chat_id)
         except asyncio.CancelledError:
             return
 
