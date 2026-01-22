@@ -655,13 +655,14 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 pass
         # --- LLM usage (7d) ---
         try:
+            since_llm = datetime.utcnow() - timedelta(days=7)
             q = select(
                 func.count(LLMUsage.id),
                 func.coalesce(func.sum(LLMUsage.total_tokens), 0),
                 func.coalesce(func.sum(LLMUsage.input_tokens), 0),
                 func.coalesce(func.sum(LLMUsage.output_tokens), 0),
                 func.coalesce(func.sum(LLMUsage.cost_usd_micros), 0),
-            ).where(LLMUsage.created_at >= since)
+            ).where(LLMUsage.created_at >= since_llm)
 
             n, total, inp, out, cost = (await session.execute(q)).one()
 
@@ -681,7 +682,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                     func.coalesce(func.sum(LLMUsage.total_tokens), 0).label("tok"),
                     func.coalesce(func.sum(LLMUsage.cost_usd_micros), 0).label("c"),
                 )
-                .where(LLMUsage.created_at >= since)
+                .where(LLMUsage.created_at >= since_llm)
                 .group_by(LLMUsage.feature, LLMUsage.model)
                 .order_by(func.sum(LLMUsage.total_tokens).desc())
                 .limit(8)
