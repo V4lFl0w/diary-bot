@@ -96,7 +96,10 @@
         <button class="btn" id="stopBtn" disabled>⏹ Stop</button>
       </div>
     </div>
-  </div>
+  
+<audio id="bellStart" src="/static/sounds/meditation_start.mp3" preload="auto"></audio>
+<audio id="bellEnd" src="/static/sounds/meditation_end.mp3" preload="auto"></audio>
+
 
   <script>
   (() => {
@@ -189,6 +192,18 @@
 
     // Bell (through master)
     function bell(pattern="start") {
+      const el = pattern === "start"
+        ? document.getElementById("bellStart")
+        : document.getElementById("bellEnd");
+      if (!el) return;
+      el.volume = state.vol / 100;
+      el.currentTime = 0;
+      el.play().catch(()=>{});
+      return;
+    }
+
+// legacy fallback
+function _oldBell(pattern="start") {
       if (!state.bell) return;
       const ctx = ensureAudio();
       if (!ctx || !master) return;
@@ -366,7 +381,7 @@
 
       $status.innerHTML = '<span class="ok">✅ Сессия завершена.</span>';
       updateHeader();
-      bell("end");
+      if (state.mode !== "guided") bell("end");
 
       send("med2_finish", { at: Date.now() });
       setRunningUI();
@@ -377,7 +392,7 @@
       await unlockAudio();
 
       // start bell + bg
-      if (state.mode !== "sleep") bell("start");
+      if (state.mode === "timer" || state.mode === "guided") bell("start");
       startBg(state.bg);
 
       const total = state.durationMin * 60;
