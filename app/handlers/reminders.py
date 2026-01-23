@@ -8,13 +8,13 @@ from __future__ import annotations
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional, Any, List
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_, text as sql_text
 
@@ -89,6 +89,29 @@ async def _get_lang(
     """
     tg_id = getattr(getattr(m, "from_user", None), "id", None)
     tg_code = getattr(getattr(m, "from_user", None), "language_code", None)
+
+    db_lang: Optional[str] = None
+    db_locale: Optional[str] = None
+
+    if tg_id:
+        try:
+            res = await session.execute(
+                sql_text("SELECT lang, locale FROM users WHERE tg_id=:tg"),
+                {"tg": tg_id},
+            )
+            row = res.first()
+            if row:
+                db_lang, db_locale = row[0], row[1]
+        except Exception:
+            db_lang = None
+            db_locale = None
+
+    return _normalize_lang(db_locale or db_lang or tg_code or fallback or "ru")
+
+
+async def _get_lang_cb(session: AsyncSession, c: CallbackQuery, fallback: Optional[str] = None) -> str:
+    tg_id = getattr(getattr(c, "from_user", None), "id", None)
+    tg_code = getattr(getattr(c, "from_user", None), "language_code", None)
 
     db_lang: Optional[str] = None
     db_locale: Optional[str] = None
@@ -620,6 +643,139 @@ async def reminders_menu(
     Показываем краткую подсказку по тому, как ставить напоминания.
     """
     await remind_help(m, session, lang=lang)
+
+
+# ---------------------------------------------------------------------
+# CALLBACKS (кнопки под /remind)
+# ---------------------------------------------------------------------
+
+@router.callback_query(F.data.startswith("rem:"))
+async def reminders_help_callbacks(
+    c: CallbackQuery,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
+    if not c.from_user:
+        return
+
+    # быстро “снять загрузку” у кнопки
+    try:
+        await c.answer()
+    except Exception:
+        pass
+
+    user: Optional[User] = (
+        await session.execute(select(User).where(User.tg_id == c.from_user.id))
+    ).scalar_one_or_none()
+
+    l = await _get_lang_cb(session, c, fallback=lang)
+
+    if not user:
+        if c.message:
+            await c.message.answer(_tr(l, "Нажми /start", "Натисни /start", "Press /start"), parse_mode=None)
+        return
+
+    if not _policy_ok(user):
+        if c.message:
+            await c.message.answer(
+                _tr(
+                    l,
+                    "Нужно принять политику: нажми 🔒 Политика",
+                    "Потрібно прийняти політику: натисни 🔒 Політика",
+                    "You need to accept the policy: tap 🔒 Privacy",
+                ),
+                parse_mode=None,
+            )
+        return
+
+    data = (c.data or "").strip().lower()
+
+    # 📋 список
+    if data == "rem:list":
+        if c.message:
+            await reminders_list(c.message, session, lang=l)
+        return
+
+    # ⛔️ выключить все / ✅ включить все
+    if data in {"rem:disable_all", "rem:enable_all"}:
+        action_enable = (data == "rem:enable_all")
+
+        await session.execute(
+            update(Reminder)
+            .where(Reminder.user_id == user.id)
+            .values(is_active=action_enable)
+        )
+
+        tz_name = _user_tz_name(user)
+        now_utc = now_utc_fn()
+
+        if action_enable:
+            # пересчитать next_run для cron-напоминаний
+            rows = (
+                await session.execute(select(Reminder).where(Reminder.user_id == user.id))
+            ).scalars().all()
+
+            for r in rows:
+                if r.cron and (r.next_run is None or r.next_run <= now_utc):
+                    nxt = compute_next_run(r.cron, now_utc, tz_name)
+                    if nxt:
+                        r.next_run = nxt
+                        session.add(r)
+
+        await session.commit()
+
+        if c.message:
+            await c.message.answer(
+                _tr(
+                    l,
+                    "Готово! Все напоминания включены." if action_enable else "Готово! Все напоминания выключены.",
+                    "Готово! Усі нагадування увімкнено." if action_enable else "Готово! Усі нагадування вимкнено.",
+                    "Done! All reminders enabled." if action_enable else "Done! All reminders disabled.",
+                ),
+                parse_mode=None,
+            )
+        return
+
+    # ➕ пример (создаём тестовое через 10 минут)
+    if data == "rem:example":
+        tz_name = _user_tz_name(user)
+        now_utc = now_utc_fn()
+        now_local = now_utc.astimezone(ZoneInfo(tz_name))
+
+        # пример на +10 минут, округляем до минуты
+        dt_local = (now_local + timedelta(minutes=10)).replace(second=0, microsecond=0)
+        next_run_utc = to_utc(dt_local, tz_name)
+
+        title = _tr(
+            l,
+            "выпить воды",
+            "випити води",
+            "drink water",
+        )
+
+        r = Reminder(
+            user_id=user.id,
+            title=title,
+            cron=None,
+            next_run=next_run_utc,
+            is_active=True,
+        )
+        session.add(r)
+        await session.commit()
+
+        local_str = _fmt_local(next_run_utc, tz_name)
+
+        if c.message:
+            await c.message.answer(
+                _tr(
+                    l,
+                    f"Сделал пример ✅\nНапомню: «{title}»\nВремя: {local_str} ({tz_name}).",
+                    f"Зробив приклад ✅\nНагадаю: «{title}»\nЧас: {local_str} ({tz_name}).",
+                    f"Example created ✅\nI’ll remind: “{title}”\nTime: {local_str} ({tz_name}).",
+                ),
+                parse_mode=None,
+            )
+        return
 
 
 __all__ = ["router"]
