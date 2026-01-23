@@ -237,6 +237,18 @@ def _should_parse(text: Optional[str]) -> bool:
 # PARSE FLOW
 # ---------------------------------------------------------------------
 
+def _looks_like_time_phrase(text: str) -> bool:
+    if not text:
+        return False
+    t = text.lower()
+    keywords = (
+        "через", "завтра", "сегодня", "послезавтра",
+        "утром", "вечером", "ночью",
+        "в ", " о "
+    )
+    return any(k in t for k in keywords)
+
+
 @router.message(F.text.func(_should_parse))
 async def remind_parse(
     m: Message,
@@ -586,3 +598,25 @@ async def reminders_menu(
 
 
 __all__ = ["router"]
+
+
+
+@router.message(
+    F.text.func(_looks_like_time_phrase)
+    & ~F.text.func(_has_trigger)
+    & ~F.text.startswith("/")
+)
+async def remind_parse_implicit(
+    m: Message,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
+    # Мягкий автопарсинг без слова "напомни"
+    m2 = Message(
+        message_id=m.message_id,
+        date=m.date,
+        chat=m.chat,
+        from_user=m.from_user,
+        text="напомни " + (m.text or ""),
+    )
+    await remind_parse(m2, session, lang)
