@@ -344,7 +344,8 @@ def _is_list_alias(text: Optional[str]) -> bool:
 
 
 def _should_parse(text: Optional[str]) -> bool:
-    return _has_trigger(text) or _looks_like_reminder(text)
+    # важно: список не содержит явных time-токенов, поэтому включаем alias отдельно
+    return _has_trigger(text) or _looks_like_reminder(text) or _is_list_alias(text)
 
 
 # ---------------------------------------------------------------------
