@@ -101,6 +101,8 @@
 <audio id="bellEnd" src="/static/sounds/meditation_end.mp3" preload="auto"></audio>
 
 
+    </div>
+
   <script>
   (() => {
     // --- Telegram WebApp ---
@@ -192,13 +194,14 @@
 
     // Bell (through master)
     function bell(pattern="start") {
+      if (!state.bell) return;
       const el = pattern === "start"
         ? document.getElementById("bellStart")
         : document.getElementById("bellEnd");
       if (!el) return;
       el.volume = state.vol / 100;
       el.currentTime = 0;
-      el.play().catch(()=>{});
+      el.play().catch(()=>{ try{ _oldBell(pattern); }catch(e){} });
       return;
     }
 
@@ -504,6 +507,9 @@ $durCustom.addEventListener("change", () => {
 
     // --- init from state ---
     setVolume(state.vol);
+
+    $vol.addEventListener("input", () => setVolume(parseInt($vol.value, 10)));
+
 
 $durCustomBtn.classList.remove("active");
 $durCustom.style.display = "none";

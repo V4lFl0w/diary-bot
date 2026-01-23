@@ -348,6 +348,8 @@ def build_dispatcher() -> Dispatcher:
     if assistant_router is not None:
         dp.include_router(assistant_router)
 
+    if meditation_router is not None:
+        dp.include_router(meditation_router)
     if music_router is not None:
         dp.include_router(music_router)
 
