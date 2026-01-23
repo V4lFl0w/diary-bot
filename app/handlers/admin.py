@@ -99,6 +99,11 @@ TXT: Dict[str, Dict[str, str]] = {
         "uk": "👥 Users (7d active)",
         "en": "👥 Users (7d active)",
     },
+    "btn_users_all": {
+        "ru": "👥 Users (ALL)",
+        "uk": "👥 Users (ALL)",
+        "en": "👥 Users (ALL)",
+    },
     "btn_find_user": {
         "ru": "🔎 Найти юзера по TG ID",
         "uk": "🔎 Знайти юзера за TG ID",
@@ -312,6 +317,9 @@ def _admin_kb(l: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=_tr(l, "btn_analytics"), callback_data="admin:analytics_7d")],
             [
                 InlineKeyboardButton(text=_tr(l, "btn_users"), callback_data="admin:users_7d"),
+                InlineKeyboardButton(text=_tr(l, "btn_users_all"), callback_data="admin:users_all"),
+            ],
+            [
                 InlineKeyboardButton(text=_tr(l, "btn_find_user"), callback_data="admin:user_find"),
             ],
             [
@@ -691,7 +699,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             if top:
                 lines += ["", "Топ LLM (feature:model):"]
                 for feature, model, req, tok, cost in top:
-                    lines.append(f"• {feature}:{model} — {int(req)} req | {int(tok)} tok | ${float(c)/1_000_000:.4f}")
+                    lines.append(f"• {feature}:{model} — {int(req)} req | {int(tok)} tok | ${float(cost or 0)/1_000_000:.4f}")
         except Exception:
             # не ломаем админку из-за аналитики
             try:
@@ -705,6 +713,58 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             await c.message.answer("\n".join(lines))
         return
 
+
+    # --- users all (latest) ---
+    if action == "users_all":
+        rows = (
+            await session.execute(
+                select(
+                    User.tg_id,
+                    User.id,
+                    User.username,
+                    User.locale,
+                    User.lang,
+                    User.last_seen_at,
+                    User.is_premium,
+                    User.premium_until,
+                    User.premium_plan,
+                )
+                .order_by(User.id.desc())
+                .limit(60)
+            )
+        ).all()
+
+        if not rows:
+            if c.message:
+                await c.message.answer("Users: empty")
+            return
+
+        now = datetime.now(timezone.utc)
+        lines = ["👥 Users (ALL): (latest 60)"]
+        for tg_id, uid, username, loc, langx, last_seen_at, is_prem, prem_until, prem_plan in rows:
+            prem_by_time = False
+            try:
+                if prem_until is not None:
+                    pu = prem_until
+                    if getattr(pu, 'tzinfo', None) is None:
+                        pu = pu.replace(tzinfo=timezone.utc)
+                    prem_by_time = pu > now
+            except Exception:
+                prem_by_time = False
+
+            prem_flag = '💎' if prem_by_time else ''
+            uname = (username or '').strip().lstrip('@')
+            link = f"https://t.me/{uname}" if uname else f"tg://user?id={tg_id}"
+            loc2 = (loc or langx or '-')
+            lines.append(
+                f"• {prem_flag} tg_id={tg_id} | user_id={uid} | @{uname or '-'} | plan={prem_plan} | "
+                f"is_premium_flag={bool(is_prem)} | premium_until={prem_until} | last_seen={last_seen_at} | {loc2} | {link}"
+            )
+
+        if c.message:
+            await c.message.answer("\n".join(lines))
+        return
+
     # --- users active 7d ---
     if action == "users_7d":
         since = datetime.now(timezone.utc) - timedelta(days=7)
@@ -713,12 +773,12 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             rows = (
                 await session.execute(
                     sql_text(
-                        "SELECT u.tg_id, u.id, u.locale, u.lang, "
+                        "SELECT u.tg_id, u.id, u.username, u.locale, u.lang, "
                         "MAX(e.ts) as last_ts, COUNT(*) as cnt "
                         "FROM analytics_events e "
                         "JOIN users u ON u.id = e.user_id "
                         "WHERE e.ts >= :since AND e.user_id IS NOT NULL "
-                        "GROUP BY u.tg_id, u.id, u.locale, u.lang, u.last_seen_at, u.is_premium, u.premium_until, u.premium_plan "
+                        "GROUP BY u.tg_id, u.id, u.username, u.locale, u.lang, u.last_seen_at, u.is_premium, u.premium_until, u.premium_plan "
                         "ORDER BY last_ts DESC "
                         "LIMIT 30"
                     ),
@@ -731,6 +791,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                     select(
                         User.tg_id,
                         User.id,
+                        User.username,
                         User.locale,
                         User.lang,
                         User.last_seen_at,
@@ -743,7 +804,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                     .join(AnalyticsEvent, AnalyticsEvent.user_id == User.id)
                     .where(AnalyticsEvent.ts >= since)
                     .where(AnalyticsEvent.user_id.is_not(None))
-                    .group_by(User.tg_id, User.id, User.locale, User.lang, User.last_seen_at, User.is_premium, User.premium_until, User.premium_plan)
+                    .group_by(User.tg_id, User.id, User.username, User.locale, User.lang, User.last_seen_at, User.is_premium, User.premium_until, User.premium_plan)
                     .order_by(func.max(AnalyticsEvent.ts).desc())
                     .limit(30)
                 )
@@ -761,18 +822,30 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
         for row in rows:
             # поддержим оба формата: tuple или RowMapping
             if isinstance(row, (tuple, list)):
-                tg_id, uid, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_ts, cnt = row
+                tg_id, uid, username, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_ts, cnt = row
             else:
-                tg_id = row[0]; uid = row[1]; loc = row[2]; langx = row[3]
-                last_seen_at = row[4]; is_prem = row[5]; prem_until = row[6]; prem_plan = row[7]
-                last_ts = row[8]; cnt = row[9]
+                tg_id = row[0]; uid = row[1]; username = row[2]; loc = row[3]; langx = row[4]
+                last_seen_at = row[5]; is_prem = row[6]; prem_until = row[7]; prem_plan = row[8]
+                last_ts = row[9]; cnt = row[10]
 
-            link = f"tg://user?id={tg_id}"
-            prem_active = bool(is_prem) or (prem_until is not None and prem_until > now)
-            prem_flag = "💎" if prem_active else ""
-            loc2 = (loc or langx or "-")
+            prem_by_time = False
+            try:
+                if prem_until is not None:
+                    pu = prem_until
+                    if getattr(pu, 'tzinfo', None) is None:
+                        pu = pu.replace(tzinfo=timezone.utc)
+                    prem_by_time = pu > now
+            except Exception:
+                prem_by_time = False
+
+            prem_flag = '💎' if prem_by_time else ''
+            uname = (username or '').strip().lstrip('@')
+            link = f"https://t.me/{uname}" if uname else f"tg://user?id={tg_id}"
+            loc2 = (loc or langx or '-')
+
             lines.append(
-                f"• {prem_flag} tg_id={tg_id} | user_id={uid} | {loc2} | events={cnt} | last_ts={last_ts} | {link}"
+                f"• {prem_flag} tg_id={tg_id} | user_id={uid} | @{uname or '-'} | plan={prem_plan} | "
+                f"is_premium_flag={bool(is_prem)} | premium_until={prem_until} | {loc2} | events={cnt} | last_ts={last_ts} | {link}"
             )
 
         if c.message:
@@ -921,7 +994,33 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
         await state.clear()
         return
 
+    now = utcnow()
+
+    # 1) cancel active subscriptions for this user (so premium won't re-sync back)
+    try:
+        await session.execute(
+            sql_text(
+                "UPDATE subscriptions "
+                "SET status='canceled', expires_at=:now, auto_renew=0 "
+                "WHERE user_id=:uid AND status='active'"
+            ),
+            {"uid": user.id, "now": now},
+        )
+    except Exception:
+        try:
+            await session.rollback()
+        except Exception:
+            pass
+
+    # 2) reset user fields
     _reset_premium(user)
+
+    # 3) sync flags from subs -> user (authoritative)
+    try:
+        await sync_user_premium_flags(session, user, now=now)
+    except Exception:
+        pass
+
     session.add(user)
     await session.commit()
 
@@ -929,9 +1028,19 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
     await state.clear()
 
 
+def _user_link(u: User) -> str:
+    uname = (getattr(u, "username", None) or "").strip().lstrip("@")
+    if uname:
+        return f"https://t.me/{uname}"
+    tg_id = getattr(u, "tg_id", None)
+    if tg_id:
+        return f"tg://user?id={tg_id}"
+    return "-"
+
+
 def _format_user_card(l: str, u: User) -> str:
     tg_id = getattr(u, "tg_id", "-")
-    link = f"tg://user?id={tg_id}" if str(tg_id).isdigit() else "-"
+    link = _user_link(u)
     lines = [
         _tr(l, "user_card_title"),
         f"• tg_id: {tg_id}",
@@ -942,7 +1051,8 @@ def _format_user_card(l: str, u: User) -> str:
         f"• last_seen_at: {getattr(u, 'last_seen_at', None)}",
         f"• is_admin: {bool(getattr(u, 'is_admin', False))}",
         f"• premium_plan: {getattr(u, 'premium_plan', None)}",
-        f"• is_premium: {bool(getattr(u, 'is_premium', False) or getattr(u, 'has_premium', False))}",
+        f"• premium_active: {bool(getattr(u, 'has_premium', False))}",
+        f"• is_premium_flag: {bool(getattr(u, 'is_premium', False))}",
         f"• premium_until: {getattr(u, 'premium_until', None)}",
         f"• banned: {_is_banned(u)}",
     ]
