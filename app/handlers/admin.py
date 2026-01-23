@@ -17,7 +17,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from sqlalchemy import select, func, text as sql_text
+from sqlalchemy import select, func, text as sql_text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -988,6 +988,12 @@ async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContex
     await state.clear()
 @router.message(AdminStates.wait_reset_id)
 async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> None:
+    # safety: если в сессии до этого был exception во flush/commit — чистим состояние
+    try:
+        await session.rollback()
+    except Exception:
+        pass
+
     me = await _get_user(session, m.from_user.id)
     if not is_admin(m.from_user.id, me):
         await state.clear()
@@ -1007,70 +1013,47 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
         await state.clear()
         return
 
-    now = utcnow()
+    # IMPORTANT: не трогаем user.is_premium/user.premium_until напрямую (избегаем lazy-load / expired attr)
+    await session.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values(is_premium=False, premium_until=None, premium_plan="basic")
+    )
 
-    # 1) cancel active subscriptions for this user (so premium won't re-sync back)
+    # опционально: если есть таблица subscriptions — деактивируем активные (чтобы не пере-синкнуло обратно)
     try:
         await session.execute(
             sql_text(
                 "UPDATE subscriptions "
-                "SET status='canceled', expires_at=:now, auto_renew=0 "
-                "WHERE user_id=:uid AND status='active'"
+                "SET status='expired' "
+                "WHERE user_id = :uid AND status = 'active'"
             ),
-            {"uid": user.id, "now": now},
+            {"uid": int(user.id)},
         )
+    except Exception:
+        # если таблицы/поля нет — не ломаем reset
+        try:
+            await session.rollback()
+        except Exception:
+            pass
+        # и повторяем только user update
+        await session.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(is_premium=False, premium_until=None, premium_plan="basic")
+        )
+
+    try:
+        await session.commit()
     except Exception:
         try:
             await session.rollback()
         except Exception:
             pass
-
-    # 2) reset user fields
-    _reset_premium(user)
-
-    # 3) sync flags from subs -> user (authoritative)
-    try:
-        await sync_user_premium_flags(session, user, now=now)
-    except Exception:
-        pass
-
-    session.add(user)
-    await session.commit()
+        raise
 
     await m.answer(_tr(l, "done_reset"))
     await state.clear()
-
-
-def _user_link(u: User) -> str:
-    uname = (getattr(u, "username", None) or "").strip().lstrip("@")
-    if uname:
-        return f"https://t.me/{uname}"
-    tg_id = getattr(u, "tg_id", None)
-    if tg_id:
-        return f"tg://user?id={tg_id}"
-    return "-"
-
-
-def _format_user_card(l: str, u: User) -> str:
-    tg_id = getattr(u, "tg_id", "-")
-    link = _user_link(u)
-    lines = [
-        _tr(l, "user_card_title"),
-        f"• tg_id: {tg_id}",
-        f"• link: {link}",
-        f"• user_id: {getattr(u, 'id', '-')}",
-        f"• locale: {getattr(u, 'locale', '-')}",
-        f"• tz: {getattr(u, 'tz', '-')}",
-        f"• last_seen_at: {getattr(u, 'last_seen_at', None)}",
-        f"• is_admin: {bool(getattr(u, 'is_admin', False))}",
-        f"• premium_plan: {getattr(u, 'premium_plan', None)}",
-        f"• premium_active: {bool(getattr(u, 'has_premium', False))}",
-        f"• is_premium_flag: {bool(getattr(u, 'is_premium', False))}",
-        f"• premium_until: {getattr(u, 'premium_until', None)}",
-        f"• banned: {_is_banned(u)}",
-    ]
-    return "\n".join(lines)
-
 
 @router.message(AdminStates.wait_find_id)
 async def on_find_id(m: Message, session: AsyncSession, state: FSMContext) -> None:
