@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import time
+from datetime import time as dtime
 from typing import Optional, Union
 
 from aiogram import Router, F
@@ -18,14 +18,6 @@ from app.models.user import User
 
 router = Router(name="proactive")
 
-CB_TOGGLE_MORNING = "proactive:toggle:morning"
-CB_TOGGLE_EVENING = "proactive:toggle:evening"
-CB_TIME_MORNING = "proactive:time:morning"
-CB_TIME_EVENING = "proactive:time:evening"
-CB_TEST_MORNING = "proactive:test:morning"
-CB_TEST_EVENING = "proactive:test:evening"
-CB_SCREEN = "proactive:screen"
-
 _TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
 
 
@@ -37,10 +29,10 @@ async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
     return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
-def _fmt_time(v) -> str:
+def _fmt_time(v: Union[None, dtime, str]) -> str:
     if v is None:
         return "—"
-    if isinstance(v, time):
+    if isinstance(v, dtime):
         return f"{v.hour:02d}:{v.minute:02d}"
     if isinstance(v, str):
         s = v.strip()
@@ -48,8 +40,7 @@ def _fmt_time(v) -> str:
             return "—"
         parts = s.split(":")
         if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
-            h = int(parts[0])
-            m = int(parts[1])
+            h = int(parts[0]); m = int(parts[1])
             if 0 <= h <= 23 and 0 <= m <= 59:
                 return f"{h:02d}:{m:02d}"
         return s
@@ -57,13 +48,17 @@ def _fmt_time(v) -> str:
 
 
 def _screen_text(u: User) -> str:
+    morning = "✅" if bool(getattr(u, "morning_auto", False)) else "⛔️"
+    evening = "✅" if bool(getattr(u, "evening_auto", False)) else "⛔️"
+    mt = _fmt_time(getattr(u, "morning_time", None))
+    et = _fmt_time(getattr(u, "evening_time", None))
+
     return (
-        "⚡️ *Проактивность*\n\n"
-        "Режим, где бот *первый* помогает держать курс:\n"
-        "• ☀️ утром — фокус и старт\n"
-        "• 🌙 вечером — закрыть день и вынести урок\n\n"
-        "_Поставь время — и бот будет писать сам._\n"
-        "Пробники ниже — просто пример, ничего не сохраняют."
+        "⚡️ Проактивность\n\n"
+        f"☀️ Утро: {morning}   🕘 {mt}\n"
+        f"🌙 Вечер: {evening}   🕘 {et}\n\n"
+        "Бот сам напишет тебе в выбранное время.\n"
+        "Включи и задай часы — и всё."
     )
 
 
@@ -72,111 +67,60 @@ def proactive_kb(u: User):
 
     kb.button(
         text=f"☀️ Утро: {'✅ Вкл' if u.morning_auto else '⛔️ Выкл'}",
-        callback_data=CB_TOGGLE_MORNING,
+        callback_data="proactive:toggle:morning",
     )
     kb.button(
-        text=f"🕘 Время утра: {_fmt_time(getattr(u, 'morning_time', None))}",
-        callback_data=CB_TIME_MORNING,
+        text=f"🕘 Время утра: {_fmt_time(u.morning_time)}",
+        callback_data="proactive:time:morning",
     )
 
     kb.button(
         text=f"🌙 Вечер: {'✅ Вкл' if u.evening_auto else '⛔️ Выкл'}",
-        callback_data=CB_TOGGLE_EVENING,
+        callback_data="proactive:toggle:evening",
     )
     kb.button(
-        text=f"🕘 Время вечера: {_fmt_time(getattr(u, 'evening_time', None))}",
-        callback_data=CB_TIME_EVENING,
+        text=f"🕘 Время вечера: {_fmt_time(u.evening_time)}",
+        callback_data="proactive:time:evening",
     )
-
-    kb.button(text="🧪 Пробник утра", callback_data=CB_TEST_MORNING)
-    kb.button(text="🧪 Пробник вечера", callback_data=CB_TEST_EVENING)
 
     kb.button(text="⬅️ Назад", callback_data="menu:home")
 
-    kb.adjust(1, 1, 1, 1, 2, 1)
+    kb.adjust(1, 1, 1, 1, 1)
     return kb.as_markup()
 
 
-def _preview_kb() -> InlineKeyboardBuilder:
-    kb = InlineKeyboardBuilder()
-    kb.button(text="⬅️ Назад к настройкам", callback_data=CB_SCREEN)
-    kb.adjust(1)
-    return kb
-
-
-def _briefing_text() -> str:
-    return (
-        "☀️ *Утренний импульс*\n"
-        "_Чтобы день не съел тебя._\n\n"
-        "1) 🎯 1 приоритет (что даст максимум)\n"
-        "2) ✅ 3 шага (самые короткие действия)\n"
-        "3) ⚡️ старт на 2 минуты — начни прямо сейчас\n\n"
-        "Ответь одной строкой: *какой приоритет?*"
-    )
-
-
-def _checkin_text() -> str:
-    return (
-        "🌙 *Вечерний чек-ин*\n"
-        "_Закрываем день без хаоса._\n\n"
-        "1) 🧠 как день (1 фраза)\n"
-        "2) 🏆 1 победа\n"
-        "3) 🧩 1 урок\n\n"
-        "Ответь: *победа / урок*"
-    )
-
-
-async def _render_screen(
-    target: Union[Message, CallbackQuery],
-    session: AsyncSession,
-    lang: str = "ru",
-):
-    # lang оставлен для совместимости (меню уже передаёт lang)
-    if isinstance(target, CallbackQuery):
-        from_user = target.from_user
-    else:
-        from_user = target.from_user
-
-    if not from_user:
+async def show_proactive_screen(message: Message, session: AsyncSession, lang: str = "ru", *_a, **_k):
+    if not message.from_user:
         return
-
-    user = await _get_user(session, from_user.id)
+    user = await _get_user(session, message.from_user.id)
     if not user:
-        if isinstance(target, CallbackQuery):
-            await target.answer("Нажми /start")
-        else:
-            await target.answer("Нажми /start", parse_mode=None)
+        await message.answer("Нажми /start", parse_mode=None)
         return
 
-    text = _screen_text(user)
-    markup = proactive_kb(user)
+    # Важно: не дублируем сообщения, если это повторный вход из меню — просто отправим 1 экран.
+    await message.answer(
+        _screen_text(user),
+        reply_markup=proactive_kb(user),
+        parse_mode=None,
+    )
 
-    if isinstance(target, CallbackQuery):
-        if target.message:
-            await target.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
-        await target.answer()
-    else:
-        await target.answer(text, reply_markup=markup, parse_mode="Markdown")
-
-
-# ========= ENTRY =========
 
 @router.message(Command("proactive"))
 async def proactive_cmd(m: Message, session: AsyncSession):
-    await _render_screen(m, session)
+    await show_proactive_screen(m, session)
 
 
-async def show_proactive_screen(message: Message, session: AsyncSession, lang: str = "ru"):
-    # вызывается из menus.py
-    await _render_screen(message, session, lang=lang)
+@router.callback_query(F.data == "proactive:open")
+async def proactive_open(cb: CallbackQuery, session: AsyncSession):
+    if not cb.message:
+        return
+    user = await _get_user(session, cb.from_user.id)
+    if not user:
+        await cb.answer("Нажми /start")
+        return
+    await cb.message.edit_text(_screen_text(user), reply_markup=proactive_kb(user), parse_mode=None)
+    await cb.answer()
 
-
-@router.callback_query(F.data == CB_SCREEN)
-async def proactive_screen(cb: CallbackQuery, session: AsyncSession):
-    await _render_screen(cb, session)
-
-
-# ========= TOGGLE =========
 
 @router.callback_query(F.data.startswith("proactive:toggle:"))
 async def proactive_toggle(cb: CallbackQuery, session: AsyncSession):
@@ -192,23 +136,23 @@ async def proactive_toggle(cb: CallbackQuery, session: AsyncSession):
         user.evening_auto = not bool(user.evening_auto)
 
     await session.commit()
-    await _render_screen(cb, session)
 
+    if cb.message:
+        await cb.message.edit_text(_screen_text(user), reply_markup=proactive_kb(user), parse_mode=None)
+    await cb.answer("Готово")
 
-# ========= SET TIME =========
 
 @router.callback_query(F.data.startswith("proactive:time:"))
 async def proactive_set_time(cb: CallbackQuery, state: FSMContext):
     part = cb.data.split(":")[-1]
-
     await state.set_state(ProactiveStates.waiting_time)
     await state.update_data(part=part)
 
     await cb.message.answer(
-        f"🕘 Введи время для *{'утра' if part == 'morning' else 'вечера'}*\n"
+        f"🕘 Введи время для {'утра' if part == 'morning' else 'вечера'}\n"
         "Формат: HH:MM\n"
         "Отмена: /cancel",
-        parse_mode="Markdown",
+        parse_mode=None,
     )
     await cb.answer()
 
@@ -216,7 +160,7 @@ async def proactive_set_time(cb: CallbackQuery, state: FSMContext):
 @router.message(ProactiveStates.waiting_time, Command("cancel"))
 async def proactive_cancel(message: Message, session: AsyncSession, state: FSMContext):
     await state.clear()
-    await _render_screen(message, session)
+    await show_proactive_screen(message, session)
 
 
 @router.message(ProactiveStates.waiting_time)
@@ -244,33 +188,22 @@ async def proactive_time_input(message: Message, session: AsyncSession, state: F
         await message.answer("Нажми /start", parse_mode=None)
         return
 
-    new_time = time(hh, mm)
+    new_time = dtime(hh, mm)
 
     if part == "morning":
         user.morning_time = new_time
         user.morning_auto = True
         user.morning_last_sent_at = None
-    elif part == "evening":
+    else:
         user.evening_time = new_time
         user.evening_auto = True
         user.evening_last_sent_at = None
-    else:
-        await message.answer("❌ Что-то пошло не так. Открой меню ещё раз.", parse_mode=None)
-        await state.clear()
-        return
 
     await session.commit()
     await state.clear()
-    await _render_screen(message, session)
+
+    await message.answer("✅ Сохранено.", parse_mode=None)
+    await show_proactive_screen(message, session)
 
 
-# ========= TEST (preview without spam) =========
-
-@router.callback_query(F.data.startswith("proactive:test:"))
-async def proactive_test(cb: CallbackQuery):
-    part = cb.data.split(":")[-1]
-    text = _briefing_text() if part == "morning" else _checkin_text()
-
-    if cb.message:
-        await cb.message.edit_text(text, reply_markup=_preview_kb().as_markup(), parse_mode="Markdown")
-    await cb.answer()
+__all__ = ["router", "show_proactive_screen"]
