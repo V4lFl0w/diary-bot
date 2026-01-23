@@ -504,6 +504,42 @@ $durCustom.addEventListener("change", () => {
   updateHeader();
 });
 
+// --- Mode buttons ---
+$modeRow.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || state.running) return;
+  const mode = b.getAttribute("data-mode");
+  if (!mode) return;
+  state.mode = mode;
+  setActiveButtons($modeRow, "data-mode", state.mode);
+  updateHeader();
+});
+
+// --- Background buttons ---
+$bgRow.addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b || state.running) return;
+  const bg = b.getAttribute("data-bg");
+  if (!bg) return;
+  state.bg = bg;
+  setActiveButtons($bgRow, "data-bg", state.bg);
+  updateHeader();
+});
+
+// --- Bell toggle ---
+$bellToggle.addEventListener("click", () => {
+  if (state.running) return;
+  state.bell = !state.bell;
+  $bellToggle.textContent = state.bell ? "On" : "Off";
+});
+
+// --- Test sound ---
+$testSound.addEventListener("click", async () => {
+  await unlockAudio();
+  bell("start");
+});
+
+
 
     // --- init from state ---
     setVolume(state.vol);
