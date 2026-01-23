@@ -14,7 +14,7 @@ from typing import Optional, Any, List
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_, text as sql_text
 
@@ -138,6 +138,36 @@ def _fmt_local(dt_utc: datetime, tz_name: str) -> str:
 # HELP
 # ---------------------------------------------------------------------
 
+def _reminders_help_kb(lang: str) -> InlineKeyboardMarkup:
+    l = _normalize_lang(lang)
+
+    def T(ru: str, uk: str, en: str) -> str:
+        return uk if l == "uk" else en if l == "en" else ru
+
+    # Кнопки отправляют текст — дальше сработают твои триггеры/парсер
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=T("➕ Создать пример", "➕ Створити приклад", "➕ Create example"),
+                callback_data="noop"
+            ),
+            InlineKeyboardButton(
+                text=T("📋 Мои напоминания", "📋 Мої нагадування", "📋 My reminders"),
+                callback_data="noop"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=T("⛔️ Выключить все", "⛔️ Вимкнути всі", "⛔️ Disable all"),
+                callback_data="noop"
+            ),
+            InlineKeyboardButton(
+                text=T("✅ Включить все", "✅ Увімкнути всі", "✅ Enable all"),
+                callback_data="noop"
+            ),
+        ],
+    ])
+
 @router.message(Command("remind"))
 async def remind_help(
     m: Message,
@@ -166,6 +196,7 @@ async def remind_help(
             "• “disable all reminders” / “enable reminders water”",
         ),
         parse_mode=None,
+        reply_markup=_reminders_help_kb(l),
     )
 
 
@@ -282,9 +313,6 @@ async def remind_parse(
     # 3) feature-gate (если ты решишь сделать премиум-расширение)
     # Базовый remind остаётся доступным всегда, но расширенные сценарии
     # можно потом перевязать на отдельные фичи.
-    ok = await require_feature_v2(m, session, user, "remind_basic")
-    if not ok:
-        return
 
     tz_name = _user_tz_name(user)
     now_utc = now_utc_fn()
@@ -525,9 +553,6 @@ async def reminders_list(
         )
         return
 
-    ok = await require_feature_v2(m, session, user, "remind_basic")
-    if not ok:
-        return
 
     tz_name = _user_tz_name(user)
     now_utc = now_utc_fn()
