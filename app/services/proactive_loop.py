@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, time, timezone
-from typing import Optional, Iterable
+from datetime import datetime, time, timezone, timedelta
+from typing import Optional
 
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.models.user import User
 
 log = logging.getLogger(__name__)
+
+SEND_WINDOW = timedelta(hours=2)  # шлём только в течение 2 часов после due
 
 
 def _parse_hhmm(v: Optional[str]) -> Optional[time]:
@@ -40,35 +42,30 @@ def _same_local_day(last_sent: datetime, now_utc: datetime, tz) -> bool:
 
 
 def _briefing_text() -> str:
-    # ХУК + понятность + “маленький старт”
     return (
-        "☀️ *Утренний импульс*\n"
-        "Чтобы день не съел тебя.\n\n"
+        "☀️ *Утренний импульс*\n\n"
         "1) 🎯 *1 приоритет* (что даст максимум)\n"
-        "2) ✅ *3 шага* (самые короткие действия)\n"
-        "3) ⚡️ *Старт на 2 минуты* — начни прямо сейчас\n\n"
+        "2) ✅ *3 шага* (самые короткие)\n"
+        "3) ⚡️ *Старт 2 минуты*\n\n"
         "Ответь одной строкой: *какой приоритет?*"
     )
 
 
 def _checkin_text() -> str:
     return (
-        "🌙 *Вечерний чек-ин*\n"
-        "Закрываем день без хаоса.\n\n"
-        "1) 🧠 Как прошёл день (1 фраза)\n"
+        "🌙 *Вечерний чек-ин*\n\n"
+        "1) 🧠 как день (1 фраза)\n"
         "2) 🏆 1 победа\n"
         "3) 🧩 1 урок\n\n"
-        "Ответь: *победа / урок*"
+        "Ответь: победа: ... / урок: ..."
     )
 
 
+def _in_send_window(now_local: datetime, due_local: datetime) -> bool:
+    return due_local <= now_local <= (due_local + SEND_WINDOW)
+
+
 async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
-    """
-    Цикл безопасный:
-    - берём только тех, у кого включено утро/вечер
-    - не коммитим внутри каждой отправки (один коммит на проход)
-    - ошибок не боимся
-    """
     while True:
         try:
             async with Session() as s:
@@ -77,10 +74,7 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
                 users = (
                     await s.execute(
                         select(User).where(
-                            or_(
-                                User.morning_auto.is_(True),
-                                User.evening_auto.is_(True),
-                            )
+                            or_(User.morning_auto.is_(True), User.evening_auto.is_(True))
                         )
                     )
                 ).scalars().all()
@@ -96,7 +90,7 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
                     now_local = now_utc.astimezone(tz)
 
                     # ----- MORNING -----
-                    if getattr(u, "morning_auto", False):
+                    if bool(getattr(u, "morning_auto", False)):
                         t = getattr(u, "morning_time", None)
                         if isinstance(t, str):
                             t = _parse_hhmm(t)
@@ -104,7 +98,7 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
                             due = now_local.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
                             last = getattr(u, "morning_last_sent_at", None)
 
-                            should_send = now_local >= due
+                            should_send = _in_send_window(now_local, due)
                             if last:
                                 should_send = should_send and not _same_local_day(last, now_utc, tz)
 
@@ -117,7 +111,7 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
                                     log.exception("proactive morning send failed (tg_id=%s)", tg_id)
 
                     # ----- EVENING -----
-                    if getattr(u, "evening_auto", False):
+                    if bool(getattr(u, "evening_auto", False)):
                         t = getattr(u, "evening_time", None)
                         if isinstance(t, str):
                             t = _parse_hhmm(t)
@@ -125,7 +119,7 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
                             due = now_local.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
                             last = getattr(u, "evening_last_sent_at", None)
 
-                            should_send = now_local >= due
+                            should_send = _in_send_window(now_local, due)
                             if last:
                                 should_send = should_send and not _same_local_day(last, now_utc, tz)
 
