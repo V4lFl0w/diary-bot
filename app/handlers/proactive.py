@@ -133,7 +133,7 @@ async def proactive_cmd(m: Message, session: AsyncSession):
     await show_proactive_screen(m, session)
 
 
-async def show_proactive_screen(message: Message, session: AsyncSession):
+async def show_proactive_screen(message: Message, session: AsyncSession, lang: str = "ru", *_a, **_k):
     if not message.from_user:
         return
     user = await _get_user(session, message.from_user.id)
