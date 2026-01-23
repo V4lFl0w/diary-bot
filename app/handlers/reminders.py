@@ -7,6 +7,7 @@ from __future__ import annotations
 - создание, включение/выключение, список
 """
 
+import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from typing import Optional, Any, List
@@ -187,12 +188,56 @@ _TRIGGER_WORDS: tuple[str, ...] = (
 def _has_trigger(s: Optional[str]) -> bool:
     return bool(s) and any(w in s.lower() for w in _TRIGGER_WORDS)
 
+_TIME_HINT_WORDS: tuple[str, ...] = (
+    # RU / UK
+    "в ", "у ", "завтра", "сегодня", "послезавтра",
+    "через", "каждый", "каждую", "каждое", "каждые",
+    "по будням", "по выходным", "ежедневно", "раз в",
+    "кожного", "щодня", "по буднях",
+    # EN
+    "at ", "tomorrow", "today", "in ", "every ", "weekdays", "daily",
+)
+
+_time_re = re.compile(
+    r"(?ix)"
+    r"(?:^|\s)"
+    r"(?:в|у|at)\s*\d{1,2}(?::\d{2})?"
+    r"|"
+    r"(?:через|in)\s+\d+\s*(?:мин|minute|minutes|час|hour|hours|дн|day|days)"
+    r"|"
+    r"(?:завтра|tomorrow|сегодня|today|послезавтра)\b"
+)
+
+def _looks_like_reminder(text: Optional[str]) -> bool:
+    if not text:
+        return False
+    t = text.strip().lower()
+    if not t or t.startswith("/"):
+        return False
+    if _has_trigger(t):
+        return False
+    if _time_re.search(t):
+        return True
+    return any(w in t for w in _TIME_HINT_WORDS)
+
+def _is_list_alias(text: Optional[str]) -> bool:
+    if not text:
+        return False
+    t = text.strip().lower()
+    return (
+        ("покажи" in t or "список" in t or "list" in t or "show" in t)
+        and ("напомин" in t or "remind" in t)
+    )
+
+def _should_parse(text: Optional[str]) -> bool:
+    return _has_trigger(text) or _looks_like_reminder(text)
+
 
 # ---------------------------------------------------------------------
 # PARSE FLOW
 # ---------------------------------------------------------------------
 
-@router.message(F.text.func(_has_trigger))
+@router.message(F.text.func(_should_parse))
 async def remind_parse(
     m: Message,
     session: AsyncSession,
@@ -235,6 +280,9 @@ async def remind_parse(
 
     # 4) parse_any: create / enable / disable
     parsed = parse_any(m.text or "", user_tz=tz_name, now=now_local)
+    if _is_list_alias(m.text or ""):
+        await reminders_list(m, session, lang=lang)
+        return
     if not parsed:
         await m.answer(
             _tr(
