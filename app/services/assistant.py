@@ -59,37 +59,30 @@ def _user_tz(user: Optional[User]) -> ZoneInfo:
         return ZoneInfo("UTC")
     
 def _assistant_plan(user: Optional[User]) -> str:
-    # default
-    plan = "basic"
-
     if not user:
+        return "free"
+
+    now = datetime.now(timezone.utc)
+
+    # если premium_until есть и он истёк → FREE
+    pu = getattr(user, "premium_until", None)
+    if pu is not None:
+        if pu.tzinfo is None:
+            pu = pu.replace(tzinfo=timezone.utc)
+        if pu <= now:
+            return "free"
+
+    # если premium_until нет и is_premium=False → FREE
+    if pu is None and not bool(getattr(user, "is_premium", False)):
+        return "free"
+
+    # премиум есть → читаем тариф
+    plan = str(getattr(user, "premium_plan", "") or "").strip().lower()
+    if plan in {"basic", "pro"}:
         return plan
 
-    # 0) tier from user.premium_plan (highest priority)
-    v0 = str(getattr(user, 'premium_plan', '') or '').strip().lower()
-    if v0 in {'basic', 'pro'}:
-        return v0
-
-    # 1) пробуем из assistant_profile_json
-    prof = getattr(user, "assistant_profile_json", None)
-    if isinstance(prof, str) and prof.strip():
-        try:
-            prof = json.loads(prof)
-        except Exception:
-            prof = None
-    if isinstance(prof, dict):
-        v = str(prof.get("plan") or "").strip().lower()
-        if v in {"basic", "pro"}:
-            return v
-
-    # 2) fallback: если у тебя есть только is_premium — пусть премиум = pro
-    try:
-        if bool(getattr(user, "is_premium", False)):
-            return "pro"
-    except Exception:
-        pass
-
-    return plan
+    # дефолтный тариф премиума
+    return "basic"
 
 
 def _now_str_user(user: Optional[User]) -> str:

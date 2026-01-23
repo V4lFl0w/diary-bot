@@ -89,22 +89,23 @@ def _has_premium(user: Optional[User]) -> bool:
     if not user:
         return False
 
-    # 1) legacy-flag
-    if bool(getattr(user, "is_premium", False)):
-        return True
+    now = datetime.now(timezone.utc)
 
-    # 2) premium_until
+    # 1) Если есть premium_until — он главный
     pu = getattr(user, "premium_until", None)
-    if pu:
+    if pu is not None:
         try:
-            now = datetime.now(timezone.utc)
             if pu.tzinfo is None:
                 pu = pu.replace(tzinfo=timezone.utc)
             return pu > now
         except Exception:
             return False
 
-    # 3) fallback на случай старых полей
+    # 2) Если premium_until нет, но is_premium=True — lifetime / ручной премиум
+    if bool(getattr(user, "is_premium", False)):
+        return True
+
+    # 3) legacy fallback
     return bool(getattr(user, "has_premium", False))
 
 
