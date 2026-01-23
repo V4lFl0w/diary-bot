@@ -14,7 +14,8 @@ from typing import Optional, Any, List
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import Message, CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_, text as sql_text
 
@@ -69,6 +70,16 @@ def _normalize_lang(code: Optional[str]) -> str:
 def _tr(lang: Optional[str], ru: str, uk: str, en: str) -> str:
     l = _normalize_lang(lang)
     return uk if l == "uk" else en if l == "en" else ru
+
+
+def _reminders_help_kb(lang: str):
+    kb = InlineKeyboardBuilder()
+    kb.button(text=_tr(lang, "✅ Пример", "✅ Приклад", "✅ Example"), callback_data="rem:example")
+    kb.button(text=_tr(lang, "📋 Список", "📋 Список", "📋 List"), callback_data="rem:list")
+    kb.button(text=_tr(lang, "⛔️ Выкл всё", "⛔️ Вимк все", "⛔️ Disable all"), callback_data="rem:disable_all")
+    kb.button(text=_tr(lang, "✅ Вкл всё", "✅ Увімк все", "✅ Enable all"), callback_data="rem:enable_all")
+    kb.adjust(2, 2)
+    return kb.as_markup()
 
 
 async def _get_lang(
@@ -161,36 +172,6 @@ def _fmt_local(dt_utc: datetime, tz_name: str) -> str:
 # HELP
 # ---------------------------------------------------------------------
 
-def _reminders_help_kb(lang: str) -> InlineKeyboardMarkup:
-    l = _normalize_lang(lang)
-
-    def T(ru: str, uk: str, en: str) -> str:
-        return uk if l == "uk" else en if l == "en" else ru
-
-    # Кнопки отправляют текст — дальше сработают твои триггеры/парсер
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text=T("➕ Создать пример", "➕ Створити приклад", "➕ Create example"),
-                callback_data="noop"
-            ),
-            InlineKeyboardButton(
-                text=T("📋 Мои напоминания", "📋 Мої нагадування", "📋 My reminders"),
-                callback_data="noop"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                text=T("⛔️ Выключить все", "⛔️ Вимкнути всі", "⛔️ Disable all"),
-                callback_data="noop"
-            ),
-            InlineKeyboardButton(
-                text=T("✅ Включить все", "✅ Увімкнути всі", "✅ Enable all"),
-                callback_data="noop"
-            ),
-        ],
-    ])
-
 @router.message(Command("remind"))
 async def remind_help(
     m: Message,
@@ -202,26 +183,37 @@ async def remind_help(
     await m.answer(
         _tr(
             l,
-            "Примеры:\n"
-            "• «напомни воду в 12:00»\n"
-            "• «напомни позвонить через 15 минут»\n"
-            "• «напомни отчёт по будням в 10:00»\n"
-            "• «выключи все напоминания» / «включи напоминания вода»",
-            "Приклади:\n"
-            "• «нагадай воду о 12:00»\n"
-            "• «нагадай подзвонити через 15 хвилин»\n"
-            "• «нагадай звіт по буднях о 10:00»\n"
-            "• «вимкни всі нагадування» / «увімкни нагадування вода»",
-            "Examples:\n"
-            "• “remind water at 12:00”\n"
-            "• “remind to call in 15 minutes”\n"
-            "• “remind report weekdays at 10:00”\n"
-            "• “disable all reminders” / “enable reminders water”",
+            (
+                "⏰ Напоминания, которые не напрягают\n\n"
+                "Иногда мы не забываем — просто дел много.\n"
+                "Скинь задачу и время, а я напомню, когда надо.\n\n"
+                "Примеры:\n"
+                "• «Вода в 12:00»\n"
+                "• «Отчёт по будням в 10:00»\n"
+                "• «Через 30 минут лечь спать»"
+            ),
+            (
+                "⏰ Нагадування, які не напружують\n\n"
+                "Іноді ми не забуваємо — просто справ багато.\n"
+                "Скинь задачу й час, а я нагадаю, коли треба.\n\n"
+                "Приклади:\n"
+                "• «Вода о 12:00»\n"
+                "• «Звіт по буднях о 10:00»\n"
+                "• «Через 30 хвилин лягти спати»"
+            ),
+            (
+                "⏰ Reminders without pressure\n\n"
+                "You don’t always forget — you’re just busy.\n"
+                "Send the task and time, and I’ll remind you right on time.\n\n"
+                "Examples:\n"
+                "• “Water at 12:00”\n"
+                "• “Report weekdays at 10:00”\n"
+                "• “Go to sleep in 30 minutes”"
+            ),
         ),
         parse_mode=None,
         reply_markup=_reminders_help_kb(l),
     )
-
 
 # ---------------------------------------------------------------------
 # TRIGGERS
@@ -243,8 +235,8 @@ def _has_trigger(s: Optional[str]) -> bool:
     return bool(s) and any(w in s.lower() for w in _TRIGGER_WORDS)
 
 _TIME_HINT_WORDS: tuple[str, ...] = (
-    # RU / UK
-    "в ", "у ", "завтра", "сегодня", "послезавтра",
+    # RU / UK (без супер-общих "в " / "у ")
+    "завтра", "сегодня", "послезавтра",
     "через", "каждый", "каждую", "каждое", "каждые",
     "по будням", "по выходным", "ежедневно", "раз в",
     "кожного", "щодня", "по буднях",
@@ -268,11 +260,23 @@ def _looks_like_reminder(text: Optional[str]) -> bool:
     t = text.strip().lower()
     if not t or t.startswith("/"):
         return False
+
+    # если это явно команда с триггером (напомни/включи/выключи) — уйдёт в основной парсер
     if _has_trigger(t):
         return False
+
+    # строгий признак времени
     if _time_re.search(t):
         return True
-    return any(w in t for w in _TIME_HINT_WORDS)
+
+    # регулярность/расписание (эти фразы сами по себе достаточно “сильные”)
+    strong = (
+        "по будням", "по выходным", "ежедневно", "раз в",
+        "каждый", "каждую", "каждое", "каждые",
+        "щодня", "по буднях", "кожного",
+        "every ", "weekdays", "daily",
+    )
+    return any(x in t for x in strong)
 
 def _is_list_alias(text: Optional[str]) -> bool:
     if not text:
@@ -290,18 +294,6 @@ def _should_parse(text: Optional[str]) -> bool:
 # ---------------------------------------------------------------------
 # PARSE FLOW
 # ---------------------------------------------------------------------
-
-def _looks_like_time_phrase(text: str) -> bool:
-    if not text:
-        return False
-    t = text.lower()
-    keywords = (
-        "через", "завтра", "сегодня", "послезавтра",
-        "утром", "вечером", "ночью",
-        "в ", " о "
-    )
-    return any(k in t for k in keywords)
-
 
 @router.message(F.text.func(_should_parse))
 async def remind_parse(
@@ -780,24 +772,3 @@ async def reminders_help_callbacks(
 
 __all__ = ["router"]
 
-
-
-@router.message(
-    F.text.func(_looks_like_time_phrase)
-    & ~F.text.func(_has_trigger)
-    & ~F.text.startswith("/")
-)
-async def remind_parse_implicit(
-    m: Message,
-    session: AsyncSession,
-    lang: Optional[str] = None,
-) -> None:
-    # Мягкий автопарсинг без слова "напомни"
-    m2 = Message(
-        message_id=m.message_id,
-        date=m.date,
-        chat=m.chat,
-        from_user=m.from_user,
-        text="напомни " + (m.text or ""),
-    )
-    await remind_parse(m2, session, lang)
