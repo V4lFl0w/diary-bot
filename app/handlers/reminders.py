@@ -81,11 +81,10 @@ def _tr(lang: Optional[str], ru: str, uk: str, en: str) -> str:
 
 def _reminders_help_kb(lang: str):
     kb = InlineKeyboardBuilder()
-    kb.button(text=_tr(lang, "🧪 Пример", "🧪 Приклад", "🧪 Example"), callback_data="rem:example")
     kb.button(text=_tr(lang, "📋 Список", "📋 Список", "📋 List"), callback_data="rem:list")
     kb.button(text=_tr(lang, "⛔️ Выкл всё", "⛔️ Вимк все", "⛔️ Disable all"), callback_data="rem:disable_all")
     kb.button(text=_tr(lang, "🔔 Вкл всё", "🔔 Увімк все", "🔔 Enable all"), callback_data="rem:enable_all")
-    kb.adjust(2, 2)
+    kb.adjust(2, 1)
     return kb.as_markup()
 
 
@@ -540,13 +539,13 @@ async def remind_parse(m: Message, session: AsyncSession, lang: Optional[str] = 
 # ---------------------------------------------------------------------
 
 @router.message(Command("reminders"))
-async def reminders_list(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
-    if not m.from_user:
+async def reminders_list(m: Message, session: AsyncSession, lang: Optional[str] = None, tg_id_override: Optional[int] = None) -> None:
+    tg_id = tg_id_override or getattr(getattr(m, "from_user", None), "id", None)
+    if not tg_id:
         return
 
-    user = await _load_user(session, m.from_user.id)
+    user = await _load_user(session, tg_id)
     l = await _get_lang(session, m, fallback=lang)
-
     if not user:
         await m.answer(_tr(l, "Нажми /start", "Натисни /start", "Press /start"), parse_mode=None)
         return
@@ -595,7 +594,6 @@ async def reminders_list(m: Message, session: AsyncSession, lang: Optional[str] 
     # нижние действия
     kb.button(text=_tr(l, "🔔 Вкл всё", "🔔 Увімк все", "🔔 Enable all"), callback_data="rem:enable_all")
     kb.button(text=_tr(l, "⛔️ Выкл всё", "⛔️ Вимк все", "⛔️ Disable all"), callback_data="rem:disable_all")
-    kb.button(text=_tr(l, "🧪 Пример", "🧪 Приклад", "🧪 Example"), callback_data="rem:example")
     kb.adjust(1, 1, 1, 2, 1)
 
     await m.answer("\n".join(lines), parse_mode=None, reply_markup=kb.as_markup())
@@ -767,7 +765,7 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
     # LIST
     if data == "rem:list":
         if c.message:
-            await reminders_list(c.message, session, lang=l)
+            await reminders_list(c.message, session, lang=l, tg_id_override=c.from_user.id)
         return
 
     # ENABLE/DISABLE ALL — без спама (тост)
@@ -807,7 +805,7 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
 
         # обновим список (если есть сообщение)
         if c.message:
-            await reminders_list(c.message, session, lang=l)
+            await reminders_list(c.message, session, lang=l, tg_id_override=c.from_user.id)
         return
 
     # EXAMPLE
@@ -950,7 +948,7 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
             pass
 
         if c.message:
-            await reminders_list(c.message, session, lang=l)
+            await reminders_list(c.message, session, lang=l, tg_id_override=c.from_user.id)
         return
 
     # MOVE / EDIT -> ставим pending и просим текст
