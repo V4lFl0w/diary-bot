@@ -64,7 +64,7 @@ except Exception:
 
 # ✅ proactive morning/evening
 try:
-    from app.services.proactive_scheduler import proactive_loop
+    from app.services.proactive_loop import proactive_loop
 except Exception:
     async def proactive_loop(*_a, **_kw) -> None:
         return None
