@@ -128,7 +128,7 @@ async def sync_user_premium_flags(
         - is_premium=False
     """
     now = now or utcnow()
-    sub = await get_active_subscription(session, user.id, now=now)
+    sub = await get_current_subscription(session, user.id, now=now)
 
     exp = _as_aware_utc(sub.expires_at) if sub else None
     now = _as_aware_utc(now) or datetime.now(timezone.utc)
@@ -150,9 +150,19 @@ async def sync_user_premium_flags(
         except Exception:
             pass
     else:
-        # Нет активной подписки
-        # NOTE: если подписки нет — НЕ перезаписываем ручной/админский премиум
-        # (премиум по подпискам должен только ДОБАВЛЯТЬ/продлевать, но не отбирать)
+        # Нет действующей подписки (active/canceled и не истёкшей)
+        # Если был временный премиум (trial/ручной до даты) и он истёк — сбрасываем.
+        pu = _as_aware_utc(getattr(user, "premium_until", None))
+        if pu is not None and pu <= now:
+            user.is_premium = False
+            user.premium_until = None
+            user.premium_plan = "basic"
+        else:
+            # lifetime (premium_until=None) или ещё не истёкший ручной премиум — не трогаем
+            # Но если план завис на pro без активного премиума — чиним
+            if (str(getattr(user, "premium_plan", "") or "").lower() == "pro") and (not bool(getattr(user, "is_premium", False))):
+                user.premium_plan = "basic"
+        session.add(user)
         return
     session.add(user)
     # commit — снаружи
@@ -342,7 +352,7 @@ async def cancel_active_subscription(
     """
     now = now or utcnow()
 
-    sub = await get_active_subscription(session, user.id, now=now)
+    sub = await get_current_subscription(session, user.id, now=now)
     if not sub:
         return False
 
