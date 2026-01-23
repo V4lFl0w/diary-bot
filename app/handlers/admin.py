@@ -1076,9 +1076,40 @@ async def on_find_id(m: Message, session: AsyncSession, state: FSMContext) -> No
         await state.clear()
         return
 
-    await m.answer(_format_user_card(l, u))
-    await state.clear()
+    link = f"tg://user?id={tg_id}"
+    now = datetime.now(timezone.utc)
 
+    # премиум считаем безопасно (без вызова свойств, которые могут дернуть lazy-load)
+    prem_until = getattr(u, "premium_until", None)
+    prem_until_ok = False
+    if prem_until is not None:
+        try:
+            if getattr(prem_until, "tzinfo", None) is None:
+                prem_until = prem_until.replace(tzinfo=timezone.utc)
+            prem_until_ok = prem_until > now
+        except Exception:
+            prem_until_ok = False
+
+    is_prem = bool(getattr(u, "is_premium", False)) or prem_until_ok
+
+    text = "\n".join([
+        _tr(l, "user_card_title"),
+        f"• tg_id: {tg_id}",
+        f"• link: {link}",
+        f"• user_id: {getattr(u, 'id', '-')}",
+        f"• username: @{getattr(u, 'username', '')}" if getattr(u, "username", None) else "• username: -",
+        f"• locale: {getattr(u, 'locale', '-')}",
+        f"• tz: {getattr(u, 'tz', '-')}",
+        f"• last_seen_at: {getattr(u, 'last_seen_at', None)}",
+        f"• is_admin: {bool(getattr(u, 'is_admin', False))}",
+        f"• premium_plan: {getattr(u, 'premium_plan', 'basic') or 'basic'}",
+        f"• is_premium: {is_prem}",
+        f"• premium_until: {getattr(u, 'premium_until', None)}",
+        f"• banned: {_is_banned(u)}",
+    ])
+
+    await m.answer(text)
+    await state.clear()
 
 @router.message(AdminStates.wait_ban_id)
 async def on_ban_id(m: Message, session: AsyncSession, state: FSMContext) -> None:
