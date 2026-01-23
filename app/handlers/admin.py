@@ -404,11 +404,24 @@ def _apply_premium(user: User, hours: int = 24) -> None:
 
 
 def _reset_premium(user: User) -> None:
-    if hasattr(user, "is_premium"):
-        try:
-            user.is_premium = False  # type: ignore[attr-defined]
-        except Exception:
-            pass
+    # ВАЖНО: никаких hasattr/getattr — они могут триггерить lazy-load (MissingGreenlet)
+    try:
+        setattr(user, "is_premium", False)
+    except Exception:
+        pass
+
+    try:
+        setattr(user, "premium_until", None)
+    except Exception:
+        pass
+
+    # чтобы plan не давал доступ без активного премиума
+    try:
+        setattr(user, "premium_plan", "basic")
+    except Exception:
+        pass
+
+
 
     if hasattr(user, "premium_until"):
         try:
