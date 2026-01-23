@@ -146,7 +146,7 @@ async def sync_user_premium_flags(
             if p == 'pro' or p.startswith('pro_'):
                 user.premium_plan = 'pro'
             elif p == 'basic' or p.startswith('basic_'):
-                user.premium_plan = 'basic'
+                user.premium_plan = 'free'
         except Exception:
             pass
     else:
@@ -156,12 +156,12 @@ async def sync_user_premium_flags(
         if pu is not None and pu <= now:
             user.is_premium = False
             user.premium_until = None
-            user.premium_plan = "basic"
+            user.premium_plan = "free"
         else:
             # lifetime (premium_until=None) или ещё не истёкший ручной премиум — не трогаем
             # Но если план завис на pro без активного премиума — чиним
             if (str(getattr(user, "premium_plan", "") or "").lower() == "pro") and (not bool(getattr(user, "is_premium", False))):
-                user.premium_plan = "basic"
+                user.premium_plan = "free"
         session.add(user)
         return
     session.add(user)
