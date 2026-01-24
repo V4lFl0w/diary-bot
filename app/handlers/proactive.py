@@ -107,6 +107,35 @@ I18N = {
             "Ты:\n«Лучше начинать утром»\n\n"
             "👉 Мозг закрывает день, а не варится в нём ночью."
         ),
+        "when": "🕒 Когда это приходит",
+        "why_short": "🎯 Зачем это тебе",
+        "what_writes": "💬 Что будет писать бот",
+        "how_to_answer": "👉 Как отвечать: коротко, одной фразой. Не идеально — просто начни.",
+        "kb_info": "💡 Как это помогает",
+        "info": (
+            "💡 Как это помогает\n\n"
+            "🎯 Зачем тебе этот режим\n"
+            "• Меньше хаоса в голове\n"
+            "• Проще начать дела\n"
+            "• День не пролетает впустую\n"
+            "• Появляется чувство контроля\n\n"
+            "🌅 Утром бот помогает войти в день\n"
+            "Он спросит:\n"
+            "• Что сегодня главное?\n"
+            "• Какие 3 шага приблизят к этому?\n"
+            "• С чего начнёшь прямо сейчас?\n\n"
+            "🌙 Вечером бот помогает закрыть день\n"
+            "Он спросит:\n"
+            "• Как прошёл день?\n"
+            "• Что получилось?\n"
+            "• Какой вывод на будущее?\n\n"
+            "⚙️ Настройка — 10 секунд\n"
+            "1 клик — выбрать режим\n"
+            "2 клика — задать время\n"
+            "Дальше бот делает всё сам\n\n"
+            "🗂 Твои ответы сохраняются — ты сможешь видеть прогресс."
+        ),
+
     },
     "uk": {
         "title": "⚡ Проактивність",
@@ -177,6 +206,35 @@ I18N = {
             "Ти:\n«Краще починати зранку»\n\n"
             "👉 Мозок закриває день, а не вариться в ньому вночі."
         ),
+        "when": "🕒 Коли це приходить",
+        "why_short": "🎯 Навіщо це тобі",
+        "what_writes": "💬 Що буде писати бот",
+        "how_to_answer": "👉 Як відповідати: коротко, одним реченням. Не ідеально — просто почни.",
+        "kb_info": "💡 Як це допомагає",
+        "info": (
+            "💡 Як це допомагає\n\n"
+            "🎯 Навіщо тобі цей режим\n"
+            "• Менше хаосу в голові\n"
+            "• Легше почати справи\n"
+            "• День не пролітає дарма\n"
+            "• З’являється відчуття контролю\n\n"
+            "🌅 Вранці бот допомагає увійти в день\n"
+            "Він спитає:\n"
+            "• Що сьогодні головне?\n"
+            "• Які 3 кроки наблизять до цього?\n"
+            "• З чого почнеш прямо зараз?\n\n"
+            "🌙 Увечері бот допомагає закрити день\n"
+            "Він спитає:\n"
+            "• Як пройшов день?\n"
+            "• Що вийшло?\n"
+            "• Який висновок на майбутнє?\n\n"
+            "⚙️ Налаштування — 10 секунд\n"
+            "1 клік — вибрати режим\n"
+            "2 кліки — задати час\n"
+            "Далі бот робить все сам\n\n"
+            "🗂 Твої відповіді зберігаються — ти бачитимеш прогрес."
+        ),
+
     },
     "en": {
         "title": "⚡ Proactivity",
@@ -247,6 +305,35 @@ I18N = {
             "You:\n“Start earlier in the morning”\n\n"
             "👉 Your brain closes the day instead of boiling in it at night."
         ),
+        "when": "🕒 When it arrives",
+        "why_short": "🎯 Why you want it",
+        "what_writes": "💬 What the bot will write",
+        "how_to_answer": "👉 How to reply: short, one line. Not perfect — just start.",
+        "kb_info": "💡 How it helps",
+        "info": (
+            "💡 How it helps\n\n"
+            "🎯 Why this mode matters\n"
+            "• Less chaos in your head\n"
+            "• Easier to start\n"
+            "• The day doesn’t vanish\n"
+            "• More sense of control\n\n"
+            "🌅 Morning helps you enter the day\n"
+            "It will ask:\n"
+            "• What’s the main thing today?\n"
+            "• What 3 steps move you forward?\n"
+            "• What’s your first tiny start right now?\n\n"
+            "🌙 Evening helps you close the day\n"
+            "It will ask:\n"
+            "• How was your day?\n"
+            "• What worked?\n"
+            "• What’s the takeaway?\n\n"
+            "⚙️ Setup — 10 seconds\n"
+            "1 tap — choose mode\n"
+            "2 taps — set time\n"
+            "Then the bot does the rest\n\n"
+            "🗂 Your answers are saved — you can track progress."
+        ),
+
     },
 }
 
@@ -311,7 +398,6 @@ def _screen_text(u: User, lang: str) -> str:
     mt = _fmt_time(getattr(u, "morning_time", None))
     et = _fmt_time(getattr(u, "evening_time", None))
 
-    # streak (если появится поле в БД — красиво покажем, иначе не мешаем)
     streak = getattr(u, "proactive_streak", None)
     streak_line = ""
     if isinstance(streak, int) and streak > 0:
@@ -322,42 +408,54 @@ def _screen_text(u: User, lang: str) -> str:
         else:
             streak_line = f"\n🔥 Серия: {streak} день(дней)"
 
+    if _norm_lang(lang) == "uk":
+        benefits = [
+            "Менше хаосу в голові",
+            "Легше почати справи",
+            "День не минає дарма",
+            "З’являється відчуття контролю",
+        ]
+    elif _norm_lang(lang) == "en":
+        benefits = [
+            "Less chaos in your head",
+            "Easier to start",
+            "The day doesn’t vanish",
+            "More sense of control",
+        ]
+    else:
+        benefits = [
+            "Меньше хаоса в голове",
+            "Проще начать дела",
+            "День не пролетает впустую",
+            "Появляется чувство контроля",
+        ]
+
     return (
         f"{_t(lang, 'title')}\n"
         f"{_t(lang, 'subtitle')}\n\n"
-        f"{_t(lang, 'how_it_works')}\n"
+        f"🧠 {_t(lang, 'how_it_works')}\n"
         f"{_t(lang, 'how_1')}\n"
-        f"{_t(lang, 'how_2')}\n"
-        f"{_t(lang, 'line_help')}\n\n"
+        f"{_t(lang, 'how_2')}\n\n"
         f"{_t(lang, 'current_mode')}\n"
-        f"{_t(lang, 'mode')}: {_mode_label(lang, mode)}\n"
-        f"{_t(lang, 'time')}:\n"
-        f"{_t(lang, 'morning')}: {mt}    {_t(lang, 'evening')}: {et}"
+        f"{_t(lang, 'mode')}: {_mode_label(lang, mode)}\n\n"
+        f"{_t(lang, 'when')}\n"
+        f"{_t(lang, 'morning')}: {mt}\n"
+        f"{_t(lang, 'evening')}: {et}"
         f"{streak_line}\n\n"
-        f"{_t(lang, 'practice')}\n\n"
-        f"{_t(lang, 'm_block_title')}\n"
-        f"{_t(lang, 'm_q')}\n"
-        f"{_t(lang, 'm_q1')}\n"
-        f"{_t(lang, 'm_q2')}\n"
-        f"{_t(lang, 'm_q3')}\n"
-        f"{_t(lang, 'm_idea')}\n\n"
-        f"{_t(lang, 'e_block_title')}\n"
-        f"{_t(lang, 'e_q')}\n"
-        f"{_t(lang, 'e_q1')}\n"
-        f"{_t(lang, 'e_q2')}\n"
-        f"{_t(lang, 'e_q3')}\n"
-        f"{_t(lang, 'e_idea')}\n\n"
-        f"{_t(lang, 'setup')}\n"
-        f"{_t(lang, 'setup_1')}\n"
-        f"{_t(lang, 'setup_2')}\n"
-        f"{_t(lang, 'setup_3')}\n\n"
-        f"{_t(lang, 'why')}\n"
-        f"{_t(lang, 'why_1')}\n"
-        f"{_t(lang, 'why_2')}\n"
-        f"{_t(lang, 'why_3')}\n"
-        f"{_t(lang, 'why_4')}\n"
-        f"{_t(lang, 'why_5')}"
+        f"{_t(lang, 'why_short')}\n"
+        f"• " + "\n• ".join(benefits) + "\n\n"
+        f"{_t(lang, 'what_writes')}\n\n"
+        f"🌅 {_t(lang, 'morning')}\n"
+        f"• {_t(lang, 'm_q1').replace('• 🎯','').strip()}\n"
+        f"• {_t(lang, 'm_q2').replace('• 👣','').strip()}\n"
+        f"• {_t(lang, 'm_q3').replace('• ⚡','').strip()}\n\n"
+        f"🌙 {_t(lang, 'evening')}\n"
+        f"• {_t(lang, 'e_q1').replace('• 🔭','').strip()}\n"
+        f"• {_t(lang, 'e_q2').replace('• 🏆','').strip()}\n"
+        f"• {_t(lang, 'e_q3').replace('• 📘','').strip()}\n\n"
+        f"{_t(lang, 'how_to_answer')}"
     )
+
 
 def proactive_kb(u: User, lang: str):
     kb = InlineKeyboardBuilder()
@@ -371,9 +469,11 @@ def proactive_kb(u: User, lang: str):
     kb.button(text=_t(lang, "kb_sample_m"), callback_data="proactive:sample:morning")
     kb.button(text=_t(lang, "kb_sample_e"), callback_data="proactive:sample:evening")
 
+    kb.button(text=_t(lang, "kb_info"), callback_data="proactive:info")
+
     kb.button(text=_t(lang, "kb_back"), callback_data="menu:home")
 
-    kb.adjust(1, 2, 2, 1)
+    kb.adjust(1, 2, 2, 1, 1)
     return kb.as_markup()
 
 async def _render_to_message(m: Message, u: User, lang: str):
@@ -497,6 +597,16 @@ async def proactive_time_input(message: Message, session: AsyncSession, state: F
 
     await message.answer(_t(lang, "saved"), parse_mode=None)
     await show_proactive_screen(message, session, lang=lang)
+
+
+@router.callback_query(F.data == "proactive:info")
+async def proactive_info(cb: CallbackQuery, session: AsyncSession):
+    if not cb.message:
+        return
+    u = await _get_user(session, cb.from_user.id)
+    lang = _user_lang(u, fallback=_norm_lang(getattr(cb.from_user, "language_code", "ru"))) if u else _norm_lang(getattr(cb.from_user, "language_code", "ru"))
+    await cb.message.answer(_t(lang, "info"), parse_mode=None)
+    await cb.answer("Ок")
 
 @router.callback_query(F.data.startswith("proactive:sample:"))
 async def proactive_sample(cb: CallbackQuery, session: AsyncSession):
