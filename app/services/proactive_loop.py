@@ -5,6 +5,8 @@ import logging
 from datetime import datetime, time, timezone, timedelta
 from typing import Optional
 
+
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -116,6 +118,24 @@ def _checkin_text(lang: str) -> str:
     )
 
 
+
+
+def _reply_kb(kind: str, lang: str) -> InlineKeyboardMarkup:
+    # kind: "morning" / "evening"
+    lang = _norm_lang(lang)
+    if lang == "uk":
+        btn = "✍️ Відповісти"
+    elif lang == "en":
+        btn = "✍️ Reply"
+    else:
+        btn = "✍️ Ответить"
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=btn, callback_data=f"proactive:checkin:{kind}")]
+        ]
+    )
+
 async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
     while True:
         try:
@@ -156,7 +176,7 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
 
                             if should_send:
                                 try:
-                                    await bot.send_message(tg_id, _briefing_text(lang), parse_mode=None)
+                                    await bot.send_message(tg_id, _briefing_text(lang), parse_mode=None, reply_markup=_reply_kb('morning', lang))
                                     u.morning_last_sent_at = now_utc
                                     changed = True
                                 except Exception:
@@ -177,7 +197,7 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
 
                             if should_send:
                                 try:
-                                    await bot.send_message(tg_id, _checkin_text(lang), parse_mode=None)
+                                    await bot.send_message(tg_id, _checkin_text(lang), parse_mode=None, reply_markup=_reply_kb('evening', lang))
                                     u.evening_last_sent_at = now_utc
                                     changed = True
                                 except Exception:

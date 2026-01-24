@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.handlers.proactive_checkin import router as proactive_checkin_router
+
 
 async def log_db_info():
     try:
@@ -344,6 +346,9 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(report.router)
 
     dp.include_router(proactive.router)
+
+    dp.include_router(proactive_checkin_router)
+
     dp.include_router(motivation.router)
 
     if assistant_router is not None:
