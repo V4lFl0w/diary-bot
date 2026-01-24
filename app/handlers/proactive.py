@@ -213,11 +213,11 @@ async def _render(
 
     # If coming from callback — always edit same message for "clean UI"
     if cb_message:
-        await cb_message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
+        await cb_message.edit_text(text, reply_markup=markup, parse_mode=None)
         return
 
     # If command/menu message — send one screen
-    await message.answer(text, reply_markup=markup, parse_mode="Markdown")
+    await message.answer(text, reply_markup=markup, parse_mode=None)
 
 
 async def show_proactive_screen(message: Message, session: AsyncSession, lang: str = "ru", *_a, **_k):
@@ -345,7 +345,7 @@ async def proactive_time_input(message: Message, session: AsyncSession, state: F
                 message_id=msg_id,
                 text=_main_text(user),
                 reply_markup=_kb(user, view="main"),
-                parse_mode="Markdown",
+                parse_mode=None,
             )
             await message.answer("✅ Сохранено.", parse_mode=None)
             return
