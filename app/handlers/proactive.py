@@ -408,51 +408,40 @@ def _screen_text(u: User, lang: str) -> str:
         else:
             streak_line = f"\n🔥 Серия: {streak} день(дней)"
 
-    if _norm_lang(lang) == "uk":
-        benefits = [
-            "Менше хаосу в голові",
-            "Легше почати справи",
-            "День не минає дарма",
-            "З’являється відчуття контролю",
-        ]
-    elif _norm_lang(lang) == "en":
-        benefits = [
-            "Less chaos in your head",
-            "Easier to start",
-            "The day doesn’t vanish",
-            "More sense of control",
-        ]
-    else:
-        benefits = [
-            "Меньше хаоса в голове",
-            "Проще начать дела",
-            "День не пролетает впустую",
-            "Появляется чувство контроля",
-        ]
-
     return (
-        f"{_t(lang, 'title')}\n"
-        f"{_t(lang, 'subtitle')}\n\n"
-        f"🧠 {_t(lang, 'how_it_works')}\n"
-        f"{_t(lang, 'how_1')}\n"
-        f"{_t(lang, 'how_2')}\n\n"
-        f"{_t(lang, 'current_mode')}\n"
+        f"⚡ {_t(lang, 'title').replace('⚡ ', '')}\n\n"
+        f"Режим, где бот поможет тебе с фокусом, чтобы день был продуктивнее.\n\n"
+
+        f"🤔 Как это работает:\n\n"
+        f"• 🌅 Утром — помогает правильно сфокусироваться\n"
+        f"• 🌙 Вечером — спокойно закрыть день и зафиксировать результат\n\n"
+
+        f"🧠 {_t(lang, 'current_mode')}\n"
         f"{_t(lang, 'mode')}: {_mode_label(lang, mode)}\n\n"
-        f"{_t(lang, 'when')}\n"
-        f"{_t(lang, 'morning')}: {mt}\n"
-        f"{_t(lang, 'evening')}: {et}"
+
+        f"🕒 {_t(lang, 'when')}:\n\n"
+        f"🌅 {_t(lang, 'morning')}: {mt}\n"
+        f"🌙 {_t(lang, 'evening')}: {et}"
         f"{streak_line}\n\n"
+
         f"{_t(lang, 'why_short')}\n"
-        f"• " + "\n• ".join(benefits) + "\n\n"
+        f"• Меньше хаоса в голове\n"
+        f"• Проще начать дела\n"
+        f"• День не пролетает впустую\n"
+        f"• Появляется чувство контроля\n\n"
+
         f"{_t(lang, 'what_writes')}\n\n"
+
         f"🌅 {_t(lang, 'morning')}\n"
         f"• {_t(lang, 'm_q1').replace('• 🎯','').strip()}\n"
         f"• {_t(lang, 'm_q2').replace('• 👣','').strip()}\n"
         f"• {_t(lang, 'm_q3').replace('• ⚡','').strip()}\n\n"
+
         f"🌙 {_t(lang, 'evening')}\n"
         f"• {_t(lang, 'e_q1').replace('• 🔭','').strip()}\n"
         f"• {_t(lang, 'e_q2').replace('• 🏆','').strip()}\n"
         f"• {_t(lang, 'e_q3').replace('• 📘','').strip()}\n\n"
+
         f"{_t(lang, 'how_to_answer')}"
     )
 
