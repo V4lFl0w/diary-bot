@@ -11,6 +11,16 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import settings
 from app.db import Base
+import app.models  # noqa: F401
+
+# ensure all model modules are imported so Base.metadata is complete
+import pkgutil
+import importlib
+import app.models as models_pkg
+
+for m in pkgutil.walk_packages(models_pkg.__path__, models_pkg.__name__ + "."):
+    importlib.import_module(m.name)
+
 
 
 config = context.config
@@ -41,12 +51,11 @@ config.set_main_option("sqlalchemy.url", str(db_url))
 
 target_metadata = Base.metadata
 
-
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
-        target_metadata=target_metadata,
+        target_metadata=Base.metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
@@ -59,7 +68,7 @@ def run_migrations_offline() -> None:
 def do_run_migrations(connection: Connection) -> None:
     context.configure(
         connection=connection,
-        target_metadata=target_metadata,
+        target_metadata=Base.metadata,
         compare_type=True,
     )
 

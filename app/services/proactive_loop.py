@@ -41,28 +41,79 @@ def _same_local_day(last_sent: datetime, now_utc: datetime, tz) -> bool:
     return last_sent.astimezone(tz).date() == now_utc.astimezone(tz).date()
 
 
-def _briefing_text() -> str:
-    return (
-        "☀️ *Утренний импульс*\n\n"
-        "1) 🎯 *1 приоритет* (что даст максимум)\n"
-        "2) ✅ *3 шага* (самые короткие)\n"
-        "3) ⚡️ *Старт 2 минуты*\n\n"
-        "Ответь одной строкой: *какой приоритет?*"
-    )
-
-
-def _checkin_text() -> str:
-    return (
-        "🌙 *Вечерний чек-ин*\n\n"
-        "1) 🧠 как день (1 фраза)\n"
-        "2) 🏆 1 победа\n"
-        "3) 🧩 1 урок\n\n"
-        "Ответь: победа: ... / урок: ..."
-    )
-
-
 def _in_send_window(now_local: datetime, due_local: datetime) -> bool:
     return due_local <= now_local <= (due_local + SEND_WINDOW)
+
+
+def _norm_lang(v: Optional[str]) -> str:
+    if not v:
+        return "ru"
+    s = (v or "").strip().lower()
+    if s.startswith("uk"):
+        return "uk"
+    if s.startswith("en"):
+        return "en"
+    if s.startswith("ru"):
+        return "ru"
+    return "ru"
+
+
+def _get_lang(u: User) -> str:
+    return _norm_lang(getattr(u, "lang", None) or getattr(u, "language", None) or "ru")
+
+
+def _briefing_text(lang: str) -> str:
+    lang = _norm_lang(lang)
+    if lang == "uk":
+        return (
+            "🌅 Ранок — короткий старт\n\n"
+            "🎯 Що сьогодні головне? (1 річ)\n"
+            "👣 Які 3 прості кроки?\n"
+            "⚡ З чого почнеш прямо зараз? (2 хвилини)\n\n"
+            "Відповідай однією строкою: що головне?"
+        )
+    if lang == "en":
+        return (
+            "🌅 Morning — quick start\n\n"
+            "🎯 What’s the one main thing today?\n"
+            "👣 What 3 simple steps move you forward?\n"
+            "⚡ What’s your 2-minute start right now?\n\n"
+            "Reply in one line: what’s the main thing?"
+        )
+    return (
+        "🌅 Утро — короткий старт\n\n"
+        "🎯 Что сегодня главное? (1 вещь)\n"
+        "👣 Какие 3 простых шага?\n"
+        "⚡ С чего начнёшь прямо сейчас? (2 минуты)\n\n"
+        "Ответь одной строкой: что главное?"
+    )
+
+
+def _checkin_text(lang: str) -> str:
+    lang = _norm_lang(lang)
+    if lang == "uk":
+        return (
+            "🌙 Вечір — закриваємо день\n\n"
+            "🔭 Як пройшов день? (1 фраза)\n"
+            "🏆 Що сьогодні вийшло?\n"
+            "📘 Який урок / висновок?\n\n"
+            "Відповідь форматом: день: ... / перемога: ... / урок: ..."
+        )
+    if lang == "en":
+        return (
+            "🌙 Evening — close the day\n\n"
+            "🔭 How was your day? (1 sentence)\n"
+            "🏆 What worked today?\n"
+            "📘 What’s the lesson?\n\n"
+            "Reply as: day: ... / win: ... / lesson: ..."
+        )
+    return (
+        "🌙 Вечер — закрываем день\n\n"
+        "🔭 Как прошёл день? (1 фраза)\n"
+        "🏆 Что сегодня получилось?\n"
+        "📘 Какой урок / вывод?\n\n"
+        "Ответь форматом: день: ... / победа: ... / урок: ..."
+    )
 
 
 async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
@@ -88,6 +139,7 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
 
                     tz = _user_tz(u)
                     now_local = now_utc.astimezone(tz)
+                    lang = _get_lang(u)
 
                     # ----- MORNING -----
                     if bool(getattr(u, "morning_auto", False)):
@@ -104,7 +156,7 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
 
                             if should_send:
                                 try:
-                                    await bot.send_message(tg_id, _briefing_text(), parse_mode="Markdown")
+                                    await bot.send_message(tg_id, _briefing_text(lang), parse_mode=None)
                                     u.morning_last_sent_at = now_utc
                                     changed = True
                                 except Exception:
@@ -125,7 +177,7 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
 
                             if should_send:
                                 try:
-                                    await bot.send_message(tg_id, _checkin_text(), parse_mode="Markdown")
+                                    await bot.send_message(tg_id, _checkin_text(lang), parse_mode=None)
                                     u.evening_last_sent_at = now_utc
                                     changed = True
                                 except Exception:
