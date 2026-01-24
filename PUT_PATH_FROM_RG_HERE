@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import datetime, time, timezone, timedelta
+from typing import Optional
+
+from sqlalchemy import select, or_
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.models.user import User
+
+log = logging.getLogger(__name__)
+
+SEND_WINDOW = timedelta(hours=2)  # шлём только в течение 2 часов после due
+
+
+def _parse_hhmm(v: Optional[str]) -> Optional[time]:
+    if not v:
+        return None
+    try:
+        hh, mm = v.strip().split(":", 1)
+        return time(int(hh), int(mm))
+    except Exception:
+        return None
+
+
+def _user_tz(user: User):
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(getattr(user, "tz", None) or "Europe/Kyiv")
+    except Exception:
+        return timezone.utc
+
+
+def _same_local_day(last_sent: datetime, now_utc: datetime, tz) -> bool:
+    if last_sent.tzinfo is None:
+        last_sent = last_sent.replace(tzinfo=timezone.utc)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.replace(tzinfo=timezone.utc)
+    return last_sent.astimezone(tz).date() == now_utc.astimezone(tz).date()
+
+
+def _in_send_window(now_local: datetime, due_local: datetime) -> bool:
+    return due_local <= now_local <= (due_local + SEND_WINDOW)
+
+
+def _norm_lang(v: Optional[str]) -> str:
+    if not v:
+        return "ru"
+    s = (v or "").strip().lower()
+    if s.startswith("uk"):
+        return "uk"
+    if s.startswith("en"):
+        return "en"
+    if s.startswith("ru"):
+        return "ru"
+    return "ru"
+
+
+def _get_lang(u: User) -> str:
+    # если в User есть lang/language — используем; иначе ru
+    return _norm_lang(getattr(u, "lang", None) or getattr(u, "language", None) or "ru")
+
+
+def _briefing_text(lang: str) -> str:
+    lang = _norm_lang(lang)
+    if lang == "uk":
+        return (
+            "🌅 Ранок — короткий старт\n\n"
+            "🎯 Що сьогодні головне? (1 річ)\n"
+            "👣 Які 3 прості кроки?\n"
+            "⚡ З чого почнеш прямо зараз? (2 хвилини)\n\n"
+            "Відповідай однією строкою: що головне?"
+        )
+    if lang == "en":
+        return (
+            "🌅 Morning — quick start\n\n"
+            "🎯 What’s the one main thing today?\n"
+            "👣 What 3 simple steps move you forward?\n"
+            "⚡ What’s your 2-minute start right now?\n\n"
+            "Reply in one line: what’s the main thing?"
+        )
+    return (
+        "🌅 Утро — короткий старт\n\n"
+        "🎯 Что сегодня главное? (1 вещь)\n"
+        "👣 Какие 3 простых шага?\n"
+        "⚡ С чего начнёшь прямо сейчас? (2 минуты)\n\n"
+        "Ответь одной строкой: что главное?"
+    )
+
+
+def _checkin_text(lang: str) -> str:
+    lang = _norm_lang(lang)
+    if lang == "uk":
+        return (
+            "🌙 Вечір — закриваємо день\n\n"
+            "🔭 Як пройшов день? (1 фраза)\n"
+            "🏆 Що сьогодні вийшло?\n"
+            "📘 Який урок / висновок?\n\n"
+            "Відповідь форматом: день: ... / перемога: ... / урок: ..."
+        )
+    if lang == "en":
+        return (
+            "🌙 Evening — close the day\n\n"
+            "🔭 How was your day? (1 sentence)\n"
+            "🏆 What worked today?\n"
+            "📘 What’s the lesson?\n\n"
+            "Reply as: day: ... / win: ... / lesson: ..."
+        )
+    return (
+        "🌙 Вечер — закрываем день\n\n"
+        "🔭 Как прошёл день? (1 фраза)\n"
+        "🏆 Что сегодня получилось?\n"
+        "📘 Какой урок / вывод?\n\n"
+        "Ответь форматом: день: ... / победа: ... / урок: ..."
+    )
+
+
+async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
+    while True:
+        try:
+            async with Session() as s:
+                now_utc = datetime.now(timezone.utc)
+
+                users = (
+                    await s.execute(
+                        select(User).where(
+                            or_(User.morning_auto.is_(True), User.evening_auto.is_(True))
+                        )
+                    )
+                ).scalars().all()
+
+                changed = False
+
+                for u in users:
+                    tg_id = getattr(u, "tg_id", None)
+                    if not tg_id:
+                        continue
+
+                    tz = _user_tz(u)
+                    now_local = now_utc.astimezone(tz)
+                    lang = _get_lang(u)
+
+                    # ----- MORNING -----
+                    if bool(getattr(u, "morning_auto", False)):
+                        t = getattr(u, "morning_time", None)
+                        if isinstance(t, str):
+                            t = _parse_hhmm(t)
+                        if isinstance(t, time):
+                            due = now_local.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
+                            last = getattr(u, "morning_last_sent_at", None)
+
+                            should_send = _in_send_window(now_local, due)
+                            if last:
+                                should_send = should_send and not _same_local_day(last, now_utc, tz)
+
+                            if should_send:
+                                try:
+                                    await bot.send_message(tg_id, _briefing_text(lang), parse_mode=None)
+                                    u.morning_last_sent_at = now_utc
+                                    changed = True
+                                except Exception:
+                                    log.exception("proactive morning send failed (tg_id=%s)", tg_id)
+
+                    # ----- EVENING -----
+                    if bool(getattr(u, "evening_auto", False)):
+                        t = getattr(u, "evening_time", None)
+                        if isinstance(t, str):
+                            t = _parse_hhmm(t)
+                        if isinstance(t, time):
+                            due = now_local.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
+                            last = getattr(u, "evening_last_sent_at", None)
+
+                            should_send = _in_send_window(now_local, due)
+                            if last:
+                                should_send = should_send and not _same_local_day(last, now_utc, tz)
+
+                            if should_send:
+                                try:
+                                    await bot.send_message(tg_id, _checkin_text(lang), parse_mode=None)
+                                    u.evening_last_sent_at = now_utc
+                                    changed = True
+                                except Exception:
+                                    log.exception("proactive evening send failed (tg_id=%s)", tg_id)
+
+                if changed:
+                    await s.commit()
+
+        except Exception:
+            log.exception("proactive_loop error")
+
+        await asyncio.sleep(45)
