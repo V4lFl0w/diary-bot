@@ -28,6 +28,7 @@ BTN_SUPPORT = "💬 Поддержка (1 строка)"
 BTN_JUMP = "⚡ Святой прыжок (15 минут)"
 BTN_COMEBACK = "🔄 Вернуться (без вины)"
 BTN_QUOTE = "🪶 Цитата (новая)"
+BTN_STREAK = "🏆 Серия (дни)"
 BTN_BACK = "⬅️ Назад"
 
 OPEN_TRIGGERS = (
@@ -44,10 +45,12 @@ class MotStates(StatesGroup):
 def _kb() -> ReplyKeyboardMarkup:
     rows = [
         [KeyboardButton(text=BTN_SUPPORT), KeyboardButton(text=BTN_JUMP)],
-        [KeyboardButton(text=BTN_COMEBACK), KeyboardButton(text=BTN_QUOTE)],
-        [KeyboardButton(text=BTN_BACK)],
+        [KeyboardButton(text=BTN_COMEBACK), KeyboardButton(text=BTN_STREAK)],
+        [KeyboardButton(text=BTN_QUOTE), KeyboardButton(text=BTN_BACK)],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+
+
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
@@ -106,15 +109,15 @@ async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
         lang,
         "🥇 Мотивация\n\n"
         "Я здесь, чтобы быстро вернуть тебе энергию и ясность.\n"
-        "Не «правильно», не «идеально» — просто чтобы ты пошёл дальше.\n\n"
+        "Чтобы о твоём следующем шаге говорили всем: «как он(а) это смог(ла)?»\n\n"
         "Выбери, что нужно прямо сейчас:",
         "🥇 Мотивація\n\n"
         "Я тут, щоб швидко повернути тобі енергію й ясність.\n"
-        "Не «правильно», не «ідеально» — просто щоб ти рухався далі.\n\n"
+        "Щоб про твій наступний крок казали всім: «як він(вона) це зміг(змогла)?»\n\n"
         "Обери, що треба просто зараз:",
         "🥇 Motivation\n\n"
         "I’m here to quickly bring back your energy and clarity.\n"
-        "Not perfect. Not polished. Just enough to move.\n\n"
+        "So everyone thinks about your next step: “how did he/she do that?”\n\n"
         "Pick what you need right now:",
     )
 
@@ -147,19 +150,19 @@ async def motivation_support_reply(m: Message, session: AsyncSession, state: FSM
 
     # Мягкий отклик + выбор следующего шага
     variants_ru = [
-        f"Понял: «{txt}». Это нормально.\n\nДавай без героизма: выбери один шаг 👇\n1) ⚡ Святой прыжок (15 минут)\n2) 🔄 Вернуться (без вины)\n3) 🪶 Цитата (новая)",
-        f"Слышу тебя: «{txt}».\n\nСейчас важно не доказывать, а поддержать себя.\nВыбери следующий шаг ниже 👇",
-        f"Ок. «{txt}» — это сигнал, а не приговор.\n\nВыбери, что делаем дальше 👇",
+        f"Слышу тебя: «{txt}».\n\nЯ рядом. Давай без давления: выбери, что нужно прямо сейчас 👇",
+        f"Понял(а): «{txt}».\n\nЭто не делает тебя слабым(ой). Сейчас важен один маленький шаг. Выбирай 👇",
+        f"Принял(а): «{txt}».\n\nОк, мы в одной команде. Дальше — только по чуть-чуть. Выбирай 👇",
     ]
     variants_uk = [
-        f"Зрозумів: «{txt}». Це нормально.\n\nБез героїзму: обери один крок 👇\n1) ⚡ Святой прыжок (15 хв)\n2) 🔄 Повернутися (без провини)\n3) 🪶 Цитата (нова)",
-        f"Чую тебе: «{txt}».\n\nЗараз важливо підтримати себе.\nОбери наступний крок нижче 👇",
-        f"Ок. «{txt}» — це сигнал, не вирок.\n\nОбери, що робимо далі 👇",
+        f"Чую тебе: «{txt}».\n\nЯ поруч. Без тиску: обери, що потрібно просто зараз 👇",
+        f"Зрозумів(ла): «{txt}».\n\nЦе не робить тебе слабким(ою). Зараз важливий один маленький крок. Обирай 👇",
+        f"Прийняв(ла): «{txt}».\n\nОк, ми в одній команді. Далі — тільки потроху. Обирай 👇",
     ]
     variants_en = [
-        f"Got it: “{txt}”. That’s valid.\n\nNo hero mode: pick one step 👇\n1) ⚡ Holy jump (15 min)\n2) 🔄 Come back (no guilt)\n3) 🪶 New quote",
-        f"I hear you: “{txt}”.\n\nRight now we support you — then we move.\nPick the next step 👇",
-        f"Ok. “{txt}” is a signal, not a sentence.\n\nPick what we do next 👇",
+        f"I hear you: “{txt}”.\n\nI’m here with you. No pressure — pick what you need right now 👇",
+        f"Got it: “{txt}”.\n\nThat doesn’t make you weak. One small step is enough. Choose 👇",
+        f"Accepted: “{txt}”.\n\nWe’re on the same team. We go gently. Choose 👇",
     ]
 
     msg = random.choice(variants_uk if lang == "uk" else variants_en if lang == "en" else variants_ru)
@@ -330,6 +333,36 @@ async def motivation_comeback_reply(m: Message, session: AsyncSession, state: FS
         reply_markup=_kb(),
     )
 
+
+
+@router.message(F.text == BTN_STREAK)
+async def motivation_streak(m: Message, session: AsyncSession):
+    user = await _get_user(session, m.from_user.id) if m.from_user else None
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+
+    streak = 0
+    if user is not None and hasattr(user, "proactive_streak"):
+        try:
+            streak = int(getattr(user, "proactive_streak") or 0)
+        except Exception:
+            streak = 0
+
+    if streak <= 0:
+        msg = _t(
+            lang,
+            "🏆 Серия: 0 дней.\nХочешь начать? Сделай сегодня один маленький шаг — и поехали.",
+            "🏆 Серія: 0 днів.\nХочеш почати? Зроби сьогодні один маленький крок — і поїхали.",
+            "🏆 Streak: 0 days.\nWant to start? Take one small step today — and we go.",
+        )
+    else:
+        msg = _t(
+            lang,
+            f"🏆 Серия: {streak} дн.\nТы держишь темп. Продолжим сегодня?",
+            f"🏆 Серія: {streak} дн.\nТи тримаєш темп. Продовжимо сьогодні?",
+            f"🏆 Streak: {streak} days.\nYou’re keeping the pace. Continue today?",
+        )
+
+    await m.answer(msg, reply_markup=_kb())
 
 @router.message(F.text == BTN_QUOTE)
 async def motivation_quote(m: Message, session: AsyncSession):
