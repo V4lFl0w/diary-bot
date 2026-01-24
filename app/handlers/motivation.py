@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, Iterable
 
@@ -22,22 +23,29 @@ except Exception:
 
 router = Router(name="motivation")
 
+# ---------- UI ----------
+BTN_SUPPORT = "💬 Поддержка (1 строка)"
+BTN_PUSH = "⚡ Старт на 15 минут"
+BTN_PLAN = "🧭 Разгрузить голову (план)"
+BTN_STREAK = "🔥 Серия (дни)"
+BTN_RETURN = "🔄 Вернуться в игру"
+BTN_QUOTE = "🪶 Цитата (новая)"
+BTN_BACK = "⬅️ Назад"
+
 OPEN_TRIGGERS = ("🥇 Мотивация", "🥇 Мотивація", "🥇 Motivation", "Мотивация", "Мотивація", "Motivation")
 
 
-# ----------------- FSM -----------------
-class MotivationFSM(StatesGroup):
-    waiting_support = State()
-    waiting_push = State()
-    waiting_plan = State()
-    waiting_reset = State()
+def _kb() -> ReplyKeyboardMarkup:
+    rows = [
+        [KeyboardButton(text=BTN_SUPPORT), KeyboardButton(text=BTN_PUSH)],
+        [KeyboardButton(text=BTN_PLAN), KeyboardButton(text=BTN_STREAK)],
+        [KeyboardButton(text=BTN_RETURN), KeyboardButton(text=BTN_QUOTE)],
+        [KeyboardButton(text=BTN_BACK)],
+    ]
+    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
 
-# ----------------- helpers -----------------
-async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
-
-
+# ---------- i18n (минимум, по делу) ----------
 def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
     loc = (getattr(user, "locale", None) or getattr(user, "lang", None) or tg_lang or "ru").lower()
     if loc.startswith(("ua", "uk")):
@@ -53,6 +61,11 @@ def _t(lang: str, ru: str, uk: str, en: str) -> str:
     if lang == "en":
         return en
     return ru
+
+
+# ---------- DB helpers ----------
+async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 def _user_tz(user: Optional[User]):
@@ -83,7 +96,8 @@ def _unique_days(dts: Iterable[datetime], tz) -> list:
             continue
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        d = dt.astimezone(tz).date()
+        local = dt.astimezone(tz)
+        d = local.date()
         if d not in seen:
             seen.add(d)
             days.append(d)
@@ -113,343 +127,297 @@ async def _calc_streak(session: AsyncSession, user_id: int, tz) -> int:
     return streak
 
 
-# ----------------- UI -----------------
-def _btns(lang: str) -> dict[str, str]:
-    return {
-        "support": _t(lang, "💬 Поддержка (1 строка)", "💬 Підтримка (1 рядок)", "💬 Support (1 line)"),
-        "push": _t(lang, "⚡ Пинок (15 минут)", "⚡ Поштовх (15 хв)", "⚡ Kick (15 min)"),
-        "plan": _t(lang, "🗓 План (3 пункта)", "🗓 План (3 пункти)", "🗓 Plan (3 bullets)"),
-        "streak": _t(lang, "🏁 Серия (дни)", "🏁 Серія (дні)", "🏁 Streak (days)"),
-        "reset": _t(lang, "🧩 Вернуться (без вины)", "🧩 Повернутись (без провини)", "🧩 Come back (no guilt)"),
-        "quote": _t(lang, "🪶 Цитата (новая)", "🪶 Цитата (нова)", "🪶 Quote (new)"),
-        "back": _t(lang, "⬅️ Назад", "⬅️ Назад", "⬅️ Back"),
-    }
+# ---------- FSM ----------
+class MotFSM(StatesGroup):
+    wait_support = State()
+    wait_push = State()
+    wait_plan = State()
+    wait_return = State()
 
 
-def _kb(lang: str) -> ReplyKeyboardMarkup:
-    b = _btns(lang)
-    rows = [
-        [KeyboardButton(text=b["support"]), KeyboardButton(text=b["push"])],
-        [KeyboardButton(text=b["plan"]), KeyboardButton(text=b["streak"])],
-        [KeyboardButton(text=b["reset"]), KeyboardButton(text=b["quote"])],
-        [KeyboardButton(text=b["back"])],
-    ]
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+def _soft_open_text(lang: str) -> str:
+    return _t(
+        lang,
+        "🔥 Мотивация\n\nЯ помогу быстро собраться, когда ты “плывёшь”.\nВыбери ниже — это реально займёт 30 секунд.\n\nЕсли хочешь просто начать — жми ⚡ «Старт на 15 минут».",
+        "🔥 Мотивація\n\nЯ допоможу швидко зібратися, коли ти “пливеш”.\nОбери нижче — це займе 30 секунд.\n\nЯкщо хочеш просто почати — тисни ⚡ «Старт на 15 хвилин».",
+        "🔥 Motivation\n\nI’ll help you get back on track fast.\nPick an option below — it takes ~30 seconds.\n\nIf you just want to start — tap ⚡ “15-minute start”.",
+    )
 
 
-# ----------------- Quotes (variety) -----------------
-_CURATED = {
-    "ru": [
-        "Дисциплина — это держать слово себе.",
-        "Не надо идеально. Надо сегодня.",
-        "Один честный шаг > ноль идеальных планов.",
-        "Твоя сила — в повторах, а не в настроении.",
-        "Начни с малого — и мозг подтянется следом.",
-    ],
-    "uk": [
-        "Дисципліна — це тримати слово собі.",
-        "Не треба ідеально. Треба сьогодні.",
-        "Один чесний крок > нуль ідеальних планів.",
-        "Твоя сила — у повторах, а не в настрої.",
-        "Почни з малого — і мозок підтягнеться.",
-    ],
-    "en": [
-        "Discipline is keeping promises to yourself.",
-        "Not perfect. Today.",
-        "One honest step beats zero perfect plans.",
-        "Your power is repetition, not mood.",
-        "Start small — your brain will follow.",
-    ],
-}
+def _cancel_hint(lang: str) -> str:
+    return _t(lang, "Отмена: /cancel", "Скасування: /cancel", "Cancel: /cancel")
 
 
-def _gen_quote(lang: str) -> str:
-    # “бесконечность” через комбинации
-    if lang == "en":
-        a = ["Do", "Start", "Keep", "Choose", "Build", "Return"]
-        b = ["one", "a small", "a simple", "a real", "a calm", "an honest"]
-        c = ["step", "move", "action", "15 minutes", "tiny start", "repeat"]
-        d = ["right now", "today", "without drama", "without perfection", "even tired", "before you overthink"]
-        return f"{random.choice(a)} {random.choice(b)} {random.choice(c)} {random.choice(d)}."
-    if lang == "uk":
-        a = ["Зроби", "Почни", "Тримай", "Обери", "Будуй", "Повернись"]
-        b = ["один", "малий", "простий", "реальний", "спокійний", "чесний"]
-        c = ["крок", "рух", "вчинок", "15 хвилин", "старт", "повтор"]
-        d = ["прямо зараз", "сьогодні", "без драми", "без ідеалу", "навіть втомлений", "до того як засумніваєшся"]
-        return f"{random.choice(a)} {random.choice(b)} {random.choice(c)} {random.choice(d)}."
-    # ru
-    a = ["Сделай", "Начни", "Держи", "Выбери", "Собери", "Вернись"]
-    b = ["один", "маленький", "простой", "реальный", "спокойный", "честный"]
-    c = ["шаг", "движ", "вклад", "15 минут", "старт", "повтор"]
-    d = ["прямо сейчас", "сегодня", "без драмы", "без идеала", "даже уставшим", "до того как начнёшь сомневаться"]
-    return f"{random.choice(a)} {random.choice(b)} {random.choice(c)} {random.choice(d)}."
-
-
-# ----------------- Open -----------------
 @router.message(F.text.in_(OPEN_TRIGGERS))
-async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
+async def motivation_open(m: Message, session: AsyncSession):
     if not m.from_user:
         return
-    await state.clear()
-
     user = await _get_user(session, m.from_user.id)
     lang = _user_lang(user, getattr(m.from_user, "language_code", None))
 
-    hook = _t(
-        lang,
-        "🔥 Мотивация\n\n"
-        "Я помогу тебе не сливаться и быстро возвращаться.\n"
-        "Выбирай ниже — это занимает 30 секунд.",
-        "🔥 Мотивація\n\n"
-        "Я допоможу не зливатися і швидко повертатися.\n"
-        "Обирай нижче — це займає 30 секунд.",
-        "🔥 Motivation\n\n"
-        "I’ll help you stop drifting and come back fast.\n"
-        "Pick a button — 30 seconds.",
-    )
-    await m.answer(hook, reply_markup=_kb(lang))
+    await m.answer(_soft_open_text(lang), reply_markup=_kb())
 
 
 @router.message(Command("cancel"))
-async def motivation_cancel(m: Message, session: AsyncSession, state: FSMContext):
-    if not m.from_user:
-        return
+async def motivation_cancel(m: Message, state: FSMContext):
     await state.clear()
-    user = await _get_user(session, m.from_user.id)
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None))
-    await m.answer(_t(lang, "Ок, отменил.", "Ок, скасував.", "Ok, cancelled."), reply_markup=_kb(lang))
+    # клавиатуру возвращаем всегда
+    await m.answer("Ок.", reply_markup=_kb())
 
 
-# ----------------- Buttons -----------------
-@router.message(F.text)
-async def motivation_buttons(m: Message, session: AsyncSession, state: FSMContext):
+# ---------- SUPPORT ----------
+@router.message(F.text == BTN_SUPPORT)
+async def motivation_support_start(m: Message, session: AsyncSession, state: FSMContext):
     if not m.from_user:
         return
-
     user = await _get_user(session, m.from_user.id)
     lang = _user_lang(user, getattr(m.from_user, "language_code", None))
-    b = _btns(lang)
-    txt = (m.text or "").strip()
 
-    # support old labels compatibility
-    legacy_support = txt in ("💬 Поддержка", "💬 Підтримка", "💬 Support")
-    legacy_push = txt in ("⚡ Пинок", "⚡ Поштовх", "⚡ Kick")
-    legacy_plan = txt in ("🗓 План дня", "🗓 План дня", "🗓 Day plan")
-    legacy_streak = txt in ("🏁 Серия", "🏁 Серія", "🏁 Streak")
-    legacy_reset = txt in ("🧩 Антислив", "🧩 Антизлив", "🧩 No-slip", "🧩 Антислив")
-    legacy_quote = txt in ("🪶 Цитата", "🪶 Цитата", "🪶 Quote")
+    await state.set_state(MotFSM.wait_support)
+    await m.answer(
+        _t(
+            lang,
+            "Я рядом. Одна строка: что сейчас чувствуешь?\n(пример: «тревожно», «пусто», «злюсь», «страшно»)",
+            "Я поруч. Один рядок: що ти зараз відчуваєш?\n(приклад: «тривожно», «порожньо», «злюся», «страшно»)",
+            "I’m here. One line: what do you feel right now?",
+        ) + "\n\n" + _cancel_hint(lang),
+        reply_markup=_kb(),
+    )
 
-    # Back
-    if txt == b["back"] or txt == "⬅️ Назад":
-        await state.clear()
-        await m.answer(_t(lang, "Ок.", "Ок.", "Ok."))
+
+@router.message(MotFSM.wait_support, F.text)
+async def motivation_support_reply(m: Message, session: AsyncSession, state: FSMContext):
+    if not m.from_user:
         return
+    user = await _get_user(session, m.from_user.id)
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None))
+
+    feeling = (m.text or "").strip()
+    await state.clear()
+
+    if not feeling:
+        await m.answer(_t(lang, "Напиши одной строкой, как чувствуешь.", "Напиши одним рядком, як почуваєшся.", "Write one short line."), reply_markup=_kb())
+        return
+
+    # мягкий, понятный ответ + следующий шаг
+    await m.answer(
+        _t(
+            lang,
+            f"Понял: «{feeling}». Это нормально.\nДавай без героизма: выбери один вариант:\n1) ⚡ 15 минут — и отпускает\n2) 🧭 План — чтобы голова не шумела\n3) 🔄 Вернуться — если был срыв",
+            f"Зрозумів: «{feeling}». Це нормально.\nБез героїзму: обери одне:\n1) ⚡ 15 хвилин — і відпускає\n2) 🧭 План — щоб голова не шуміла\n3) 🔄 Повернутися — якщо був зрив",
+            f"Got it: “{feeling}”. That’s okay.\nPick one:\n1) ⚡ 15-minute start\n2) 🧭 Quick plan\n3) 🔄 Come back",
+        ),
+        reply_markup=_kb(),
+    )
+
+
+# ---------- PUSH 15 MIN ----------
+@router.message(F.text == BTN_PUSH)
+async def motivation_push_start(m: Message, session: AsyncSession, state: FSMContext):
+    if not m.from_user:
+        return
+    user = await _get_user(session, m.from_user.id)
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None))
+
+    await state.set_state(MotFSM.wait_push)
+    await m.answer(
+        _t(
+            lang,
+            "Ок. Выбери ОДНУ мини-задачу на 15 минут.\nНапиши так: «делаю: ...»\nПример: «делаю: зарядку 15 минут»",
+            "Ок. Обери ОДНУ міні-задачу на 15 хвилин.\nНапиши так: «роблю: ...»\nПриклад: «роблю: зарядку 15 хвилин»",
+            "Ok. Pick ONE 15-minute task.\nWrite: “doing: ...”",
+        ) + "\n\n" + _cancel_hint(lang),
+        reply_markup=_kb(),
+    )
+
+
+@router.message(MotFSM.wait_push, F.text)
+async def motivation_push_reply(m: Message, session: AsyncSession, state: FSMContext):
+    if not m.from_user:
+        return
+    user = await _get_user(session, m.from_user.id)
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None))
+
+    text = (m.text or "").strip()
+    await state.clear()
+
+    await m.answer(
+        _t(
+            lang,
+            f"Принято. {text}\n\nСделай просто старт на 2 минуты (не всё сразу).\nПотом напиши «готово» — я закреплю.",
+            f"Прийнято. {text}\n\nЗроби просто старт на 2 хвилини (не все одразу).\nПотім напиши «готово» — я закріплю.",
+            f"Locked in: {text}\n\nStart for 2 minutes (not the whole thing).\nThen reply “done”.",
+        ),
+        reply_markup=_kb(),
+    )
+
+
+# ---------- PLAN ----------
+@router.message(F.text == BTN_PLAN)
+async def motivation_plan_start(m: Message, session: AsyncSession, state: FSMContext):
+    if not m.from_user:
+        return
+    user = await _get_user(session, m.from_user.id)
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None))
+
+    await state.set_state(MotFSM.wait_plan)
+    await m.answer(
+        _t(
+            lang,
+            "Чтобы голова успокоилась — сделаем простой план.\nНапиши одним сообщением:\n1) Что надо сделать СЕГОДНЯ (1–3 пункта)\n2) Самый лёгкий шаг на 5 минут\n3) Что может помешать (1 штука)\n\nЯ отвечу коротко и по делу.",
+            "Щоб голова заспокоїлась — зробимо простий план.\nНапиши одним повідомленням:\n1) Що треба зробити СЬОГОДНІ (1–3 пункти)\n2) Найлегший крок на 5 хвилин\n3) Що може завадити (1 штука)\n\nЯ відповім коротко і по ділу.",
+            "Quick plan to calm the mind.\nReply in one message:\n1) 1–3 things to do today\n2) easiest 5-minute step\n3) one thing that may block you",
+        ) + "\n\n" + _cancel_hint(lang),
+        reply_markup=_kb(),
+    )
+
+
+@router.message(MotFSM.wait_plan, F.text)
+async def motivation_plan_reply(m: Message, session: AsyncSession, state: FSMContext):
+    if not m.from_user:
+        return
+    user = await _get_user(session, m.from_user.id)
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None))
+
+    txt = (m.text or "").strip()
+    await state.clear()
+
+    # супер-легкий разбор без умничанья
+    first_line = txt.splitlines()[0] if txt else ""
+    await m.answer(
+        _t(
+            lang,
+            f"Ок. Главное — не идеал, а движение.\nПервый шаг прямо сейчас: сделай 2 минуты из «{first_line[:40]}…».\n\nЕсли хочешь — жми ⚡ «Старт на 15 минут».",
+            f"Ок. Головне — не ідеал, а рух.\nПерший крок прямо зараз: зроби 2 хвилини з «{first_line[:40]}…».\n\nХочеш — тисни ⚡ «Старт на 15 хвилин».",
+            f"Ok. Not perfection — motion.\nFirst step now: do 2 minutes of “{first_line[:40]}…”.",
+        ),
+        reply_markup=_kb(),
+    )
+
+
+# ---------- STREAK ----------
+@router.message(F.text == BTN_STREAK)
+async def motivation_streak(m: Message, session: AsyncSession):
+    if not m.from_user:
+        return
+    user = await _get_user(session, m.from_user.id)
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None))
 
     if not user:
-        await state.clear()
-        await m.answer(_t(lang, "Нажми /start", "Натисни /start", "Press /start"))
+        await m.answer(_t(lang, "Нажми /start", "Натисни /start", "Press /start"), reply_markup=_kb())
         return
 
-    # SUPPORT
-    if txt == b["support"] or legacy_support:
-        await state.set_state(MotivationFSM.waiting_support)
-        await m.answer(_t(
+    tz = _user_tz(user)
+    streak = await _calc_streak(session, user.id, tz)
+
+    if streak <= 0:
+        msg = _t(
             lang,
-            "Я рядом. Одна строка: что сейчас чувствуешь?\n\nОтмена: /cancel",
-            "Я поруч. Один рядок: що зараз відчуваєш?\n\nСкасування: /cancel",
-            "I’m here. One line: what do you feel right now?\n\nCancel: /cancel",
-        ))
-        return
-
-    # PUSH
-    if txt == b["push"] or legacy_push:
-        await state.set_state(MotivationFSM.waiting_push)
-        await m.answer(_t(
+            "Серия: 0.\nХочешь включить? Сделай одну короткую запись в дневник — и пойдёт.",
+            "Серія: 0.\nХочеш увімкнути? Зроби один короткий запис — і піде.",
+            "Streak: 0.\nWant to start it? Make one short journal entry today.",
+        )
+    else:
+        msg = _t(
             lang,
-            "Ок. 15 минут.\nНапиши так: «делаю … 15 минут».\n\nОтмена: /cancel",
-            "Ок. 15 хвилин.\nНапиши так: «роблю … 15 хвилин».\n\nСкасування: /cancel",
-            "Ok. 15 minutes.\nReply: “I do … for 15 minutes”.\n\nCancel: /cancel",
-        ))
-        return
+            f"🔥 Серия: {streak} день(дней).\nНе ломай — просто один маленький шаг сегодня.",
+            f"🔥 Серія: {streak} день(днів).\nНе ламай — просто один маленький крок сьогодні.",
+            f"🔥 Streak: {streak} day(s).\nDon’t break it — one small step today.",
+        )
 
-    # PLAN
-    if txt == b["plan"] or legacy_plan:
-        await state.set_state(MotivationFSM.waiting_plan)
-        await m.answer(_t(
-            lang,
-            "Пиши одним сообщением:\n"
-            "1) 3 задачи\n"
-            "2) 1 шаг на 5 минут\n"
-            "3) что может помешать + как обойдёшь\n\nОтмена: /cancel",
-            "Пиши одним повідомленням:\n"
-            "1) 3 задачі\n"
-            "2) 1 крок на 5 хв\n"
-            "3) що може завадити + як обійдеш\n\nСкасування: /cancel",
-            "One message:\n"
-            "1) 3 tasks\n"
-            "2) 5-min step\n"
-            "3) blocker + workaround\n\nCancel: /cancel",
-        ))
-        return
-
-    # STREAK
-    if txt == b["streak"] or legacy_streak:
-        tz = _user_tz(user)
-        streak = await _calc_streak(session, user.id, tz)
-        await m.answer(_t(
-            lang,
-            f"🏁 Серия: {streak}.\nХочешь — я буду напоминать утром/вечером: /proactive",
-            f"🏁 Серія: {streak}.\nХочеш — я буду нагадувати ранок/вечір: /proactive",
-            f"🏁 Streak: {streak}.\nWant reminders morning/evening? /proactive",
-        ))
-        return
-
-    # RESET
-    if txt == b["reset"] or legacy_reset:
-        await state.set_state(MotivationFSM.waiting_reset)
-        await m.answer(_t(
-            lang,
-            "Без вины. Одна строка:\n«Сейчас важно …»\n\nОтмена: /cancel",
-            "Без провини. Один рядок:\n«Зараз важливо …»\n\nСкасування: /cancel",
-            "No guilt. One line:\n“Right now it matters …”\n\nCancel: /cancel",
-        ))
-        return
-
-    # QUOTE
-    if txt == b["quote"] or legacy_quote:
-        base = random.choice(_CURATED.get(lang, _CURATED["ru"]))
-        gen = _gen_quote(lang)
-        await m.answer(f"🪶 {base}\n{gen}")
-        return
+    await m.answer(msg, reply_markup=_kb())
 
 
-# ----------------- Answer handlers (FSM) -----------------
-@router.message(MotivationFSM.waiting_support)
-async def motivation_support_answer(m: Message, session: AsyncSession, state: FSMContext):
+# ---------- RETURN (вместо «антислив») ----------
+@router.message(F.text == BTN_RETURN)
+async def motivation_return_start(m: Message, session: AsyncSession, state: FSMContext):
     if not m.from_user:
         return
     user = await _get_user(session, m.from_user.id)
     lang = _user_lang(user, getattr(m.from_user, "language_code", None))
 
-    txt = (m.text or "").strip()
-    await state.clear()
-
-    if not txt:
-        await m.answer(_t(lang, "Скажи одной строкой, как оно.", "Скажи одним рядком, як воно.", "One line — how is it."))
-        return
-
-    # человеческая реакция + следующий шаг
-    reply = _t(
-        lang,
-        f"Понял. «{txt}» — это нормально.\nДавай самый лёгкий шаг: что ты сделаешь за 2 минуты прямо сейчас?",
-        f"Зрозумів. «{txt}» — це нормально.\nДавай найлегший крок: що зробиш за 2 хвилини просто зараз?",
-        f"Got it. “{txt}” is valid.\nPick the easiest step: what will you do for 2 minutes right now?",
+    await state.set_state(MotFSM.wait_return)
+    await m.answer(
+        _t(
+            lang,
+            "Бывает. Без стыда.\nОдна строка: что сейчас важно вернуть под контроль?",
+            "Буває. Без сорому.\nОдин рядок: що зараз важливо повернути під контроль?",
+            "It happens. No shame.\nOne line: what do you want to regain control of?",
+        ) + "\n\n" + _cancel_hint(lang),
+        reply_markup=_kb(),
     )
-    await m.answer(reply, reply_markup=_kb(lang))
 
 
-@router.message(MotivationFSM.waiting_push)
-async def motivation_push_answer(m: Message, session: AsyncSession, state: FSMContext):
+@router.message(MotFSM.wait_return, F.text)
+async def motivation_return_reply(m: Message, session: AsyncSession, state: FSMContext):
     if not m.from_user:
         return
     user = await _get_user(session, m.from_user.id)
     lang = _user_lang(user, getattr(m.from_user, "language_code", None))
 
-    txt = (m.text or "").strip()
+    focus = (m.text or "").strip()
     await state.clear()
 
-    if not txt:
-        await m.answer(_t(lang, "Ок, напиши одной строкой.", "Ок, напиши одним рядком.", "Ok, one line."), reply_markup=_kb(lang))
-        return
-
-    # подтверждение + мини-план
-    msg = _t(
-        lang,
-        f"🔥 Принято.\n{txt}\n\n"
-        "Правило 15 минут:\n"
-        "1) убери отвлекающее\n"
-        "2) сделай самый простой кусок\n"
-        "3) в конце — просто остановись (не добивай до идеала)\n\n"
-        "Напиши «сделал», когда закончишь.",
-        f"🔥 Прийнято.\n{txt}\n\n"
-        "Правило 15 хв:\n"
-        "1) прибери зайве\n"
-        "2) зроби найпростіший шматок\n"
-        "3) в кінці — просто зупинись (без ідеалу)\n\n"
-        "Напиши «зробив», коли закінчиш.",
-        f"🔥 Locked.\n{txt}\n\n"
-        "15-min rule:\n"
-        "1) remove distraction\n"
-        "2) do the easiest chunk\n"
-        "3) stop on time (no perfection)\n\n"
-        "Reply “done” when finished.",
+    await m.answer(
+        _t(
+            lang,
+            f"Ок. Возвращаем «{focus}».\nСделай самый лёгкий шаг на 2 минуты прямо сейчас.\n\nХочешь — жми ⚡ «Старт на 15 минут».",
+            f"Ок. Повертаємо «{focus}».\nЗроби найлегший крок на 2 хвилини прямо зараз.\n\nХочеш — тисни ⚡ «Старт на 15 хвилин».",
+            f"Ok. We’re regaining “{focus}”.\nDo the easiest 2-minute step now.",
+        ),
+        reply_markup=_kb(),
     )
-    await m.answer(msg, reply_markup=_kb(lang))
 
 
-@router.message(MotivationFSM.waiting_plan)
-async def motivation_plan_answer(m: Message, session: AsyncSession, state: FSMContext):
+# ---------- QUOTE ----------
+@router.message(F.text == BTN_QUOTE)
+async def motivation_quote(m: Message, session: AsyncSession):
     if not m.from_user:
         return
     user = await _get_user(session, m.from_user.id)
     lang = _user_lang(user, getattr(m.from_user, "language_code", None))
 
-    txt = (m.text or "").strip()
+    quotes_ru = [
+        "Не нужен идеальный день. Нужен первый шаг.",
+        "Стабильность — это маленькое действие, повторённое снова.",
+        "Сделай проще. Начни раньше. Дыши.",
+        "Ты не обязан быть в форме, чтобы сделать шаг.",
+        "Две минуты старта решают больше, чем час размышлений.",
+        "Сегодня достаточно: один честный маленький шаг.",
+        "Ты не «ленивый». Ты уставший. Дай себе старт, а не приговор.",
+        "Вернуться — тоже сила.",
+        "Дисциплина — это забота о себе, а не наказание.",
+    ]
+    quotes_uk = [
+        "Не потрібен ідеальний день. Потрібен перший крок.",
+        "Стабільність — це маленька дія, повторена знову.",
+        "Зроби простіше. Почни раніше. Дихай.",
+        "Ти не мусиш бути в формі, щоб зробити крок.",
+        "Дві хвилини старту вирішують більше, ніж година думок.",
+        "Сьогодні досить: один чесний маленький крок.",
+        "Ти не «лінивий». Ти втомився. Дай собі старт, а не вирок.",
+        "Повернутися — теж сила.",
+        "Дисципліна — це турбота про себе, а не покарання.",
+    ]
+    quotes_en = [
+        "You don’t need a perfect day. You need a first step.",
+        "Consistency is a small action repeated again.",
+        "Make it simpler. Start earlier. Breathe.",
+        "You don’t need to feel ready to take a step.",
+        "Two minutes of starting beats an hour of thinking.",
+        "Today is enough: one honest small step.",
+        "You’re not lazy. You’re tired. Start gently.",
+        "Coming back is strength.",
+        "Discipline is care, not punishment.",
+    ]
+
+    q = random.choice(quotes_uk if lang == "uk" else quotes_en if lang == "en" else quotes_ru)
+    await m.answer(q, reply_markup=_kb())
+
+
+# ---------- BACK ----------
+@router.message(F.text == BTN_BACK)
+async def motivation_back(m: Message, state: FSMContext):
     await state.clear()
-
-    if not txt:
-        await m.answer(_t(lang, "Кидай план одним сообщением.", "Кидай план одним повідомленням.", "Send the plan in one message."), reply_markup=_kb(lang))
-        return
-
-    # превращаем в чеклист + якорь
-    msg = _t(
-        lang,
-        "✅ Принято. Якорь на день:\n"
-        "— выбери одну задачу №1 и начни с 5 минут.\n\n"
-        "Твой план:\n" + txt,
-        "✅ Прийнято. Якір на день:\n"
-        "— обери задачу №1 і почни з 5 хв.\n\n"
-        "Твій план:\n" + txt,
-        "✅ Got it. Day anchor:\n"
-        "— pick task #1 and start with 5 minutes.\n\n"
-        "Your plan:\n" + txt,
-    )
-    await m.answer(msg, reply_markup=_kb(lang))
-
-
-@router.message(MotivationFSM.waiting_reset)
-async def motivation_reset_answer(m: Message, session: AsyncSession, state: FSMContext):
-    if not m.from_user:
-        return
-    user = await _get_user(session, m.from_user.id)
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None))
-
-    txt = (m.text or "").strip()
-    await state.clear()
-
-    if not txt:
-        await m.answer(_t(lang, "Одной строкой — что важно.", "Одним рядком — що важливо.", "One line — what matters."), reply_markup=_kb(lang))
-        return
-
-    msg = _t(
-        lang,
-        f"🧩 Ок. {txt}\n\n"
-        "Сейчас сделай один шаг:\n"
-        "— открой то, что связано с этим\n"
-        "— и сделай 2 минуты без остановки\n\n"
-        "Если хочешь, чтобы я сам напоминал и собирал прогресс → /proactive",
-        f"🧩 Ок. {txt}\n\n"
-        "Зараз зроби один крок:\n"
-        "— відкрий те, що з цим пов’язано\n"
-        "— і зроби 2 хв без зупинки\n\n"
-        "Хочеш нагадування і прогрес → /proactive",
-        f"🧩 Ok. {txt}\n\n"
-        "Do one step now:\n"
-        "— open what’s related\n"
-        "— do 2 minutes non-stop\n\n"
-        "Want reminders & progress? /proactive",
-    )
-    await m.answer(msg, reply_markup=_kb(lang))
-
-
-__all__ = ["router"]
+    # тут ты можешь дергать меню:home, но клаву убираем этой
+    await m.answer("Главное меню — ниже.", reply_markup=_kb())
