@@ -88,13 +88,13 @@ async def motivation_cancel(m: Message, state: FSMContext):
     await m.answer("Ок, отменил. Выбирай кнопку ниже 👇", reply_markup=_kb())
 
 
-@router.message(F.text)
 def _is_motivation_open(text: str) -> bool:
     t = (text or '').strip().lower()
     # убираем ведущие эмодзи/символы
     t = t.lstrip('🥇🔥⭐️✅⚡️⚡🏅 ').strip()
     return t in {'мотивация','мотивація','motivation'}
 
+@router.message(F.text.func(_is_motivation_open))
 async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
     if not m.text or not _is_motivation_open(m.text):
         return
