@@ -69,6 +69,7 @@ except Exception:
     async def proactive_loop(*_a, **_kw) -> None:
         return None
 
+
 try:
     from app.scheduler import ensure_started  # type: ignore
 except Exception:
