@@ -394,6 +394,8 @@ def _user_lang(u: User, fallback: str = "ru") -> str:
     return _norm_lang(v)
 
 def _screen_text(u: User, lang: str) -> str:
+    lang = _norm_lang(lang)
+
     mode = _current_mode(u)
     mt = _fmt_time(getattr(u, "morning_time", None))
     et = _fmt_time(getattr(u, "evening_time", None))
@@ -401,48 +403,56 @@ def _screen_text(u: User, lang: str) -> str:
     streak = getattr(u, "proactive_streak", None)
     streak_line = ""
     if isinstance(streak, int) and streak > 0:
-        if _norm_lang(lang) == "en":
+        if lang == "en":
             streak_line = f"\n🔥 Streak: {streak} day(s)"
-        elif _norm_lang(lang) == "uk":
+        elif lang == "uk":
             streak_line = f"\n🔥 Серія: {streak} день(дні)"
         else:
             streak_line = f"\n🔥 Серия: {streak} день(дней)"
 
+    if lang == "uk":
+        return (
+            "⚡ Проактивність\n\n"
+            "Режим, де бот допоможе тобі з фокусом, щоб день був продуктивнішим.\n\n"
+            "🤔 Як це працює:\n\n"
+            "• 🌅 Вранці — допомагає правильно сфокусуватися\n"
+            "• 🌙 Увечері — спокійно закрити день і зафіксувати результат\n\n"
+            "🧠 Поточний режим\n"
+            f"Режим: {_mode_label(lang, mode)}\n\n"
+            "🕒 Коли це приходить:\n\n"
+            f"🌅 Ранок: {mt}\n"
+            f"🌙 Вечір: {et}"
+            f"{streak_line}"
+        )
+
+    if lang == "en":
+        return (
+            "⚡ Proactivity\n\n"
+            "A mode where the bot helps you stay focused so your day is more productive.\n\n"
+            "🤔 How it works:\n\n"
+            "• 🌅 Morning — helps you focus properly\n"
+            "• 🌙 Evening — calmly close the day and lock the result\n\n"
+            "🧠 Current mode\n"
+            f"Mode: {_mode_label(lang, mode)}\n\n"
+            "🕒 When it arrives:\n\n"
+            f"🌅 Morning: {mt}\n"
+            f"🌙 Evening: {et}"
+            f"{streak_line}"
+        )
+
+    # ru (default)
     return (
-        f"⚡ {_t(lang, 'title').replace('⚡ ', '')}\n\n"
-        f"Режим, где бот поможет тебе с фокусом, чтобы день был продуктивнее.\n\n"
-
-        f"🤔 Как это работает:\n\n"
-        f"• 🌅 Утром — помогает правильно сфокусироваться\n"
-        f"• 🌙 Вечером — спокойно закрыть день и зафиксировать результат\n\n"
-
-        f"🧠 {_t(lang, 'current_mode')}\n"
-        f"{_t(lang, 'mode')}: {_mode_label(lang, mode)}\n\n"
-
-        f"🕒 {_t(lang, 'when')}:\n\n"
-        f"🌅 {_t(lang, 'morning')}: {mt}\n"
-        f"🌙 {_t(lang, 'evening')}: {et}"
-        f"{streak_line}\n\n"
-
-        f"{_t(lang, 'why_short')}\n"
-        f"• Меньше хаоса в голове\n"
-        f"• Проще начать дела\n"
-        f"• День не пролетает впустую\n"
-        f"• Появляется чувство контроля\n\n"
-
-        f"{_t(lang, 'what_writes')}\n\n"
-
-        f"🌅 {_t(lang, 'morning')}\n"
-        f"• {_t(lang, 'm_q1').replace('• 🎯','').strip()}\n"
-        f"• {_t(lang, 'm_q2').replace('• 👣','').strip()}\n"
-        f"• {_t(lang, 'm_q3').replace('• ⚡','').strip()}\n\n"
-
-        f"🌙 {_t(lang, 'evening')}\n"
-        f"• {_t(lang, 'e_q1').replace('• 🔭','').strip()}\n"
-        f"• {_t(lang, 'e_q2').replace('• 🏆','').strip()}\n"
-        f"• {_t(lang, 'e_q3').replace('• 📘','').strip()}\n\n"
-
-        f"{_t(lang, 'how_to_answer')}"
+        "⚡ Проактивность\n\n"
+        "Режим, где бот поможет тебе с фокусом, чтобы день был продуктивнее.\n\n"
+        "🤔 Как это работает:\n\n"
+        "• 🌅 Утром — помогает правильно сфокусироваться\n"
+        "• 🌙 Вечером — спокойно закрыть день и зафиксировать результат\n\n"
+        "🧠 Текущий режим\n"
+        f"Режим: {_mode_label(lang, mode)}\n\n"
+        "🕒 Когда это приходит:\n\n"
+        f"🌅 Утро: {mt}\n"
+        f"🌙 Вечер: {et}"
+        f"{streak_line}"
     )
 
 
