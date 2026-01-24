@@ -31,7 +31,7 @@ BTN_QUOTE = "🪶 Цитата (новая)"
 BTN_BACK = "⬅️ Назад"
 
 OPEN_TRIGGERS = (
-    "🔥 Мотивация", "🔥 Мотивація", "🔥 Motivation",
+    "🥇 Мотивация", "🥇 Мотивація", "🥇 Motivation",
     "Мотивация", "Мотивація", "Motivation",
 )
 
@@ -88,23 +88,31 @@ async def motivation_cancel(m: Message, state: FSMContext):
     await m.answer("Ок, отменил. Выбирай кнопку ниже 👇", reply_markup=_kb())
 
 
-@router.message(F.text.in_(OPEN_TRIGGERS))
+@router.message(F.text)
+def _is_motivation_open(text: str) -> bool:
+    t = (text or '').strip().lower()
+    # убираем ведущие эмодзи/символы
+    t = t.lstrip('🥇🔥⭐️✅⚡️⚡🏅 ').strip()
+    return t in {'мотивация','мотивація','motivation'}
+
 async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
+    if not m.text or not _is_motivation_open(m.text):
+        return
     await state.clear()
     user = await _get_user(session, m.from_user.id) if m.from_user else None
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     text = _t(
         lang,
-        "🔥 Мотивация\n\n"
+        "🥇 Мотивация\n\n"
         "Я здесь, чтобы быстро вернуть тебе энергию и ясность.\n"
         "Не «правильно», не «идеально» — просто чтобы ты пошёл дальше.\n\n"
         "Выбери, что нужно прямо сейчас:",
-        "🔥 Мотивація\n\n"
+        "🥇 Мотивація\n\n"
         "Я тут, щоб швидко повернути тобі енергію й ясність.\n"
         "Не «правильно», не «ідеально» — просто щоб ти рухався далі.\n\n"
         "Обери, що треба просто зараз:",
-        "🔥 Motivation\n\n"
+        "🥇 Motivation\n\n"
         "I’m here to quickly bring back your energy and clarity.\n"
         "Not perfect. Not polished. Just enough to move.\n\n"
         "Pick what you need right now:",
@@ -250,9 +258,9 @@ async def motivation_more_15(m: Message, session: AsyncSession):
     await m.answer(
         _t(
             lang,
-            "Погнали 🔥\nПоставь таймер на 15 минут и просто делай.\nПосле — напиши «Готово».",
-            "Погнали 🔥\nПостав таймер на 15 хв і просто роби.\nПісля — напиши «Готово».",
-            "Let’s go 🔥\nSet a 15-min timer and just do it.\nAfter — reply “Done”.",
+            "Погнали 🥇\nПоставь таймер на 15 минут и просто делай.\nПосле — напиши «Готово».",
+            "Погнали 🥇\nПостав таймер на 15 хв і просто роби.\nПісля — напиши «Готово».",
+            "Let’s go 🥇\nSet a 15-min timer and just do it.\nAfter — reply “Done”.",
         )
     )
 
