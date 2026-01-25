@@ -2,6 +2,27 @@ from __future__ import annotations
 
 import os
 import re
+
+_COUNT_PIECES_RE = re.compile(r"(\d+)\s*(?:шт\.?|штук|pcs|piece)?\s*([а-яёa-z\-\s]+)", re.I)
+
+def _try_piece_guess(text: str) -> tuple[str, float] | None:
+    # '5 вареников' -> ('вареники', 250)
+    m = _COUNT_PIECES_RE.search((text or '').strip().lower())
+    if not m:
+        return None
+    n = int(m.group(1))
+    name = m.group(2).strip()
+    defaults = {
+        'вареник': 50.0,
+        'вареники': 50.0,
+        'пельмень': 12.0,
+        'пельмени': 12.0,
+    }
+    for k, g in defaults.items():
+        if k in name:
+            return (k, n * g)
+    return None
+
 import base64
 import json
 from typing import Dict, Optional, Any
@@ -109,6 +130,23 @@ def _user_lang(user: Optional[User], fallback: Optional[str], tg_lang: Optional[
     )
 
 
+def _format_cal_total(lang_code: str, res: Dict[str, float]) -> str:
+    out = t("cal_total", lang_code, kcal=res.get("kcal", 0), p=res.get("p", 0), f=res.get("f", 0), c=res.get("c", 0))
+    conf = res.get("confidence", None)
+    try:
+        conf_f = float(conf) if conf is not None else None
+    except Exception:
+        conf_f = None
+
+    if conf_f is not None:
+        conf_f = max(0.0, min(1.0, conf_f))
+        pct = int(round(conf_f * 100))
+        out += f"\nУверенность: {pct}%"
+        if pct < 65:
+            out += "\n⚠️ Если скажешь граммовку/порцию — пересчитаю точнее."
+    return out
+
+
 # -------------------- fallback nutrition база --------------------
 
 FALLBACK: Dict[str, Dict[str, float]] = {
@@ -196,12 +234,28 @@ def _looks_like_food(text: Optional[str]) -> bool:
     return any(k in low for k in CAL_KEYS)
 
 
+
+def _add_confidence(out: str, conf: float | None) -> str:
+    try:
+        c = float(conf or 0)
+    except Exception:
+        c = 0.0
+    if c <= 0:
+        return out
+    pct = int(round(c * 100))
+    out += f"\nУверенность: {pct}%"
+    if c < 0.65:
+        out += "\n⚠️ Если уточнишь граммовку/порцию — пересчитаю точнее."
+    return out
+
+
 # -------------------- analyze text --------------------
 
 async def analyze_text(text: str) -> Dict[str, float]:
     """
     1) Пробуем Api Ninjas, если задан ключ.
     2) Если не удалось — считаем грубо по FALLBACK.
+    + confidence (0..1)
     """
     key = os.getenv("NINJAS_API_KEY") or os.getenv("NUTRITION_API_KEY")
     if key:
@@ -219,12 +273,27 @@ async def analyze_text(text: str) -> Dict[str, float]:
                     p = sum(float(i.get("protein_g", 0) or 0) for i in items)
                     f = sum(float(i.get("fat_total_g", 0) or 0) for i in items)
                     c = sum(float(i.get("carbohydrates_total_g", 0) or 0) for i in items)
-                    return {"kcal": round(kcal), "p": round(p, 1), "f": round(f, 1), "c": round(c, 1)}
+
+                    confidence = 0.85
+                    return {
+                        "kcal": round(kcal),
+                        "p": round(p, 1),
+                        "f": round(f, 1),
+                        "c": round(c, 1),
+                        "confidence": confidence,
+                    }
         except Exception:
             pass
 
-    low = text.lower()
+    low = (text or "").lower()
+
+    piece_hint = _try_piece_guess(text)
     grams_info: list[tuple[float, Dict[str, float]]] = []
+    if piece_hint and not re.search(r"\d+\s*(г|гр|g|мл|ml)\b", low):
+        k, g = piece_hint
+        if k in FALLBACK:
+            grams_info.append((float(g), FALLBACK[k]))
+
     num = r"(\d+(?:[.,]\d+)?)"
     unit_re = r"(г|g|гр|ml|мл)"
 
@@ -257,8 +326,23 @@ async def analyze_text(text: str) -> Dict[str, float]:
         f += meta["f"] * factor
         c += meta["c"] * factor
 
-    return {"kcal": round(kcal), "p": round(p, 1), "f": round(f, 1), "c": round(c, 1)}
+    has_explicit_grams = bool(re.search(r"\d+\s*(г|гр|g|мл|ml)\b", low))
+    if has_explicit_grams:
+        confidence = 0.90
+    elif piece_hint:
+        confidence = 0.60
+    elif grams_info:
+        confidence = 0.70
+    else:
+        confidence = 0.0
 
+    return {
+        "kcal": round(kcal),
+        "p": round(p, 1),
+        "f": round(f, 1),
+        "c": round(c, 1),
+        "confidence": confidence,
+    }
 
 # -------------------- photo analyze (OpenAI Vision) --------------------
 
@@ -291,9 +375,17 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
     data_url = f"data:image/jpeg;base64,{b64}"
 
     prompt = (
-        'Estimate nutrition for the meal on the photo. '
-        'Return ONLY valid JSON like {"kcal":123,"p":12.3,"f":4.5,"c":67.8}. '
-        "If uncertain, give a reasonable estimate. No extra text."
+
+        "Estimate nutrition for the meal on the photo. "
+
+        "Return ONLY valid JSON with fields: "
+
+        '{"kcal": number, "p": number, "f": number, "c": number, "confidence": number}. '
+
+        "confidence must be between 0 and 1 and reflects how sure you are about portion size and ingredients. "
+
+        "If unsure, set confidence <= 0.65. No extra text."
+
     )
 
     payload = {
@@ -343,7 +435,8 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
             "p": float(data.get("p", 0) or 0),
             "f": float(data.get("f", 0) or 0),
             "c": float(data.get("c", 0) or 0),
-        }
+            "confidence": float(data.get("confidence", 0) or 0),
+}
     except Exception:
         return None
 
@@ -399,7 +492,17 @@ async def cal_cmd(message: types.Message, state: FSMContext, session: AsyncSessi
 
     if query:
         res = await analyze_text(query)
-        await message.answer(t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"]))
+        if not res or float(res.get('kcal', 0) or 0) <= 0:
+            await message.answer(
+                "Не смог нормально посчитать. Укажи граммы/начинку, например: "
+                "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
+            )
+            return
+        out = t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
+
+        out = _add_confidence(out, float(res.get('confidence', 0) or 0))
+
+        await message.answer(out)
         return
 
     await state.set_state(CaloriesFSM.waiting_input)
@@ -562,9 +665,17 @@ async def cal_text_in_mode(message: types.Message, state: FSMContext, session: A
         return
 
     res = await analyze_text(payload)
-    await message.answer(t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"]))
+    if not res or float(res.get('kcal', 0) or 0) <= 0:
+        await message.answer(
+            "Не смог нормально посчитать. Укажи граммы/начинку, например: "
+            "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
+        )
+        return
+    out = t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
 
+    out = _add_confidence(out, float(res.get('confidence', 0) or 0))
 
+    await message.answer(out)
 # -------------------- MODE: waiting_photo --------------------
 
 @router.message(CaloriesFSM.waiting_photo, F.photo)
@@ -582,9 +693,19 @@ async def cal_photo_waiting(message: types.Message, session: AsyncSession, lang:
         await message.answer("Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON.")
         return
 
-    await message.answer(t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"]))
+    conf = float(res.get("confidence", 0) or 0)
 
+    pct = int(round(conf * 100))
 
+    out = t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
+
+    out += f"\nУверенность: {pct}%"
+
+    if conf and conf < 0.65:
+
+        out += "\n⚠️ Если скажешь граммовку/порцию — пересчитаю точнее."
+
+    await message.answer(out)
 # -------------------- free text autodetect --------------------
 
 @router.message(F.text.func(_looks_like_food))
@@ -601,9 +722,17 @@ async def cal_text_free_autodetect(message: types.Message, session: AsyncSession
     lang_code = _user_lang(user, lang, tg_lang)
 
     res = await analyze_text(text)
-    await message.answer(t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"]))
+    if not res or float(res.get('kcal', 0) or 0) <= 0:
+        await message.answer(
+            "Не смог нормально посчитать. Укажи граммы/начинку, например: "
+            "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
+        )
+        return
+    out = t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
 
+    out = _add_confidence(out, float(res.get('confidence', 0) or 0))
 
+    await message.answer(out)
 # -------------------- photo with caption trigger --------------------
 
 @router.message(F.photo)
@@ -632,14 +761,28 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
 
     if payload_text and _looks_like_food(payload_text):
         res = await analyze_text(payload_text)
-        await message.answer(t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"]))
+        if not res or float(res.get('kcal', 0) or 0) <= 0:
+            await message.answer(
+                "Не смог нормально посчитать. Укажи граммы/начинку, например: "
+                "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
+            )
+            return
+        out = t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
+
+        out = _add_confidence(out, float(res.get('confidence', 0) or 0))
+
+        await message.answer(out)
         return
 
     res2 = await analyze_photo(message)
     if not res2:
         await message.answer("Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON.")
         return
-    await message.answer(t("cal_total", lang_code, kcal=res2["kcal"], p=res2["p"], f=res2["f"], c=res2["c"]))
-
-
+    conf = float(res2.get("confidence", 0) or 0)
+    pct = int(round(conf * 100))
+    out = t("cal_total", lang_code, kcal=res2["kcal"], p=res2["p"], f=res2["f"], c=res2["c"])
+    out += f"\nУверенность: {pct}%"
+    if conf and conf < 0.65:
+        out += "\n⚠️ Если скажешь граммовку/порцию — пересчитаю точнее."
+    await message.answer(out)
 __all__ = ["router"]

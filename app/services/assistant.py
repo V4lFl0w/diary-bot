@@ -340,7 +340,15 @@ async def run_assistant(
 
     # --- MEDIA RAG (films/series): retrieve before generation ---
     media_ctx = ""
-    is_media = _is_media_query(text)
+    now = datetime.now(timezone.utc)
+    sticky_media = False
+    if user:
+        mode = getattr(user, "assistant_mode", None)
+        until = getattr(user, "assistant_mode_until", None)
+        if mode == "media" and until and until > now:
+            sticky_media = True
+
+    is_media = _is_media_query(text) or sticky_media
     if is_media:
         try:
             items = await tmdb_search_multi(text, lang="ru-RU", limit=5)
@@ -375,7 +383,7 @@ async def run_assistant(
         )
 
     # для media-запросов отключаем previous_response_id, чтобы не тянуть старую ветку и не галюнило
-    prev_for_call = None if is_media else prev_id
+    prev_for_call = prev_id  # keep thread even for media (sticky follow-ups)
 
     resp = await client.responses.create(
         previous_response_id=prev_for_call,
@@ -406,6 +414,12 @@ async def run_assistant(
             user.assistant_prev_response_id = str(resp_id)
             changed = True
         user.assistant_last_used_at = datetime.now(timezone.utc)
+        # sticky media-mode: продлеваем на 2 минуты, чтобы следующий месседж считался уточнением
+        if is_media:
+            user.assistant_mode = "media"
+            user.assistant_mode_until = now + timedelta(minutes=2)
+            changed = True
+
         changed = True
 
         if changed:

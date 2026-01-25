@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -11,27 +11,53 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     v = os.getenv(name)
     return v if v not in (None, "") else default
 
-async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5) -> List[Dict[str, Any]]:
+def _tmdb_auth_headers_and_params() -> Tuple[Dict[str, str], Dict[str, str]]:
     """
-    Возвращает топ результатов по query из TMDb (movie+tv+person).
-    Для бота по фильмам/сериалам нам достаточно movie/tv.
+    Поддержка:
+    - v4 Read Access Token: Authorization: Bearer <token>  (TMDB_API_KEY)
+    - v3 API key: ?api_key=<key>                          (TMDB_API_KEY_V3)
     """
-    key = _env("TMDB_API_KEY")
-    if not key:
-        return []
+    token = _env("TMDB_API_KEY")
+    api_key_v3 = _env("TMDB_API_KEY_V3")
 
+    headers: Dict[str, str] = {"accept": "application/json"}
+    params: Dict[str, str] = {}
+
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    elif api_key_v3:
+        params["api_key"] = api_key_v3
+
+    return headers, params
+
+async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5) -> List[Dict[str, Any]]:
     q = (query or "").strip()
     if not q:
         return []
 
+    headers, base_params = _tmdb_auth_headers_and_params()
+    if "Authorization" not in headers and "api_key" not in base_params:
+        return []
+
     url = f"{TMDB_API}/search/multi"
-    params = {"query": q, "language": lang, "include_adult": "false", "page": 1}
-    headers = {"Authorization": f"Bearer {key}", "accept": "application/json"}
+    params = {
+        **base_params,
+        "query": q,
+        "language": lang,
+        "include_adult": "false",
+        "page": 1,
+    }
 
     async with httpx.AsyncClient(timeout=20.0) as client:
         r = await client.get(url, params=params, headers=headers)
+
+        if r.status_code in (401, 403):
+            return [{"_error": f"TMDb auth error: {r.status_code}"}]
+        if r.status_code == 429:
+            return [{"_error": "TMDb rate limit (429). Try later."}]
         if r.status_code >= 400:
             return []
+
         data = r.json() or {}
         items = data.get("results") or []
 
@@ -58,11 +84,11 @@ async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5) 
     return out
 
 def build_media_context(items: List[Dict[str, Any]]) -> str:
-    """
-    Контекст для RAG. Модель НЕ должна выходить за пределы этого.
-    """
     if not items:
         return "Ничего не найдено в базе источника."
+    if len(items) == 1 and items[0].get("_error"):
+        return f"TMDb error: {items[0]['_error']}"
+
     lines = ["Найденные кандидаты (TMDb):"]
     for i, it in enumerate(items, 1):
         t = it.get("title") or "?"
