@@ -21,8 +21,12 @@ def _parse_hhmm(v: Optional[str]) -> Optional[time]:
     if not v:
         return None
     try:
-        hh, mm = v.strip().split(":", 1)
-        return time(int(hh), int(mm))
+        parts = v.strip().split(":")
+        if len(parts) < 2:
+            return None
+        hh = int(parts[0])
+        mm = int(parts[1])
+        return time(hh, mm)
     except Exception:
         return None
 
