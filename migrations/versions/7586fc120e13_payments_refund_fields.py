@@ -19,6 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
+    insp = sa.inspect(op.get_bind())
+    if 'payments' not in insp.get_table_names():
+        return
+
     with op.batch_alter_table("payments") as b:
         b.add_column(sa.Column("refunded_at", sa.DateTime(), nullable=True))
         b.add_column(sa.Column("refund_status", sa.String(length=16), nullable=True))  # requested/approved/denied
@@ -27,6 +31,10 @@ def upgrade():
         b.add_column(sa.Column("refund_requested_at", sa.DateTime(), nullable=True))
 
 def downgrade():
+    insp = sa.inspect(op.get_bind())
+    if 'payments' not in insp.get_table_names():
+        return
+
     with op.batch_alter_table("payments") as b:
         b.drop_column("refund_requested_at")
         b.drop_column("refund_admin_note")

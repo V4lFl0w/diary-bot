@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # --- Alembic identifiers ---
 revision = "5f6f8f49b718"
-down_revision = "7586fc120e13"
+down_revision = "b13410092c15"
 branch_labels = None
 depends_on = None
 

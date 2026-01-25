@@ -22,21 +22,25 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # add enum value quarter (Postgres safe)
     op.execute("""
-    DO $$
-    BEGIN
-        IF NOT EXISTS (
-            SELECT 1 FROM pg_enum
-            WHERE enumlabel = 'quarter'
-              AND enumtypid = 'payment_plan'::regtype
-        ) THEN
-            ALTER TYPE payment_plan ADD VALUE 'quarter';
-        END IF;
-    END$$;
-    """)
+DO $$
+BEGIN
+    -- create enum if missing (for fresh DB)
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_plan') THEN
+        CREATE TYPE payment_plan AS ENUM ('month', 'year');
+    END IF;
 
-    # payments.sku
-    op.add_column('payments', sa.Column('sku', sa.String(length=64), nullable=True))
-    op.create_index(op.f('ix_payments_sku'), 'payments', ['sku'], unique=False)
+    -- add quarter if missing
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_enum e
+        JOIN pg_type t ON t.oid = e.enumtypid
+        WHERE t.typname = 'payment_plan'
+          AND e.enumlabel = 'quarter'
+    ) THEN
+        ALTER TYPE payment_plan ADD VALUE 'quarter';
+    END IF;
+END $$;
+""")# payments.sku
 
     # users: tier + 2 trials
     op.add_column('users', sa.Column('premium_plan', sa.String(length=16), server_default='basic', nullable=False))
