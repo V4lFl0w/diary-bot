@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import re
+import base64
+import json
 from typing import Dict, Optional, Any
 
 import httpx
@@ -9,6 +11,8 @@ from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.types import InlineKeyboardMarkup
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -16,7 +20,6 @@ from app.i18n import t
 from app.keyboards import (
     get_main_kb,
     is_calories_btn,
-    # матчеры главного меню
     is_root_journal_btn,
     is_root_reminders_btn,
     is_root_calories_btn,
@@ -48,7 +51,6 @@ except Exception:
 router = Router(name="calories")
 
 FEATURE_CAL_PHOTO = "calories_photo"
-
 SUPPORTED_LANGS = {"ru", "uk", "en"}
 
 
@@ -56,6 +58,7 @@ SUPPORTED_LANGS = {"ru", "uk", "en"}
 
 class CaloriesFSM(StatesGroup):
     waiting_input = State()
+    waiting_photo = State()
 
 
 # -------------------- i18n helpers --------------------
@@ -78,10 +81,22 @@ def _tr(lang: str, ru: str, uk: str, en: str) -> str:
     return uk if l == "uk" else en if l == "en" else ru
 
 
+def _cal_hook_inline_kb(lang_code: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text=_tr(lang_code, "✍️ Ввести списком", "✍️ Ввести списком", "✍️ Enter as list"),
+        callback_data="cal:enter",
+    )
+    kb.button(
+        text=_tr(lang_code, "📸 Отправить фото (Premium)", "📸 Надіслати фото (Premium)", "📸 Send photo (Premium)"),
+        callback_data="cal:photo",
+    )
+    kb.adjust(1, 1)
+    return kb.as_markup()
+
+
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 def _user_lang(user: Optional[User], fallback: Optional[str], tg_lang: Optional[str] = None) -> str:
@@ -97,86 +112,44 @@ def _user_lang(user: Optional[User], fallback: Optional[str], tg_lang: Optional[
 # -------------------- fallback nutrition база --------------------
 
 FALLBACK: Dict[str, Dict[str, float]] = {
-    # milk
     "молок": dict(kcal=60, p=3.2, f=3.2, c=4.7),
     "milk": dict(kcal=60, p=3.2, f=3.2, c=4.7),
-
-    # banana
     "банан": dict(kcal=89, p=1.1, f=0.3, c=23.0),
     "banana": dict(kcal=89, p=1.1, f=0.3, c=23.0),
-
-    # peanuts
     "арахис": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "арахіс": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "peanut": dict(kcal=567, p=26.0, f=49.0, c=16.0),
-
-    # buckwheat
     "греч": dict(kcal=343, p=13.3, f=3.4, c=71.5),
     "гречк": dict(kcal=343, p=13.3, f=3.4, c=71.5),
     "buckwheat": dict(kcal=343, p=13.3, f=3.4, c=71.5),
-
-    # eggs
     "яйц": dict(kcal=143, p=13.0, f=10.0, c=1.1),
     "egg": dict(kcal=143, p=13.0, f=10.0, c=1.1),
-
-    # bread
     "хлеб": dict(kcal=250, p=9.0, f=3.0, c=49.0),
     "хліб": dict(kcal=250, p=9.0, f=3.0, c=49.0),
     "bread": dict(kcal=250, p=9.0, f=3.0, c=49.0),
-
-    # cheese
     "сыр": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "сир": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "cheese": dict(kcal=350, p=26.0, f=27.0, c=3.0),
-
-    # sausage
     "сосиск": dict(kcal=300, p=12.0, f=27.0, c=2.0),
     "sausage": dict(kcal=300, p=12.0, f=27.0, c=2.0),
-
-    # chicken
     "куриц": dict(kcal=190, p=29.0, f=7.0, c=0.0),
     "курк": dict(kcal=190, p=29.0, f=7.0, c=0.0),
     "chicken": dict(kcal=190, p=29.0, f=7.0, c=0.0),
-
-    # meat / pork / shashlik
     "свинин": dict(kcal=260, p=26.0, f=18.0, c=0.0),
     "шашлык": dict(kcal=250, p=22.0, f=18.0, c=0.0),
-    "мяс":    dict(kcal=230, p=23.0, f=15.0, c=0.0),
+    "мяс": dict(kcal=230, p=23.0, f=15.0, c=0.0),
 }
 
 PIECE_GRAMS: Dict[str, int] = {
-    "яйц": 50,
-    "egg": 50,
-    "банан": 120,
-    "banana": 120,
-    "хлеб": 30,
-    "хліб": 30,
-    "bread": 30,
-    "сыр": 30,
-    "сир": 30,
-    "cheese": 30,
-    "сосиск": 50,
-    "sausage": 50,
-    "куриц": 80,
-    "курк": 80,
-    "chicken": 80,
+    "яйц": 50, "egg": 50,
+    "банан": 120, "banana": 120,
+    "хлеб": 30, "хліб": 30, "bread": 30,
+    "сыр": 30, "сир": 30, "cheese": 30,
+    "сосиск": 50, "sausage": 50,
+    "куриц": 80, "курк": 80, "chicken": 80,
 }
 
 CAL_KEYS = list(FALLBACK.keys())
-
-
-def _looks_like_food(text: Optional[str]) -> bool:
-    tl_raw = (text or "").strip()
-    if not tl_raw:
-        return False
-    if tl_raw.startswith("/"):
-        return False
-    # не трогаем клики по меню
-    if _is_root_menu_text(tl_raw):
-        return False
-
-    tl = tl_raw.lower()
-    return any(k in tl for k in CAL_KEYS)
 
 
 def _strip_cmd_prefix(text: str) -> str:
@@ -185,58 +158,7 @@ def _strip_cmd_prefix(text: str) -> str:
     return s.strip()
 
 
-# -------------------- anti-UX-bug helpers --------------------
-
-MENU_LIKE_TEXTS = {
-    # RU
-    "🌐 язык", "язык",
-    "📓 журнал", "журнал",
-    "⏰ напоминания", "напоминания",
-    "📊 статистика", "статистика",
-    "🤖 помощник", "помощник",
-    "🧘 медиа", "медиа",
-    "💎 премиум", "премиум",
-    "⚙️ настройки", "настройки",
-    "🔎 поиск", "🔍 поиск", "поиск",
-    "📜 история", "история",
-    "📅 диапазон", "диапазон",
-    "сегодня", "неделя",
-
-    # UK
-    "🌐 мова", "мова",
-    "щоденник",
-    "нагадування",
-    "статистика",
-    "помічник",
-    "медіа",
-    "преміум",
-    "налаштування",
-    "пошук",
-    "історія",
-    "діапазон",
-    "сьогодні", "тиждень",
-
-    # EN
-    "🌐 language", "language",
-    "journal",
-    "reminders",
-    "stats",
-    "assistant",
-    "media",
-    "premium",
-    "settings",
-    "search",
-    "history",
-    "range",
-    "today", "week",
-}
-
-
 def _is_root_menu_text(text: str) -> bool:
-    """
-    Проверяет, что текст – одна из кнопок главного меню
-    (с учётом всех языков и иконок), используя матчеры из keyboards.py
-    """
     return any(
         fn(text)
         for fn in (
@@ -255,23 +177,23 @@ def _is_root_menu_text(text: str) -> bool:
     )
 
 
-def _is_menu_like_text(text: str) -> bool:
-    """
-    Мягкая защита: либо явная кнопка меню через матчеры,
-    либо строка похожа на подпись кнопки.
-    """
-    if _is_root_menu_text(text):
-        return True
-    low = (text or "").strip().lower()
-    return low in MENU_LIKE_TEXTS
-
-
 def _is_foreign_command(text: str) -> bool:
     low = (text or "").strip().lower()
     if not low.startswith("/"):
         return False
-    # внутри калорий разрешаем только эти
     return not low.startswith(("/calories", "/kcal", "/cancel"))
+
+
+def _looks_like_food(text: Optional[str]) -> bool:
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    if raw.startswith("/"):
+        return False
+    if _is_root_menu_text(raw):
+        return False
+    low = raw.lower()
+    return any(k in low for k in CAL_KEYS)
 
 
 # -------------------- analyze text --------------------
@@ -297,18 +219,12 @@ async def analyze_text(text: str) -> Dict[str, float]:
                     p = sum(float(i.get("protein_g", 0) or 0) for i in items)
                     f = sum(float(i.get("fat_total_g", 0) or 0) for i in items)
                     c = sum(float(i.get("carbohydrates_total_g", 0) or 0) for i in items)
-                    return {
-                        "kcal": round(kcal),
-                        "p": round(p, 1),
-                        "f": round(f, 1),
-                        "c": round(c, 1),
-                    }
+                    return {"kcal": round(kcal), "p": round(p, 1), "f": round(f, 1), "c": round(c, 1)}
         except Exception:
             pass
 
     low = text.lower()
     grams_info: list[tuple[float, Dict[str, float]]] = []
-
     num = r"(\d+(?:[.,]\d+)?)"
     unit_re = r"(г|g|гр|ml|мл)"
 
@@ -324,17 +240,12 @@ async def analyze_text(text: str) -> Dict[str, float]:
                 continue
 
             unit = (m.group(2) or "").lower()
-
-            # MVP: мл считаем как граммы (1:1)
-            if unit in ("г", "g", "гр", "ml", "мл"):
-                g = qty
-            else:
-                piece_g = PIECE_GRAMS.get(name)
-                g = qty * piece_g if piece_g else qty
+            g = qty  # г/ml считаем 1:1
+            if unit == "" and name in PIECE_GRAMS:
+                g = qty * float(PIECE_GRAMS[name])
 
             grams_info.append((float(g), meta))
 
-        # если продукт упомянут без количества и это штука
         if name in PIECE_GRAMS and name in low and not re.search(pattern, low):
             grams_info.append((float(PIECE_GRAMS[name]), meta))
 
@@ -346,12 +257,95 @@ async def analyze_text(text: str) -> Dict[str, float]:
         f += meta["f"] * factor
         c += meta["c"] * factor
 
-    return {
-        "kcal": round(kcal),
-        "p": round(p, 1),
-        "f": round(f, 1),
-        "c": round(c, 1),
+    return {"kcal": round(kcal), "p": round(p, 1), "f": round(f, 1), "c": round(c, 1)}
+
+
+# -------------------- photo analyze (OpenAI Vision) --------------------
+
+async def _download_photo_bytes(message: types.Message) -> Optional[bytes]:
+    if not message.photo:
+        return None
+    ph = message.photo[-1]
+    file = await message.bot.get_file(ph.file_id)
+    bio = await message.bot.download_file(file.file_path)
+    return bio.read()
+
+
+async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
+    """
+    OpenAI Vision (Responses API):
+    - требуются переменные окружения:
+      OPENAI_API_KEY
+      (опционально) OPENAI_VISION_MODEL, по умолчанию gpt-4.1-mini
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+
+    img = await _download_photo_bytes(message)
+    if not img:
+        return None
+
+    model = os.getenv("OPENAI_VISION_MODEL", "gpt-4.1-mini")
+    b64 = base64.b64encode(img).decode("ascii")
+    data_url = f"data:image/jpeg;base64,{b64}"
+
+    prompt = (
+        'Estimate nutrition for the meal on the photo. '
+        'Return ONLY valid JSON like {"kcal":123,"p":12.3,"f":4.5,"c":67.8}. '
+        "If uncertain, give a reasonable estimate. No extra text."
+    )
+
+    payload = {
+        "model": model,
+        "input": [{
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": prompt},
+                {"type": "input_image", "image_url": data_url},
+            ],
+        }],
+        "max_output_tokens": 200,
     }
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                "https://api.openai.com/v1/responses",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            r.raise_for_status()
+            j = r.json()
+
+        txt = j.get("output_text")
+        if not txt:
+            # fallback: вытаскиваем текст из output[]
+            out = j.get("output") or []
+            chunks = []
+            for item in out:
+                if item.get("type") == "message":
+                    for part in (item.get("content") or []):
+                        if part.get("type") in ("output_text", "text"):
+                            chunks.append(part.get("text", ""))
+            txt = "\n".join(chunks).strip()
+
+        if not txt:
+            return None
+
+        m = re.search(r"\{.*\}", txt, re.S)
+        if not m:
+            return None
+        data = json.loads(m.group(0))
+
+        return {
+            "kcal": float(data.get("kcal", 0) or 0),
+            "p": float(data.get("p", 0) or 0),
+            "f": float(data.get("f", 0) or 0),
+            "c": float(data.get("c", 0) or 0),
+        }
+    except Exception:
+        return None
 
 
 # -------------------- premium gate --------------------
@@ -359,16 +353,16 @@ async def analyze_text(text: str) -> Dict[str, float]:
 async def _require_photo_premium(
     message: types.Message,
     session: AsyncSession,
-    user: User,
+    user: Optional[User],
     lang_code: str,
     *,
     source: str,
     props: Optional[Dict[str, Any]] = None,
 ) -> bool:
-    """
-    Если features_v2 есть — используем канон.
-    Иначе закрываем доступ без дыр.
-    """
+    if not user:
+        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
+        return False
+
     if require_feature_v2 is None:
         await message.answer(
             _tr(
@@ -395,16 +389,7 @@ async def _require_photo_premium(
 
 @router.message(Command("calories"))
 @router.message(Command("kcal"))
-async def cal_cmd(
-    message: types.Message,
-    state: FSMContext,
-    session: AsyncSession,
-    lang: Optional[str] = None,
-) -> None:
-    """
-    /calories <text> -> считаем сразу
-    /calories -> включаем режим ожидания
-    """
+async def cal_cmd(message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
@@ -414,55 +399,133 @@ async def cal_cmd(
 
     if query:
         res = await analyze_text(query)
-        await message.answer(
-            t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
-        )
+        await message.answer(t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"]))
         return
 
     await state.set_state(CaloriesFSM.waiting_input)
 
-    example = "250 мл молока, банан, 40 г арахиса"
-    await message.answer(
-        t("cal_send", lang_code, example=example),
-        reply_markup=get_main_kb(
-            lang_code,
-            is_premium=bool(getattr(user, "is_premium", False)),
-            is_admin=is_admin_tg(message.from_user.id if message.from_user else 0),
-        ),
+    hook = _tr(
+        lang_code,
+        """🔥 Калории — быстро и без занудства
+
+✅ Напиши списком, что ты съел/выпил — одним сообщением
+Или отправь фото еды (💎 Премиум)
+
+Я посчитаю: ккал • Б/Ж/У
+
+Примеры:
+• 250 мл молока, банан, 40 г арахиса
+• 200 г курицы, 100 г риса, 1 яблоко
+
+/cancel — выйти из режима""",
+        """🔥 Калорії — швидко і без занудства
+
+✅ Напиши списком, що ти з'їв/випив — одним повідомленням
+Або надішли фото їжі (💎 Преміум)
+
+Я порахую: ккал • Б/Ж/В
+
+Приклади:
+• 250 мл молока, банан, 40 г арахісу
+• 200 г курки, 100 г рису, 1 яблуко
+
+/cancel — вийти з режиму""",
+        """🔥 Calories — fast, no fluff
+
+✅ Send your food/drink list in one message
+Or send a food photo (💎 Premium)
+
+I’ll calculate: kcal • P/F/C
+
+Examples:
+• 250 ml milk, 1 banana, 40 g peanuts
+• 200 g chicken, 100 g rice, 1 apple
+
+/cancel — exit the mode""",
     )
+
+    await message.answer(hook, reply_markup=_cal_hook_inline_kb(lang_code))
 
 
 @router.message(F.text.func(is_calories_btn))
-async def cal_btn(
-    message: types.Message,
-    state: FSMContext,
-    session: AsyncSession,
-    lang: Optional[str] = None,
-) -> None:
+async def cal_btn(message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
     await state.set_state(CaloriesFSM.waiting_input)
 
-    example = "250 мл молока, банан, 40 г арахиса"
-    await message.answer(
-        t("cal_send", lang_code, example=example),
-        reply_markup=get_main_kb(
-            lang_code,
-            is_premium=bool(getattr(user, "is_premium", False)),
-            is_admin=is_admin_tg(message.from_user.id if message.from_user else 0),
-        ),
+    hook = _tr(
+        lang_code,
+        """🔥 Калории — быстро и без занудства
+
+✅ Напиши списком, что ты съел/выпил — одним сообщением
+Или отправь фото еды (💎 Премиум)
+
+Я посчитаю: ккал • Б/Ж/У
+
+Примеры:
+• 250 мл молока, банан, 40 г арахиса
+• 200 г курицы, 100 г риса, 1 яблоко
+
+/cancel — выйти из режима""",
+        """🔥 Калорії — швидко і без занудства
+
+✅ Напиши списком, що ти з'їв/випив — одним повідомленням
+Або надішли фото їжі (💎 Преміум)
+
+Я порахую: ккал • Б/Ж/В
+
+Приклади:
+• 250 мл молока, банан, 40 г арахісу
+• 200 г курки, 100 г рису, 1 яблуко
+
+/cancel — вийти з режиму""",
+        """🔥 Calories — fast, no fluff
+
+✅ Send your food/drink list in one message
+Or send a food photo (💎 Premium)
+
+I’ll calculate: kcal • P/F/C
+
+Examples:
+• 250 ml milk, 1 banana, 40 g peanuts
+• 200 g chicken, 100 g rice, 1 apple
+
+/cancel — exit the mode""",
     )
 
+    await message.answer(hook, reply_markup=_cal_hook_inline_kb(lang_code))
+
+
+# -------------------- callbacks --------------------
+
+@router.callback_query(F.data == "cal:enter")
+async def cal_enter_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(CaloriesFSM.waiting_input)
+    await cb.answer()
+    await cb.message.answer("Ок, пиши списком одним сообщением 🙂")
+
+
+@router.callback_query(F.data == "cal:photo")
+async def cal_photo_cb(cb: types.CallbackQuery, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
+    tg_lang = getattr(cb.from_user, "language_code", None)
+    user = await _get_user(session, cb.from_user.id)
+    lang_code = _user_lang(user, lang, tg_lang)
+
+    ok = await _require_photo_premium(cb.message, session, user, lang_code, source="hook_button")
+    if not ok:
+        return
+
+    await state.set_state(CaloriesFSM.waiting_photo)
+    await cb.answer()
+    await cb.message.answer("Кидай фото еды 📸")
+
+
+# -------------------- cancel --------------------
 
 @router.message(Command("cancel"))
-async def cal_cancel_global(
-    message: types.Message,
-    state: FSMContext,
-    session: AsyncSession,
-    lang: Optional[str] = None,
-) -> None:
+async def cal_cancel_global(message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
@@ -481,19 +544,12 @@ async def cal_cancel_global(
 # -------------------- MODE: waiting_input --------------------
 
 @router.message(CaloriesFSM.waiting_input, F.text)
-async def cal_text_in_mode(
-    message: types.Message,
-    state: FSMContext,
-    session: AsyncSession,
-    lang: Optional[str] = None,
-) -> None:
+async def cal_text_in_mode(message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
     text = (message.text or "").strip()
     if not text:
         return
 
-    # если в режиме калорий пришла кнопка меню/чужая команда —
-    # очищаем FSM и пропускаем дальше (журнал, медиа, настройки и т.п.)
-    if _is_menu_like_text(text) or _is_foreign_command(text):
+    if _is_root_menu_text(text) or _is_foreign_command(text):
         await state.clear()
         return
 
@@ -501,74 +557,43 @@ async def cal_text_in_mode(
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
-    text = _strip_cmd_prefix(text)
-    if not text:
+    payload = _strip_cmd_prefix(text)
+    if not payload:
         return
 
-    res = await analyze_text(text)
-    await message.answer(
-        t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
-    )
-    # остаёмся в режиме ожидания
+    res = await analyze_text(payload)
+    await message.answer(t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"]))
 
 
-@router.message(CaloriesFSM.waiting_input, F.photo)
-async def cal_photo_in_mode(
-    message: types.Message,
-    session: AsyncSession,
-    lang: Optional[str] = None,
-) -> None:
-    """
-    Ключевой UX-фикс:
-    Если юзер открыл Calories-режим, мы реагируем на фото даже без подписи.
-    """
+# -------------------- MODE: waiting_photo --------------------
 
+@router.message(CaloriesFSM.waiting_photo, F.photo)
+async def cal_photo_waiting(message: types.Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
-    if not user:
-        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
-        return
-
-    ok = await _require_photo_premium(
-        message, session, user, lang_code,
-        source="calories_waiting_input",
-        props={"has_caption": bool(message.caption)},
-    )
+    ok = await _require_photo_premium(message, session, user, lang_code, source="waiting_photo")
     if not ok:
         return
 
-    await message.answer(
-        _tr(
-            lang_code,
-            "📸 Подсчёт калорий по фото открыт ✅\n\n"
-            "Скоро добавим распознавание еды и порций прямо с изображения.",
-            "📸 Підрахунок калорій по фото відкрито ✅\n\n"
-            "Скоро додамо розпізнавання їжі та порцій прямо з зображення.",
-            "📸 Photo calories are unlocked ✅\n\n"
-            "Food and portion recognition is coming soon.",
-        )
-    )
+    res = await analyze_photo(message)
+    if not res:
+        await message.answer("Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON.")
+        return
+
+    await message.answer(t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"]))
 
 
 # -------------------- free text autodetect --------------------
 
 @router.message(F.text.func(_looks_like_food))
-async def cal_text_free_autodetect(
-    message: types.Message,
-    session: AsyncSession,
-    lang: Optional[str] = None,
-) -> None:
-    """
-    Авто-детект еды вне режима /calories.
-    """
+async def cal_text_free_autodetect(message: types.Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     text = (message.text or "").strip()
     if not text:
         return
 
-    # на всякий случай не трогаем меню и чужие команды
-    if _is_menu_like_text(text) or _is_foreign_command(text):
+    if _is_root_menu_text(text) or _is_foreign_command(text):
         return
 
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
@@ -576,24 +601,13 @@ async def cal_text_free_autodetect(
     lang_code = _user_lang(user, lang, tg_lang)
 
     res = await analyze_text(text)
-    await message.answer(
-        t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
-    )
+    await message.answer(t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"]))
 
 
 # -------------------- photo with caption trigger --------------------
 
 @router.message(F.photo)
-async def cal_photo_caption_trigger(
-    message: types.Message,
-    session: AsyncSession,
-    lang: Optional[str] = None,
-) -> None:
-    """
-    Фото с подписью /calories или похожим списком еды.
-    Работает вне FSM.
-    """
-
+async def cal_photo_caption_trigger(message: types.Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     caption = (message.caption or "").strip()
     if not caption:
         return
@@ -601,7 +615,6 @@ async def cal_photo_caption_trigger(
     low = caption.lower()
     is_cmd = low.startswith(("/calories", "/kcal"))
     is_food_caption = _looks_like_food(caption)
-
     if not (is_cmd or is_food_caption):
         return
 
@@ -609,66 +622,24 @@ async def cal_photo_caption_trigger(
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
-    if not user:
-        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
-        return
-
-    ok = await _require_photo_premium(
-        message, session, user, lang_code,
-        source="photo_caption_trigger",
-        props={
-            "has_caption": True,
-            "caption_is_cmd": is_cmd,
-            "caption_food_like": is_food_caption,
-        },
-    )
+    ok = await _require_photo_premium(message, session, user, lang_code, source="photo_caption_trigger")
     if not ok:
         return
 
+    # если подпись с едой — считаем по подписи; иначе — по фото
     payload_text = _strip_cmd_prefix(caption) if is_cmd else caption
     payload_text = payload_text.strip()
 
     if payload_text and _looks_like_food(payload_text):
         res = await analyze_text(payload_text)
-        await message.answer(
-            _tr(
-                lang_code,
-                "📸 Режим по фото активен ✅\n"
-                "Пока распознавание еды с картинки в разработке,\n"
-                "но я уже посчитал по подписи:\n\n"
-                f"Калории: {res['kcal']:.0f} ккал\n"
-                f"Белки: {res['p']:.1f} г\n"
-                f"Жиры: {res['f']:.1f} г\n"
-                f"Углеводы: {res['c']:.1f} г",
-                "📸 Режим по фото активний ✅\n"
-                "Поки розпізнавання їжі з картинки в розробці,\n"
-                "але я вже порахував по підпису:\n\n"
-                f"Калорії: {res['kcal']:.0f} ккал\n"
-                f"Білки: {res['p']:.1f} г\n"
-                f"Жири: {res['f']:.1f} г\n"
-                f"Вуглеводи: {res['c']:.1f} г",
-                "📸 Photo mode is active ✅\n"
-                "Image recognition is coming soon,\n"
-                "but I already counted from your caption:\n\n"
-                f"Calories: {res['kcal']:.0f} kcal\n"
-                f"Protein: {res['p']:.1f} g\n"
-                f"Fat: {res['f']:.1f} g\n"
-                f"Carbs: {res['c']:.1f} g",
-            )
-        )
+        await message.answer(t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"]))
         return
 
-    await message.answer(
-        _tr(
-            lang_code,
-            "📸 Подсчёт калорий по фото открыт ✅\n\n"
-            "Скоро добавим распознавание еды и порций прямо с изображения.",
-            "📸 Підрахунок калорій по фото відкрито ✅\n\n"
-            "Скоро додамо розпізнавання їжі та порцій прямо з зображення.",
-            "📸 Photo calories are unlocked ✅\n\n"
-            "Food and portion recognition is coming soon.",
-        )
-    )
+    res2 = await analyze_photo(message)
+    if not res2:
+        await message.answer("Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON.")
+        return
+    await message.answer(t("cal_total", lang_code, kcal=res2["kcal"], p=res2["p"], f=res2["f"], c=res2["c"]))
 
 
 __all__ = ["router"]

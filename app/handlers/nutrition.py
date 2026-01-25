@@ -27,26 +27,27 @@ TR = {
     },
 }
 
-def _t(lang: str, key: str, fallback: dict) -> str:
+def _t(lang: str, key: str, tr: dict, **kwargs) -> str:
     """Простой безопасный перевод для локальных _L10N:
     без зависимостей от _BAD_I18N и app.i18n.
     """
     loc = (lang or "ru")[:2].lower()
     if loc == "ua":
         loc = "uk"
-    return fallback.get(loc, fallback.get("ru", key))
+    tpl = tr.get(loc, tr.get("ru", {})).get(key, key)
+    return tpl.format(**kwargs)
 @router.message(Command("calories"))
 async def calories_cmd(m: Message, lang: str):
-    await m.answer(_t(lang, "ask"), parse_mode=None)
+    await m.answer(_t(lang, "ask", TR), parse_mode=None)
 
 @router.message(F.text.lower().contains("калор"))
 async def calories_text(m: Message, lang: str):
-    await m.answer(_t(lang, "processing"), parse_mode=None)
+    await m.answer(_t(lang, "processing", TR), parse_mode=None)
     query = m.text
     try:
         total, items = await fetch_nutrition(query)
     except NutritionError as e:
-        await m.answer(_t(lang, "error", msg=str(e)), parse_mode=None)
+        await m.answer(_t(lang, "error", TR, msg=str(e)), parse_mode=None)
         return
     text = _t(
         lang,
@@ -54,6 +55,6 @@ async def calories_text(m: Message, lang: str):
         cal=round(total["calories"], 1),
         p=round(total["protein"], 1),
         f=round(total["fat"], 1),
-        c=round(total["carbs"], 1),
+        c=round(total["carbohydrates"], 1),
     )
     await m.answer(text, parse_mode=None)

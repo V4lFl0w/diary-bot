@@ -18,6 +18,7 @@ from app.models.user import User
 from app.models.journal import JournalEntry
 from app.services.llm_usage import log_llm_usage
 from app.services.media_id import trace_moe_identify
+from app.services.media_search import tmdb_search_multi, build_media_context
 
 
 MENU_NOISE = {
@@ -88,6 +89,18 @@ def _assistant_plan(user: Optional[User]) -> str:
 def _now_str_user(user: Optional[User]) -> str:
     tz = _user_tz(user)
     return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
+
+
+def _is_media_query(text: str) -> bool:
+    t = (text or "").lower()
+    # ключевые слова + типичные запросы на поиск названия
+    keys = (
+        "фильм", "сериал", "кино", "мульт", "мультик",
+        "season", "episode", "movie", "tv", "series",
+        "актёр", "актер", "режисс", "персонаж",
+        "как называется", "что за фильм", "что за сериал", "что за мультик"
+    )
+    return any(k in t for k in keys)
 
 
 def _is_noise(text: str) -> bool:
@@ -325,6 +338,17 @@ async def run_assistant(
 
     plan = _assistant_plan(user)
 
+    # --- MEDIA RAG (films/series): retrieve before generation ---
+    media_ctx = ""
+    is_media = _is_media_query(text)
+    if is_media:
+        try:
+            items = await tmdb_search_multi(text, lang="ru-RU", limit=5)
+            media_ctx = build_media_context(items)
+        except Exception:
+            media_ctx = "Ничего не найдено в базе источника."
+
+
     ctx = await build_context(session, user, lang, plan)
 
     prev_id = getattr(user, "assistant_prev_response_id", None) if user else None
@@ -337,14 +361,27 @@ async def run_assistant(
 
     prompt = (
         f"Context:\n{ctx}\n\n"
-        f"User message:\n{text}\n"
+        + (f"Media DB search context (TMDb):\n{media_ctx}\n\n" if media_ctx else "")
+        + "User message:\n" + text + "\n"
     )
 
+    media_rules = ""
+    if is_media:
+        media_rules = (
+            "\n\nВАЖНО (MEDIA MODE):\n"
+            "- Отвечай ТОЛЬКО на основе блока Media DB search context (TMDb).\n"
+            "- Если в TMDb ничего не найдено или данных недостаточно — скажи: 'не уверен(а)' и задай 1 уточняющий вопрос (название/год/актёр/сцена).\n"
+            "- НЕ угадывай названия и НЕ придумывай факты.\n"
+        )
+
+    # для media-запросов отключаем previous_response_id, чтобы не тянуть старую ветку и не галюнило
+    prev_for_call = None if is_media else prev_id
+
     resp = await client.responses.create(
-        previous_response_id=prev_id,
+        previous_response_id=prev_for_call,
         model=model,
-        instructions=_instructions(lang, plan),
-        input=prompt,                 # <-- важно: строкой
+        instructions=_instructions(lang, plan) + media_rules,
+        input=prompt,
         max_output_tokens=(260 if plan == "basic" else 650),
     )
 
