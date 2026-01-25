@@ -14,13 +14,16 @@ def _try_piece_guess(text: str) -> tuple[str, float] | None:
     name = m.group(2).strip()
     defaults = {
         'вареник': 50.0,
-        'вареники': 50.0,
-        'пельмень': 12.0,
-        'пельмени': 12.0,
+        'пельмен': 12.0,
     }
     for k, g in defaults.items():
         if k in name:
             return (k, n * g)
+    # поддержка словоформ:
+    if "вареник" in name or "вареник" in name or "вареник"[:6] in name or "вареник" in name or "вареник" in name:
+        return ("вареник", n * 50.0)
+    if "пельмен" in name:
+        return ("пельмен", n * 12.0)
     return None
 
 import base64
@@ -143,32 +146,88 @@ def _format_cal_total(lang_code: str, res: Dict[str, float]) -> str:
         c=res.get("c", 0),
     )
 
+def _format_photo_details(lang_code: str, res: Dict[str, float]) -> str:
+    """
+    Доп-детали только для фото-анализа:
+    title / ingredients / portion / assumptions
+    """
+    title = (res.get("title") or "").strip() if isinstance(res.get("title"), str) else ""
+    portion = (res.get("portion") or "").strip() if isinstance(res.get("portion"), str) else ""
+
+    ingredients = res.get("ingredients")
+    if isinstance(ingredients, str):
+        ingredients_list = [x.strip() for x in ingredients.split(",") if x.strip()]
+    elif isinstance(ingredients, list):
+        ingredients_list = [str(x).strip() for x in ingredients if str(x).strip()]
+    else:
+        ingredients_list = []
+
+    assumptions = res.get("assumptions")
+    if isinstance(assumptions, str):
+        assumptions_list = [assumptions.strip()] if assumptions.strip() else []
+    elif isinstance(assumptions, list):
+        assumptions_list = [str(x).strip() for x in assumptions if str(x).strip()]
+    else:
+        assumptions_list = []
+
+    parts = []
+    if title:
+        parts.append(_tr(lang_code, f"Блюдо: {title}", f"Страва: {title}", f"Dish: {title}"))
+    if ingredients_list:
+        joined = ", ".join(ingredients_list[:12])
+        parts.append(_tr(lang_code, f"Состав: {joined}", f"Склад: {joined}", f"Ingredients: {joined}"))
+    if portion:
+        parts.append(_tr(lang_code, f"Порция: {portion}", f"Порція: {portion}", f"Portion: {portion}"))
+    if assumptions_list:
+        # 1-2 пункта максимум, чтобы карточку не ломать
+        joined = "; ".join(assumptions_list[:2])
+        parts.append(_tr(lang_code, f"Допущения: {joined}", f"Припущення: {joined}", f"Assumptions: {joined}"))
+
+    return "\n".join(parts).strip()
+
+
 # -------------------- fallback nutrition база --------------------
 
 FALLBACK: Dict[str, Dict[str, float]] = {
     "молок": dict(kcal=60, p=3.2, f=3.2, c=4.7),
     "milk": dict(kcal=60, p=3.2, f=3.2, c=4.7),
+
     "банан": dict(kcal=89, p=1.1, f=0.3, c=23.0),
     "banana": dict(kcal=89, p=1.1, f=0.3, c=23.0),
+
     "арахис": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "арахіс": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "peanut": dict(kcal=567, p=26.0, f=49.0, c=16.0),
-    "греч": dict(kcal=343, p=13.3, f=3.4, c=71.5),
-    "гречк": dict(kcal=343, p=13.3, f=3.4, c=71.5),
-    "buckwheat": dict(kcal=343, p=13.3, f=3.4, c=71.5),
+
+    # гречка: по умолчанию ГОТОВАЯ
+    "гречк": dict(kcal=110, p=3.6, f=1.3, c=21.3),
+    "buckwheat": dict(kcal=110, p=3.6, f=1.3, c=21.3),
+
+    # гречка сухая (только если явно указано "сух"/"крупа")
+    "гречк_сух": dict(kcal=343, p=13.3, f=3.4, c=71.5),
+
+    # вареники/пельмени (усреднённо, на 100 г)
+    "вареник": dict(kcal=210, p=6.0, f=4.0, c=38.0),
+    "пельмен": dict(kcal=260, p=11.0, f=14.0, c=22.0),
+
     "яйц": dict(kcal=143, p=13.0, f=10.0, c=1.1),
     "egg": dict(kcal=143, p=13.0, f=10.0, c=1.1),
+
     "хлеб": dict(kcal=250, p=9.0, f=3.0, c=49.0),
     "хліб": dict(kcal=250, p=9.0, f=3.0, c=49.0),
     "bread": dict(kcal=250, p=9.0, f=3.0, c=49.0),
+
     "сыр": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "сир": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "cheese": dict(kcal=350, p=26.0, f=27.0, c=3.0),
+
     "сосиск": dict(kcal=300, p=12.0, f=27.0, c=2.0),
     "sausage": dict(kcal=300, p=12.0, f=27.0, c=2.0),
+
     "куриц": dict(kcal=190, p=29.0, f=7.0, c=0.0),
     "курк": dict(kcal=190, p=29.0, f=7.0, c=0.0),
     "chicken": dict(kcal=190, p=29.0, f=7.0, c=0.0),
+
     "свинин": dict(kcal=260, p=26.0, f=18.0, c=0.0),
     "шашлык": dict(kcal=250, p=22.0, f=18.0, c=0.0),
     "мяс": dict(kcal=230, p=23.0, f=15.0, c=0.0),
@@ -181,6 +240,9 @@ PIECE_GRAMS: Dict[str, int] = {
     "сыр": 30, "сир": 30, "cheese": 30,
     "сосиск": 50, "sausage": 50,
     "куриц": 80, "курк": 80, "chicken": 80,
+
+    "вареник": 50,
+    "пельмен": 12,
 }
 
 CAL_KEYS = list(FALLBACK.keys())
@@ -230,13 +292,14 @@ def _looks_like_food(text: Optional[str]) -> bool:
 
 
 
-def _add_confidence(out: str, conf: float | None) -> str:
+def _add_confidence(out: str, conf: float | None, lang_code: str = "ru") -> str:
     try:
         c = float(conf or 0)
     except Exception:
         c = 0.0
     if c <= 0:
         return out
+
     pct = int(round(c * 100))
     out += f"\nУверенность: {pct}%"
     if c < 0.65:
@@ -358,6 +421,12 @@ async def analyze_text(text: str) -> Dict[str, float]:
 
     low = (text or "").lower()
 
+    is_dry_buckwheat = False
+    # если явно пишут "сух" или "крупа" — считаем как сухую
+    if ("греч" in low or "buckwheat" in low) and ("сух" in low or "крупа" in low):
+        low = re.sub(r"гречк\w*", "гречк_сух", low)
+        is_dry_buckwheat = True
+
     piece_hint = _try_piece_guess(text)
     grams_info: list[tuple[float, Dict[str, float]]] = []
     if piece_hint and not re.search(r"\d+\s*(г|гр|g|мл|ml)\b", low):
@@ -365,12 +434,31 @@ async def analyze_text(text: str) -> Dict[str, float]:
         if k in FALLBACK:
             grams_info.append((float(g), FALLBACK[k]))
 
+    # если распознали 'шт' режим — считаем только по нему (чтобы не было двойного подсчёта)
+    if piece_hint and grams_info:
+        kcal = p = f = c = 0.0
+        for g, meta in grams_info:
+            factor = g / 100.0
+            kcal += meta["kcal"] * factor
+            p += meta["p"] * factor
+            f += meta["f"] * factor
+            c += meta["c"] * factor
+        return {
+            "kcal": round(kcal),
+            "p": round(p, 1),
+            "f": round(f, 1),
+            "c": round(c, 1),
+            "confidence": 0.60,
+        }
+
     num = r"(\d+(?:[.,]\d+)?)"
     unit_re = r"(г|g|гр|ml|мл)"
 
     for name, meta in FALLBACK.items():
+        if is_dry_buckwheat and name == "гречк":
+            continue
         safe_name = re.escape(name)
-        pattern = rf"{num}\s*{unit_re}?\s*{safe_name}"
+        pattern = rf"{num}\s*{unit_re}?\s*{safe_name}\w*"
 
         for m in re.finditer(pattern, low):
             qty_raw = m.group(1).replace(",", ".")
@@ -446,17 +534,16 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
     data_url = f"data:image/jpeg;base64,{b64}"
 
     prompt = (
-
         "Estimate nutrition for the meal on the photo. "
-
-        "Return ONLY valid JSON with fields: "
-
-        '{"kcal": number, "p": number, "f": number, "c": number, "confidence": number}. '
-
+        "Return ONLY valid JSON (no markdown, no extra text) with fields: "
+        '{"title": string, "ingredients": array, "portion": string, '
+        '"kcal": number, "p": number, "f": number, "c": number, '
+        '"confidence": number, "assumptions": array}. '
         "confidence must be between 0 and 1 and reflects how sure you are about portion size and ingredients. "
-
-        "If unsure, set confidence <= 0.65. No extra text."
-
+        "If unsure, set confidence <= 0.65. "
+        "ingredients: short list of main items (strings). "
+        "portion: short human description (e.g., 'средняя порция', '≈250 г', '8 кусочков'). "
+        "assumptions: 1-3 short notes about what you assumed (sauce type, cheese amount, etc.)."
     )
 
     payload = {
@@ -502,6 +589,10 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
         data = json.loads(m.group(0))
 
         return {
+            "title": (data.get("title") or "") if isinstance(data.get("title"), str) else "",
+            "ingredients": data.get("ingredients") if isinstance(data.get("ingredients"), (list, str)) else [],
+            "portion": (data.get("portion") or "") if isinstance(data.get("portion"), str) else "",
+            "assumptions": data.get("assumptions") if isinstance(data.get("assumptions"), (list, str)) else [],
             "kcal": float(data.get("kcal", 0) or 0),
             "p": float(data.get("p", 0) or 0),
             "f": float(data.get("f", 0) or 0),
@@ -571,7 +662,7 @@ async def cal_cmd(message: types.Message, state: FSMContext, session: AsyncSessi
             return
         out = _format_cal_total(lang_code, res)
 
-        out = _add_confidence(out, float(res.get('confidence', 0) or 0))
+        out = _add_confidence(out, float(res.get('confidence', 0) or 0), lang_code)
 
         card = render_text_card(out)
         await message.answer_photo(BufferedInputFile(card, filename="kcal.jpg"))
@@ -745,7 +836,7 @@ async def cal_text_in_mode(message: types.Message, state: FSMContext, session: A
         return
     out = _format_cal_total(lang_code, res)
 
-    out = _add_confidence(out, float(res.get('confidence', 0) or 0))
+    out = _add_confidence(out, float(res.get('confidence', 0) or 0), lang_code)
 
     await message.answer(out)
 # -------------------- MODE: waiting_photo --------------------
@@ -766,16 +857,11 @@ async def cal_photo_waiting(message: types.Message, state: FSMContext, session: 
         return
 
     conf = float(res.get("confidence", 0) or 0)
-
-    pct = int(round(conf * 100))
-
+    details = _format_photo_details(lang_code, res)
     out = _format_cal_total(lang_code, res)
-
-    out += f"\nУверенность: {pct}%"
-
-    if conf and conf < 0.65:
-
-        out += "\n⚠️ Если скажешь граммовку/порцию — пересчитаю точнее."
+    if details:
+        out = details + "\n" + out
+    out = _add_confidence(out, conf, lang_code)
 
     img_bytes = await _download_photo_bytes(message)
     if img_bytes:
@@ -808,7 +894,7 @@ async def cal_text_free_autodetect(message: types.Message, session: AsyncSession
         return
     out = _format_cal_total(lang_code, res)
 
-    out = _add_confidence(out, float(res.get('confidence', 0) or 0))
+    out = _add_confidence(out, float(res.get('confidence', 0) or 0), lang_code)
 
     await message.answer(out)
 # -------------------- photo with caption trigger --------------------
@@ -847,7 +933,7 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
             return
         out = _format_cal_total(lang_code, res)
 
-        out = _add_confidence(out, float(res.get('confidence', 0) or 0))
+        out = _add_confidence(out, float(res.get('confidence', 0) or 0), lang_code)
 
         await message.answer(out)
         return
@@ -856,11 +942,18 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
     if not res2:
         await message.answer("Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON.")
         return
+
     conf = float(res2.get("confidence", 0) or 0)
-    pct = int(round(conf * 100))
+    details = _format_photo_details(lang_code, res2)
     out = _format_cal_total(lang_code, res2)
-    out += f"\nУверенность: {pct}%"
-    if conf and conf < 0.65:
-        out += "\n⚠️ Если скажешь граммовку/порцию — пересчитаю точнее."
-    await message.answer(out)
+    if details:
+        out = details + "\n" + out
+    out = _add_confidence(out, conf, lang_code)
+
+    img_bytes = await _download_photo_bytes(message)
+    if img_bytes:
+        card = render_result_card(img_bytes, out)
+        await message.answer_photo(BufferedInputFile(card, filename="calories.jpg"))
+    else:
+        await message.answer(out)
 __all__ = ["router"]
