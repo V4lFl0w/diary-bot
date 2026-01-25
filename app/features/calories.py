@@ -131,7 +131,7 @@ def _user_lang(user: Optional[User], fallback: Optional[str], tg_lang: Optional[
 
 
 def _format_cal_total(lang_code: str, res: Dict[str, float]) -> str:
-    out = t("cal_total", lang_code, kcal=res.get("kcal", 0), p=res.get("p", 0), f=res.get("f", 0), c=res.get("c", 0))
+    out = _format_cal_total(lang_code, res)
     conf = res.get("confidence", None)
     try:
         conf_f = float(conf) if conf is not None else None
@@ -498,7 +498,7 @@ async def cal_cmd(message: types.Message, state: FSMContext, session: AsyncSessi
                 "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
             )
             return
-        out = t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
+        out = _format_cal_total(lang_code, res)
 
         out = _add_confidence(out, float(res.get('confidence', 0) or 0))
 
@@ -671,7 +671,7 @@ async def cal_text_in_mode(message: types.Message, state: FSMContext, session: A
             "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
         )
         return
-    out = t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
+    out = _format_cal_total(lang_code, res)
 
     out = _add_confidence(out, float(res.get('confidence', 0) or 0))
 
@@ -697,7 +697,7 @@ async def cal_photo_waiting(message: types.Message, session: AsyncSession, lang:
 
     pct = int(round(conf * 100))
 
-    out = t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
+    out = _format_cal_total(lang_code, res)
 
     out += f"\nУверенность: {pct}%"
 
@@ -728,7 +728,7 @@ async def cal_text_free_autodetect(message: types.Message, session: AsyncSession
             "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
         )
         return
-    out = t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
+    out = _format_cal_total(lang_code, res)
 
     out = _add_confidence(out, float(res.get('confidence', 0) or 0))
 
@@ -767,7 +767,7 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
                 "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
             )
             return
-        out = t("cal_total", lang_code, kcal=res["kcal"], p=res["p"], f=res["f"], c=res["c"])
+        out = _format_cal_total(lang_code, res)
 
         out = _add_confidence(out, float(res.get('confidence', 0) or 0))
 
@@ -780,7 +780,7 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
         return
     conf = float(res2.get("confidence", 0) or 0)
     pct = int(round(conf * 100))
-    out = t("cal_total", lang_code, kcal=res2["kcal"], p=res2["p"], f=res2["f"], c=res2["c"])
+    out = _format_cal_total(lang_code, res2)
     out += f"\nУверенность: {pct}%"
     if conf and conf < 0.65:
         out += "\n⚠️ Если скажешь граммовку/порцию — пересчитаю точнее."
