@@ -131,21 +131,15 @@ def _user_lang(user: Optional[User], fallback: Optional[str], tg_lang: Optional[
 
 
 def _format_cal_total(lang_code: str, res: Dict[str, float]) -> str:
-    out = _format_cal_total(lang_code, res)
-    conf = res.get("confidence", None)
-    try:
-        conf_f = float(conf) if conf is not None else None
-    except Exception:
-        conf_f = None
-
-    if conf_f is not None:
-        conf_f = max(0.0, min(1.0, conf_f))
-        pct = int(round(conf_f * 100))
-        out += f"\nУверенность: {pct}%"
-        if pct < 65:
-            out += "\n⚠️ Если скажешь граммовку/порцию — пересчитаю точнее."
-    return out
-
+    # База: ккал/БЖУ. confidence добавляем снаружи через _add_confidence()
+    return t(
+        "cal_total",
+        lang_code,
+        kcal=res.get("kcal", 0),
+        p=res.get("p", 0),
+        f=res.get("f", 0),
+        c=res.get("c", 0),
+    )
 
 # -------------------- fallback nutrition база --------------------
 
@@ -188,7 +182,6 @@ PIECE_GRAMS: Dict[str, int] = {
 }
 
 CAL_KEYS = list(FALLBACK.keys())
-
 
 def _strip_cmd_prefix(text: str) -> str:
     s = (text or "").strip()
