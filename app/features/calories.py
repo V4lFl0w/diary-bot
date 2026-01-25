@@ -15,6 +15,10 @@ def _try_piece_guess(text: str) -> tuple[str, float] | None:
     defaults = {
         'вареник': 50.0,
         'пельмен': 12.0,
+        'котлет': 100.0,
+        'сосиск': 50.0,
+        'яйц': 50.0,
+        'яблок': 150.0,
     }
     for k, g in defaults.items():
         if k in name:
@@ -146,6 +150,29 @@ def _format_cal_total(lang_code: str, res: Dict[str, float]) -> str:
         c=res.get("c", 0),
     )
 
+
+def _is_water_only(text: str) -> bool:
+    s = (text or "").strip().lower()
+    if not s:
+        return False
+    if "вод" not in s and "water" not in s:
+        return False
+    # 5л воды / 2 l water / 500 мл воды
+    return bool(re.search(r"\d+(?:[.,]\d+)?\s*(л|l|мл|ml)\b", s))
+
+
+def _zero_ok_result(conf: float = 0.95) -> Dict[str, float]:
+    # спец-флаг, чтобы 0 ккал не считалось ошибкой в хэндлерах
+    return {"kcal": 0.0, "p": 0.0, "f": 0.0, "c": 0.0, "confidence": conf, "zero_ok": 1.0}
+
+
+def _kcal_is_invalid(res: Optional[Dict[str, float]]) -> bool:
+    if not res:
+        return True
+    kcal = float(res.get("kcal", 0) or 0)
+    zero_ok = bool(res.get("zero_ok"))
+    return (kcal <= 0) and (not zero_ok)
+
 def _format_photo_details(lang_code: str, res: Dict[str, float]) -> str:
     """
     Доп-детали только для фото-анализа:
@@ -195,6 +222,53 @@ FALLBACK: Dict[str, Dict[str, float]] = {
     "банан": dict(kcal=89, p=1.1, f=0.3, c=23.0),
     "banana": dict(kcal=89, p=1.1, f=0.3, c=23.0),
 
+    # --- extended basics (autopatch) ---  # COLA_EXTENDED_MARKER
+    "яблок": dict(kcal=52, p=0.3, f=0.2, c=14.0),
+    "apple": dict(kcal=52, p=0.3, f=0.2, c=14.0),
+
+    # напитки (на 100 мл)
+    "вода": dict(kcal=0, p=0.0, f=0.0, c=0.0),
+    "water": dict(kcal=0, p=0.0, f=0.0, c=0.0),
+    "кола": dict(kcal=42, p=0.0, f=0.0, c=10.6),
+    "coke": dict(kcal=42, p=0.0, f=0.0, c=10.6),
+    "coca": dict(kcal=42, p=0.0, f=0.0, c=10.6),
+    "pepsi": dict(kcal=43, p=0.0, f=0.0, c=10.9),
+
+    "сок": dict(kcal=46, p=0.2, f=0.1, c=11.0),
+    "juice": dict(kcal=46, p=0.2, f=0.1, c=11.0),
+
+    "чай": dict(kcal=1, p=0.0, f=0.0, c=0.2),
+    "tea": dict(kcal=1, p=0.0, f=0.0, c=0.2),
+    "кофе": dict(kcal=2, p=0.3, f=0.0, c=0.0),
+    "coffee": dict(kcal=2, p=0.3, f=0.0, c=0.0),
+
+    # крупы/гарниры (ГОТОВЫЕ, на 100 г)
+    "рис": dict(kcal=130, p=2.7, f=0.3, c=28.0),
+    "rice": dict(kcal=130, p=2.7, f=0.3, c=28.0),
+
+    "овсянк": dict(kcal=68, p=2.4, f=1.4, c=12.0),
+    "oat": dict(kcal=68, p=2.4, f=1.4, c=12.0),
+
+    "пшеничн": dict(kcal=98, p=3.2, f=1.1, c=20.0),  # пшеничная каша
+    "wheat": dict(kcal=98, p=3.2, f=1.1, c=20.0),
+
+    "макарон": dict(kcal=131, p=5.0, f=1.1, c=25.0),
+    "pasta": dict(kcal=131, p=5.0, f=1.1, c=25.0),
+
+    "картоф": dict(kcal=80, p=2.0, f=0.1, c=17.0),
+    "пюре": dict(kcal=110, p=2.2, f=4.0, c=16.0),
+
+    # мясо/готовое
+    "котлет": dict(kcal=240, p=16.0, f=18.0, c=6.0),  # усреднённо
+    "cutlet": dict(kcal=240, p=16.0, f=18.0, c=6.0),
+
+    "грудинк": dict(kcal=330, p=15.0, f=30.0, c=0.0),  # свиная грудка/грудинка
+    "porkbelly": dict(kcal=330, p=15.0, f=30.0, c=0.0),
+
+    # кото-корм (сухой, усреднённо)
+    "корм": dict(kcal=360, p=30.0, f=12.0, c=30.0),
+    "catfood": dict(kcal=360, p=30.0, f=12.0, c=30.0),
+
     "арахис": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "арахіс": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "peanut": dict(kcal=567, p=26.0, f=49.0, c=16.0),
@@ -234,6 +308,13 @@ FALLBACK: Dict[str, Dict[str, float]] = {
 }
 
 PIECE_GRAMS: Dict[str, int] = {
+    # --- extended pieces (autopatch) ---  # PIECE_EXTENDED_MARKER
+    "яблок": 150, "apple": 150,
+    "котлет": 100, "cutlet": 100,
+    # стакан/чашка/кружка (очень грубо)
+    "стакан": 250,
+    "чашк": 250,
+    "кружк": 300,
     "яйц": 50, "egg": 50,
     "банан": 120, "banana": 120,
     "хлеб": 30, "хліб": 30, "bread": 30,
@@ -243,6 +324,13 @@ PIECE_GRAMS: Dict[str, int] = {
 
     "вареник": 50,
     "пельмен": 12,
+}
+
+
+REV_DRINK_KEYS = {
+    "вода","water","кола","coke","coca","pepsi",
+    "сок","juice","чай","tea","кофе","coffee",
+    "молок","milk",
 }
 
 CAL_KEYS = list(FALLBACK.keys())
@@ -419,8 +507,22 @@ async def analyze_text(text: str) -> Dict[str, float]:
         except Exception:
             pass
 
+    if _is_water_only(text):
+        return _zero_ok_result(0.95)
+
     low = (text or "").lower()
 
+    # --- normalize glued units: "1л" -> "1 л", "500мл" -> "500 мл"
+    low = re.sub(r"(\d)(л|l|мл|ml)\b", r"\1 \2", low)
+
+    # --- normalize cola words to match FALLBACK keys
+    # "cola" -> "coke" (у тебя есть coke/coca/pepsi/кола)
+    low = re.sub(r"\bcola\b", "coke", low)
+
+    
+
+    # --- normalize RU cola declensions: колы/колу/колой -> кола
+    low = re.sub(r"\bкол(?:а|ы|у|е|ой|ою)\b", "кола", low)
     is_dry_buckwheat = False
     # если явно пишут "сух" или "крупа" — считаем как сухую
     if ("греч" in low or "buckwheat" in low) and ("сух" in low or "крупа" in low):
@@ -429,6 +531,19 @@ async def analyze_text(text: str) -> Dict[str, float]:
 
     piece_hint = _try_piece_guess(text)
     grams_info: list[tuple[float, Dict[str, float]]] = []
+    # rough bowls/cups for some foods (very approximate)
+    if "миска" in low and ("корм" in low or "catfood" in low) and not re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low):
+        meta = FALLBACK.get("корм")
+        if meta:
+            grams_info.append((60.0, meta))  # ~60g dry cat food
+            return {
+                "kcal": round(meta["kcal"] * 0.60),
+                "p": round(meta["p"] * 0.60, 1),
+                "f": round(meta["f"] * 0.60, 1),
+                "c": round(meta["c"] * 0.60, 1),
+                "confidence": 0.45,
+            }
+    
     if piece_hint and not re.search(r"\d+\s*(г|гр|g|мл|ml)\b", low):
         k, g = piece_hint
         if k in FALLBACK:
@@ -452,14 +567,19 @@ async def analyze_text(text: str) -> Dict[str, float]:
         }
 
     num = r"(\d+(?:[.,]\d+)?)"
-    unit_re = r"(г|g|гр|ml|мл)"
+    unit_re = r"(г|g|гр|ml|мл|л|l)"
+
 
     for name, meta in FALLBACK.items():
         if is_dry_buckwheat and name == "гречк":
             continue
         safe_name = re.escape(name)
-        pattern = rf"{num}\s*{unit_re}?\s*{safe_name}\w*"
-
+        pattern = rf"{num}\s*{unit_re}\s*{safe_name}\w*"
+        # reverse pattern: "пшеничная каша 300 г", "cola 0.5 l"
+        unit_re_rev = r"(г|g|гр)"
+        if name in REV_DRINK_KEYS:
+            unit_re_rev = r"(г|g|гр|мл|ml|л|l)"
+        pattern_rev = rf"{safe_name}\w*(?:\s+[а-яёa-z]+){{0,3}}\s*{num}\s*{unit_re_rev}\b"
         for m in re.finditer(pattern, low):
             qty_raw = m.group(1).replace(",", ".")
             try:
@@ -468,10 +588,21 @@ async def analyze_text(text: str) -> Dict[str, float]:
                 continue
 
             unit = (m.group(2) or "").lower()
-            g = qty  # г/ml считаем 1:1
-            if unit == "" and name in PIECE_GRAMS:
-                g = qty * float(PIECE_GRAMS[name])
+            g = qty
+            if unit in ("л", "l"):
+                g = qty * 1000.0  # литры -> мл (и далее 1:1 к граммам)
+            grams_info.append((float(g), meta))
 
+        for m in re.finditer(pattern_rev, low):
+            qty_raw = m.group(1).replace(',', '.')
+            try:
+                qty = float(qty_raw)
+            except ValueError:
+                continue
+            unit = (m.group(2) or '').lower()
+            g = qty
+            if unit in ('л', 'l'):
+                g = qty * 1000.0
             grams_info.append((float(g), meta))
 
         if name in PIECE_GRAMS and name in low and not re.search(pattern, low):
@@ -485,9 +616,9 @@ async def analyze_text(text: str) -> Dict[str, float]:
         f += meta["f"] * factor
         c += meta["c"] * factor
 
-    has_explicit_grams = bool(re.search(r"\d+\s*(г|гр|g|мл|ml)\b", low))
+    has_explicit_grams = bool(re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low))
     if has_explicit_grams:
-        confidence = 0.90
+        confidence = 0.95 if re.search(r"\d+(?:[.,]\d+)?\s*(мл|ml|л|l)\b", low) else 0.90
     elif piece_hint:
         confidence = 0.60
     elif grams_info:
@@ -654,7 +785,7 @@ async def cal_cmd(message: types.Message, state: FSMContext, session: AsyncSessi
 
     if query:
         res = await analyze_text(query)
-        if not res or float(res.get('kcal', 0) or 0) <= 0:
+        if _kcal_is_invalid(res):
             await message.answer(
                 "Не смог нормально посчитать. Укажи граммы/начинку, например: "
                 "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
@@ -828,7 +959,7 @@ async def cal_text_in_mode(message: types.Message, state: FSMContext, session: A
         return
 
     res = await analyze_text(payload)
-    if not res or float(res.get('kcal', 0) or 0) <= 0:
+    if _kcal_is_invalid(res):
         await message.answer(
             "Не смог нормально посчитать. Укажи граммы/начинку, например: "
             "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
@@ -886,7 +1017,7 @@ async def cal_text_free_autodetect(message: types.Message, session: AsyncSession
     lang_code = _user_lang(user, lang, tg_lang)
 
     res = await analyze_text(text)
-    if not res or float(res.get('kcal', 0) or 0) <= 0:
+    if _kcal_is_invalid(res):
         await message.answer(
             "Не смог нормально посчитать. Укажи граммы/начинку, например: "
             "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
@@ -925,7 +1056,7 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
 
     if payload_text and _looks_like_food(payload_text):
         res = await analyze_text(payload_text)
-        if not res or float(res.get('kcal', 0) or 0) <= 0:
+        if _kcal_is_invalid(res):
             await message.answer(
                 "Не смог нормально посчитать. Укажи граммы/начинку, например: "
                 "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
