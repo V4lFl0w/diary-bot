@@ -96,6 +96,7 @@ def _is_media_query(text: str) -> bool:
     # ключевые слова + типичные запросы на поиск названия
     keys = (
         "фильм", "сериал", "кино", "мульт", "мультик",
+        "лента", "кадр", "по кадру", "по этому кадру",
         "season", "episode", "movie", "tv", "series",
         "актёр", "актер", "режисс", "персонаж",
         "как называется", "что за фильм", "что за сериал", "что за мультик"
@@ -484,6 +485,18 @@ async def run_assistant_vision(
     import base64
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:image/jpeg;base64,{b64}"  # для F.photo почти всегда jpeg
+
+
+    # --- sticky MEDIA MODE after vision (so next text is treated as уточнение) ---
+    now = datetime.now(timezone.utc)
+    is_media = _is_media_query(prompt_text)
+    if session and user and is_media:
+        try:
+            user.assistant_mode = "media"
+            user.assistant_mode_until = now + timedelta(minutes=2)
+            await session.commit()
+        except Exception:
+            pass
 
     instr = ANTI_HALLUCINATION_PREFIX + _instructions(lang, plan) + "\n" + (
         "Ты видишь изображение. Отвечай по делу. "
