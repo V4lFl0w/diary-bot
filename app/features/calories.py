@@ -26,13 +26,15 @@ def _try_piece_guess(text: str) -> tuple[str, float] | None:
 import base64
 import json
 from typing import Dict, Optional, Any
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
 
 import httpx
 from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, BufferedInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -242,6 +244,82 @@ def _add_confidence(out: str, conf: float | None) -> str:
     return out
 
 
+
+def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_w: int):
+    lines = []
+    for paragraph in (text or "").split("\n"):
+        if not paragraph.strip():
+            lines.append("")
+            continue
+        words = paragraph.split()
+        cur = ""
+        for w in words:
+            test = (cur + " " + w).strip()
+            if draw.textlength(test, font=font) <= max_w:
+                cur = test
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = w
+        if cur:
+            lines.append(cur)
+    return lines
+
+def render_text_card(text: str) -> bytes:
+    W, H = 1080, 620
+    PAD = 54
+    bg = Image.new("RGB", (W, H), (15, 18, 22))
+    draw = ImageDraw.Draw(bg)
+
+    font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52)
+    font_body  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+
+    draw.text((PAD, 40), "Калории", font=font_title, fill=(255, 255, 255))
+
+    max_w = W - PAD * 2
+    lines = _wrap_text(draw, text, font_body, max_w)
+    y = 40 + 86
+    for ln in lines[:11]:
+        draw.text((PAD, y), ln, font=font_body, fill=(220, 230, 240))
+        y += 46
+
+    buf = BytesIO()
+    bg.save(buf, format="JPEG", quality=92, optimize=True)
+    return buf.getvalue()
+
+def render_result_card(photo_bytes: bytes, text: str) -> bytes:
+    W = 1080
+    PAD = 48
+    PANEL_H = 520
+
+    img = Image.open(BytesIO(photo_bytes)).convert("RGB")
+    scale = W / img.width
+    new_h = int(img.height * scale)
+    img = img.resize((W, new_h))
+
+    out = Image.new("RGB", (W, new_h + PANEL_H), (15, 18, 22))
+    out.paste(img, (0, 0))
+
+    draw = ImageDraw.Draw(out)
+    draw.rectangle([0, new_h, W, new_h + PANEL_H], fill=(15, 18, 22))
+
+    font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48)
+    font_body  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+
+    draw.text((PAD, new_h + 28), "Расчёт калорий", font=font_title, fill=(255, 255, 255))
+
+    max_w = W - PAD*2
+    lines = _wrap_text(draw, text, font_body, max_w)
+    y = new_h + 28 + 72
+    for ln in lines[:12]:
+        draw.text((PAD, y), ln, font=font_body, fill=(220, 230, 240))
+        y += 46
+
+    buf = BytesIO()
+    out.save(buf, format="JPEG", quality=92, optimize=True)
+    return buf.getvalue()
+
+
 # -------------------- analyze text --------------------
 
 async def analyze_text(text: str) -> Dict[str, float]:
@@ -429,7 +507,7 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
             "f": float(data.get("f", 0) or 0),
             "c": float(data.get("c", 0) or 0),
             "confidence": float(data.get("confidence", 0) or 0),
-}
+        }
     except Exception:
         return None
 
@@ -495,7 +573,8 @@ async def cal_cmd(message: types.Message, state: FSMContext, session: AsyncSessi
 
         out = _add_confidence(out, float(res.get('confidence', 0) or 0))
 
-        await message.answer(out)
+        card = render_text_card(out)
+        await message.answer_photo(BufferedInputFile(card, filename="kcal.jpg"))
         return
 
     await state.set_state(CaloriesFSM.waiting_input)
@@ -672,7 +751,7 @@ async def cal_text_in_mode(message: types.Message, state: FSMContext, session: A
 # -------------------- MODE: waiting_photo --------------------
 
 @router.message(CaloriesFSM.waiting_photo, F.photo)
-async def cal_photo_waiting(message: types.Message, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def cal_photo_waiting(message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
@@ -698,7 +777,13 @@ async def cal_photo_waiting(message: types.Message, session: AsyncSession, lang:
 
         out += "\n⚠️ Если скажешь граммовку/порцию — пересчитаю точнее."
 
-    await message.answer(out)
+    img_bytes = await _download_photo_bytes(message)
+    if img_bytes:
+        card = render_result_card(img_bytes, out)
+        await message.answer_photo(BufferedInputFile(card, filename="calories.jpg"))
+    else:
+        await message.answer(out)
+    await state.set_state(CaloriesFSM.waiting_input)
 # -------------------- free text autodetect --------------------
 
 @router.message(F.text.func(_looks_like_food))
