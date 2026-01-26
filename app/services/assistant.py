@@ -131,9 +131,32 @@ def _looks_like_year_or_hint(text: str) -> bool:
     hint_words = ("год", "акт", "актер", "актёр", "страна", "язык", "серия", "эпизод", "сезон")
     return any(w in t for w in hint_words) or (len(t) <= 30 and " " in t)
 
+
 def _extract_year(text: str) -> Optional[str]:
     m = re.search(r"\b(19\d{2}|20\d{2})\b", (text or ""))
     return m.group(1) if m else None
+
+
+def _parse_media_hints(text: str) -> dict:
+    t = (text or "").lower()
+
+    year = None
+    m = re.search(r"\b(19\d{2}|20\d{2})\b", t)
+    if m:
+        year = m.group(1)
+
+    kind = None
+    if "сериал" in t:
+        kind = "tv"
+    elif "фильм" in t or "кино" in t:
+        kind = "movie"
+
+    cast = re.findall(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", text)
+
+    keywords = re.sub(r"[^a-zA-Zа-яА-Я0-9 ]", " ", text)
+    keywords = " ".join(w for w in keywords.split() if len(w) > 3)[:80]
+
+    return {"year": year, "kind": kind, "cast": cast[:2], "keywords": keywords.strip()}
 
 
 def _dedupe_media(items: list[dict]) -> list[dict]:
@@ -553,26 +576,21 @@ async def run_assistant(
         # 1.5) "Как называется/какое название" — это не новый поиск, показываем варианты
         if st and _is_asking_for_title(text):
             return build_media_context(st.get("items") or []) + "\n\nВыбери номер варианта."
-
+        # 2) Build query (new query vs follow-up hint)# 2) Merge уточнение with previous query
+        # 2) Build query (new query vs follow-up hint)
         raw = (text or "").strip()
-        prev_q = (st.get("query") if st else "") or ""
-        if st and _is_affirmation(raw):
-            y = _extract_year(raw)
-            if y and prev_q:
-                query = f"{prev_q} {y}".strip()
-            else:
-                return build_media_context(st.get("items") or []) + "\n\nВыбери номер варианта."
-        else:
-            query = raw
+        prev_q = ((st.get("query") if st else "") or "").strip()
 
-        # 2) Merge уточнение with previous query
-        # query is prepared above
-        if st and _looks_like_year_or_hint(query) and st.get("query"):
-            y = _extract_year(query)
-            if y:
-                query = f"{st['query']} {y}".strip()
-            else:
-                query = f"{st['query']} {query}".strip()
+        # не даём "ядовитым" фразам портить поисковую строку
+        if st and re.search(r"(?i)\b(не\s*то|не\s*подходит|ничего\s*не|такого\s*фильма|не\s*существует)\b", raw):
+            return MEDIA_NOT_FOUND_REPLY_RU
+
+        # короткое уточнение (год/актёр/страна/язык/серия/эпизод) — добавляем к прошлому запросу
+        if st and prev_q and _looks_like_year_or_hint(raw) and len(raw) <= 60:
+            query = _normalize_tmdb_query(f"{prev_q} {raw}")
+        else:
+            query = _normalize_tmdb_query(raw)
+
 
         # 3) Too generic → ask 1 detail
         if len(query) < 6 and ("фильм" in query.lower() or "что за" in query.lower()):
@@ -592,7 +610,29 @@ async def run_assistant(
             pass
 
         try:
+            items = []
+
+            # 🔹 First try direct search by model/caption query
             items = await _tmdb_best_effort(query, limit=5)
+
+            # 🔹 If nothing found — use parsed hints
+            hints = _parse_media_hints(query)
+            if hints.get("keywords"):
+                items = await _tmdb_best_effort(hints["keywords"], limit=5)
+
+            if not items and hints.get("cast"):
+                from app.services.media_search import tmdb_search_person, tmdb_discover_with_people
+                for actor in hints["cast"]:
+                    pid = await tmdb_search_person(actor)
+                    if pid:
+                        items = await tmdb_discover_with_people(
+                            pid,
+                            year=hints.get("year"),
+                            kind=hints.get("kind"),
+                        )
+                        if items:
+                            break
+
         except Exception:
             items = []
 
@@ -786,8 +826,7 @@ async def run_assistant_vision(
                     f"Серия: {result.get('episode')}\n"
                     f"Совпадение: {sim:.1%}"
                 )
-            # иначе — не ломаем основной поток, просто идём дальше (TMDb)
-
+    # иначе — не ломаем основной поток, просто идём дальше (TMDb)
     # Vision → TMDb candidates
     caption_str = (caption or "").strip()
     search_q = _normalize_tmdb_query(_extract_search_query_from_text(out_text))
@@ -795,21 +834,28 @@ async def run_assistant_vision(
 
     if tmdb_q:
         try:
-            items = await _tmdb_best_effort(tmdb_q, limit=5)
-        except Exception:
             items = []
 
-        if items:
-            uid = _media_uid(user)
-            _media_set(uid, tmdb_q, items)
+            # 🔹 First try direct search by model/caption query
+            items = await _tmdb_best_effort(tmdb_q, limit=5)
 
-            if user is not None:
-                user.assistant_mode = "media"
-                user.assistant_mode_until = now + timedelta(minutes=10)
-                if session:
-                    await session.commit()
+            # 🔹 If nothing found — use parsed hints
+            hints = _parse_media_hints(tmdb_q)
+            if hints.get("keywords"):
+                items = await _tmdb_best_effort(hints["keywords"], limit=5)
 
-            return build_media_context(items) + "\n\nВыбери номер варианта."
+            if not items and hints.get("cast"):
+                from app.services.media_search import tmdb_search_person, tmdb_discover_with_people
+                for actor in hints["cast"]:
+                    pid = await tmdb_search_person(actor)
+                    if pid:
+                        items = await tmdb_discover_with_people(
+                            pid,
+                            year=hints.get("year"),
+                            kind=hints.get("kind"),
+                        )
+                        if items:
+                            break
 
-    return out_text or "⚠️ Empty response."
-
+        except Exception:
+            items = []

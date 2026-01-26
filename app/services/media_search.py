@@ -6,21 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 
 TMDB_API = "https://api.themoviedb.org/3"
-
-
-TMDB_IMG = "https://image.tmdb.org/t/p"
-
-def _tmdb_image_url(path: Optional[str], *, size: str = "w342") -> str:
-    if not path:
-        return ""
-    path = str(path).strip()
-    if not path:
-        return ""
-    if path.startswith("http://") or path.startswith("https://"):
-        return path
-    if not path.startswith("/"):
-        path = "/" + path
-    return f"{TMDB_IMG}/{size}{path}"
+TMDB_IMG = "https://image.tmdb.org/t/p/w342"
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     v = os.getenv(name)
@@ -94,9 +80,6 @@ async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5) 
             "popularity": it.get("popularity") or 0,
             "vote_average": it.get("vote_average") or 0,
             "poster_path": it.get("poster_path") or "",
-            "backdrop_path": it.get("backdrop_path") or "",
-            "poster_url": _tmdb_image_url(it.get("poster_path"), size="w342"),
-            "backdrop_url": _tmdb_image_url(it.get("backdrop_path"), size="w780"),
         })
         if len(out) >= limit:
             break
@@ -115,7 +98,62 @@ def build_media_context(items: List[Dict[str, Any]]) -> str:
         mt = it.get("media_type") or "?"
         ov = (it.get("overview") or "").strip()
         ov = ov[:450] + ("…" if len(ov) > 450 else "")
-        poster = (it.get("poster_url") or "").strip()
-        poster_str = f"\n   🖼 {poster}" if poster else ""
-        lines.append(f"{i}) [{mt}] {t} ({y}) — {ov}{poster_str}")
+
+        poster_path = (it.get("poster_path") or "").strip()
+        poster_url = f"{TMDB_IMG}{poster_path}" if poster_path else ""
+
+        lines.append(f"{i}) [{mt}] {t} ({y}) — {ov}")
+        if poster_url:
+            lines.append(f"🖼 {poster_url}")
+
     return "\n".join(lines)
+
+
+async def tmdb_search_person(name: str):
+    headers, base_params = _tmdb_auth_headers_and_params()
+    url = f"{TMDB_API}/search/person"
+    params = {**base_params, "query": name}
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.get(url, params=params, headers=headers)
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        res = data.get("results") or []
+        return res[0]["id"] if res else None
+
+
+async def tmdb_discover_with_people(person_id: int, *, year: str | None, kind: str | None):
+    headers, base_params = _tmdb_auth_headers_and_params()
+    media_type = "movie" if kind != "tv" else "tv"
+    url = f"{TMDB_API}/discover/{media_type}"
+
+    params = {**base_params, "with_people": person_id, "sort_by": "popularity.desc", "page": 1}
+
+    if year:
+        if media_type == "movie":
+            params["primary_release_year"] = year
+        else:
+            params["first_air_date_year"] = year
+
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.get(url, params=params, headers=headers)
+        if r.status_code != 200:
+            return []
+
+        data = r.json() or {}
+        items = data.get("results") or []
+
+    out = []
+    for it in items[:5]:
+        out.append({
+            "media_type": media_type,
+            "id": it.get("id"),
+            "title": it.get("title") if media_type == "movie" else it.get("name"),
+            "year": (it.get("release_date") or it.get("first_air_date") or "")[:4],
+            "overview": it.get("overview") or "",
+            "poster_path": it.get("poster_path"),
+            "popularity": it.get("popularity") or 0,
+            "vote_average": it.get("vote_average") or 0,
+        })
+    return out
