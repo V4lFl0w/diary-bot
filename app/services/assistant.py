@@ -40,6 +40,145 @@ MEDIA_NOT_FOUND_REPLY_RU = (
 )
 
 
+# --- media session cache (in-memory, no DB migrations) ---
+from time import time as _time_now
+
+_MEDIA_TTL_SEC = 10 * 60
+_MEDIA_SESSIONS: dict[str, dict] = {}
+
+def _media_uid(user: Any) -> str:
+    # prefer tg_id, fallback to db id
+    if not user:
+        return ""
+    v = getattr(user, "tg_id", None) or getattr(user, "id", None)
+    return str(v) if v is not None else ""
+
+def _media_get(uid: str) -> Optional[dict]:
+    if not uid:
+        return None
+    s = _MEDIA_SESSIONS.get(uid)
+    if not s:
+        return None
+    if (_time_now() - float(s.get("ts", 0))) > _MEDIA_TTL_SEC:
+        _MEDIA_SESSIONS.pop(uid, None)
+        return None
+    return s
+
+def _media_set(uid: str, query: str, items: list[dict]) -> None:
+    if not uid:
+        return
+    _MEDIA_SESSIONS[uid] = {"query": (query or "").strip(), "items": items or [], "ts": _time_now()}
+
+def _looks_like_choice(text: str) -> bool:
+    t = (text or "").strip()
+    return bool(re.fullmatch(r"\d{1,2}", t))
+
+def _looks_like_year_or_hint(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if re.search(r"\b(19\d{2}|20\d{2})\b", t):
+        return True
+    # короткие уточнения: актёр/страна/язык/год/серия/эпизод
+    hint_words = ("год", "акт", "актер", "актёр", "страна", "язык", "серия", "эпизод", "сезон")
+    return any(w in t for w in hint_words) or (len(t) <= 30 and " " in t)
+
+def _extract_year(text: str) -> Optional[str]:
+    m = re.search(r"\b(19\d{2}|20\d{2})\b", (text or ""))
+    return m.group(1) if m else None
+
+
+def _dedupe_media(items: list[dict]) -> list[dict]:
+    seen = set()
+    out: list[dict] = []
+    for it in items or []:
+        key = (
+            it.get("media_type"),
+            it.get("id"),
+            ((it.get("title") or "") + "|" + (it.get("name") or "")).lower(),
+            it.get("year"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(it)
+    return out
+
+
+def _sort_media(items: list[dict]) -> list[dict]:
+    def score(it: dict) -> float:
+        try:
+            return float(it.get("popularity") or 0) * 0.8 + float(it.get("vote_average") or 0) * 2.0
+        except Exception:
+            return 0.0
+
+    return sorted(items or [], key=score, reverse=True)
+
+
+async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
+    """
+    Best-effort TMDb retrieval:
+    - ru-RU first
+    - fallback to en-US (TMDb часто богаче на EN)
+    - dedupe + soft year filter + sort by usefulness
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+
+    year = _extract_year(q)
+
+    items: list[dict] = []
+    try:
+        items_ru = await tmdb_search_multi(q, lang="ru-RU", limit=limit)
+    except Exception:
+        items_ru = []
+
+    if items_ru and isinstance(items_ru[0], dict) and items_ru[0].get("_error"):
+        items_ru = []
+
+    items_en: list[dict] = []
+    if not items_ru:
+        try:
+            items_en = await tmdb_search_multi(q, lang="en-US", limit=limit)
+        except Exception:
+            items_en = []
+
+        if items_en and isinstance(items_en[0], dict) and items_en[0].get("_error"):
+            items_en = []
+
+    items = _dedupe_media((items_ru or []) + (items_en or []))
+
+    if year:
+        filtered = [it for it in items if str(it.get("year") or "") == year]
+        if filtered:
+            items = filtered
+
+    return _sort_media(items)[:limit]
+
+
+def _format_one_media(item: dict) -> str:
+    # items come from tmdb_search_multi(): title/year/media_type/overview/vote_average
+    title = (item.get("title") or item.get("name") or "Без названия").strip()
+    year = (item.get("year") or "").strip()
+    overview = (item.get("overview") or "").strip()
+    rating = item.get("vote_average", None)
+    kind = (item.get("media_type") or "").strip()
+    kind_ru = "сериал" if kind == "tv" else "фильм" if kind == "movie" else kind or "медиа"
+
+    line = f"🎬 {title}"
+    if year:
+        line += f" ({year})"
+    line += f" — {kind_ru}"
+
+    if rating is not None:
+        try:
+            line += f" • ⭐ {float(rating):.1f}"
+        except Exception:
+            pass
+
+    if overview:
+        line += f"\n\n{overview[:700]}"
+    return line
+
 def _env(name: str, default: str = "") -> str:
     v = os.getenv(name)
     return v if v else default
@@ -47,7 +186,6 @@ def _env(name: str, default: str = "") -> str:
 
 def _pick_model() -> str:
     return _env("ASSISTANT_MODEL", "gpt-4.1-mini")
-
 
 def _user_name(user: Optional[User]) -> str:
     for attr in ("first_name", "name", "username"):
@@ -63,7 +201,7 @@ def _user_tz(user: Optional[User]) -> ZoneInfo:
         return ZoneInfo(str(tz_name))
     except Exception:
         return ZoneInfo("UTC")
-    
+
 def _assistant_plan(user: Optional[User]) -> str:
     if not user:
         return "free"
@@ -95,7 +233,6 @@ def _now_str_user(user: Optional[User]) -> str:
     tz = _user_tz(user)
     return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
 
-
 def _is_media_query(text: str) -> bool:
     t = (text or "").lower()
     # ключевые слова + типичные запросы на поиск названия
@@ -107,7 +244,6 @@ def _is_media_query(text: str) -> bool:
         "как называется", "что за фильм", "что за сериал", "что за мультик"
     )
     return any(k in t for k in keys)
-
 
 def _is_noise(text: str) -> bool:
     s = (text or "").strip()
@@ -186,7 +322,6 @@ def meaning_score(s: str) -> float:
         score -= 0.35
 
     return max(0.0, min(1.0, score))
-
 
 def _as_user_ts(user: Optional[User], ts: Any) -> str:
     """
@@ -274,8 +409,6 @@ async def build_context(session: Any, user: Optional[User], lang: str, plan: str
 
     return "\n".join(parts)
 
-
-
 def _instructions(lang: str, plan: str) -> str:
     base_map = {
         "ru": (
@@ -356,10 +489,30 @@ async def run_assistant(
             sticky_media = True
 
     is_media = _is_media_query(text) or sticky_media
+
     if is_media:
-        now = datetime.now(timezone.utc)
+        uid = _media_uid(user)
+        st = _media_get(uid)
+
+        # 1) Если пользователь выбрал номер из прошлых вариантов
+        if st and _looks_like_choice(text):
+            idx = int(text.strip()) - 1
+            opts = st.get("items") or []
+            if 0 <= idx < len(opts):
+                chosen = opts[idx]
+                return _format_one_media(chosen)
+
+        # 2) Если это уточнение (год/актёр/короткая подсказка) — добавляем к прошлому запросу
+        query = (text or "").strip()
+        if st and _looks_like_year_or_hint(query) and st.get("query"):
+            query = f"{st['query']} {query}".strip()
+
+        # 3) Если запрос слишком общий ("что за фильм?") — просим 1 конкретную деталь
+        if len(query) < 6 and ("фильм" in query.lower() or "что за" in query.lower()):
+            return MEDIA_NOT_FOUND_REPLY_RU
+
         try:
-            items = await tmdb_search_multi(text, lang="ru-RU", limit=5)
+            items = await _tmdb_best_effort(query, limit=5)
         except Exception:
             items = []
 
@@ -371,10 +524,13 @@ async def run_assistant(
                 await session.commit()
 
         if not items:
+            # если был прошлый запрос — просим деталь, но сохраняем прошлый стейт
+            if st and st.get("query"):
+                return MEDIA_NOT_FOUND_REPLY_RU
             return MEDIA_NOT_FOUND_REPLY_RU
 
+        _media_set(uid, query, items)
         return build_media_context(items) + "\n\nВыбери номер варианта."
-
 
     ctx = await build_context(session, user, lang, plan)
 
@@ -431,8 +587,6 @@ async def run_assistant(
             user.assistant_mode_until = now + timedelta(minutes=10)
             changed = True
 
-        changed = True
-
         if changed:
             await session.commit()
 
@@ -467,7 +621,11 @@ async def run_assistant_vision(
 
     plan = _assistant_plan(user)
     if plan != "pro":
-        return {"ru": "Фото доступно только в PRO.", "uk": "Фото доступне лише в PRO.", "en": "Photos are PRO-only."}.get(lang, "PRO-only.")
+        return {
+            "ru": "Фото доступно только в PRO.",
+            "uk": "Фото доступне лише в PRO.",
+            "en": "Photos are PRO-only.",
+        }.get(lang, "PRO-only.")
 
     client = AsyncOpenAI(api_key=api_key)
 
@@ -479,11 +637,10 @@ async def run_assistant_vision(
             "en": "Identify what’s in the photo and give a short helpful takeaway.",
         }.get(lang, "Identify the image and give a short helpful takeaway.")
 
-    # ✅ авто-усиление модели только для “сложных” задач (скрины/текст/ошибки)
     hard_keywords = (
         "текст", "что написано", "прочитай", "скрин", "скриншот",
         "ошибка", "error", "traceback", "лог", "qr", "кьюар",
-        "инструкция", "меню", "чек", "рецепт", "состав"
+        "инструкция", "меню", "чек", "рецепт", "состав",
     )
     is_hard = any(k in prompt_text.lower() for k in hard_keywords)
 
@@ -491,15 +648,14 @@ async def run_assistant_vision(
     model_hard = _env("ASSISTANT_VISION_MODEL_HARD", model_default)
     model = model_hard if is_hard else model_default
 
-    # ✅ data-url
     import base64
     b64 = base64.b64encode(image_bytes).decode("utf-8")
-    data_url = f"data:image/jpeg;base64,{b64}"  # для F.photo почти всегда jpeg
+    data_url = f"data:image/jpeg;base64,{b64}"
 
-
-    # --- sticky MEDIA MODE after vision (so next text is treated as уточнение) ---
     now = datetime.now(timezone.utc)
     is_media = _is_media_query(prompt_text)
+
+    # sticky MEDIA MODE after vision (so next text is treated as уточнение)
     if session and user and is_media:
         try:
             user.assistant_mode = "media"
@@ -508,10 +664,19 @@ async def run_assistant_vision(
         except Exception:
             pass
 
-    instr = ANTI_HALLUCINATION_PREFIX + _instructions(lang, plan) + "\n" + (
-        "Ты видишь изображение. Отвечай по делу. "
-        "Если есть неопределенность — скажи об этом. "
-        "Не выдумывай детали."
+    instr = (
+        ANTI_HALLUCINATION_PREFIX
+        + _instructions(lang, plan)
+        + "\n"
+        + (
+            "Ты видишь изображение.\n"
+            "Если это кадр из фильма/сериала/мульта/аниме — попробуй определить источник.\n"
+            "Если не уверен — так и скажи. Не выдумывай детали.\n\n"
+            "В конце добавь строку:\n"
+            "SEARCH_QUERY: <короткий запрос для поиска (название/персонаж/год/ключевые слова)>\n"
+            "Если не можешь — напиши:\n"
+            "SEARCH_QUERY:\n"
+        )
     )
 
     try:
@@ -530,13 +695,12 @@ async def run_assistant_vision(
             max_output_tokens=450,
         )
     except Exception as e:
-        # ✅ понятный фолбэк для юзера вместо падения
         return {
             "ru": f"⚠️ Не смог обработать фото ({type(e).__name__}). Попробуй отправить фото меньшего размера или сжать скрин.",
             "uk": f"⚠️ Не зміг обробити фото ({type(e).__name__}). Спробуй надіслати менше фото або стиснути скрін.",
             "en": f"⚠️ I couldn’t process the photo ({type(e).__name__}). Try sending a smaller image or compressing the screenshot.",
         }.get(lang, f"⚠️ Vision error: {type(e).__name__}")
-    
+
     if session:
         await log_llm_usage(
             session,
@@ -549,22 +713,57 @@ async def run_assistant_vision(
         )
 
     out_text = (getattr(resp, "output_text", None) or "").strip()
+
     # 🎞️ Anime / cartoon frame detection via trace.moe
     if any(k in out_text.lower() for k in ("аниме", "anime", "мульт", "cartoon")):
-        result = await trace_moe_identify(image_bytes)
-        if result and result["similarity"] >= 0.9:
+        try:
+            result = await trace_moe_identify(image_bytes)
+        except Exception:
+            result = None
+
+        if result and result.get("similarity", 0) >= 0.9:
             return (
-                f"🎬 Это кадр из аниме.\n\n"
-                f"Название: {result['title']}\n"
-                f"Серия: {result['episode']}\n"
-                f"Совпадение: {result['similarity']:.1%}"
+                "🎬 Это кадр из аниме.\n\n"
+                f"Название: {result.get('title')}\n"
+                f"Серия: {result.get('episode')}\n"
+                f"Совпадение: {float(result.get('similarity') or 0):.1%}"
             )
         elif result:
             return (
                 "🎬 Похоже на аниме, но не уверен.\n\n"
-                f"Возможный источник: {result['title']}\n"
-                f"Совпадение: {result['similarity']:.1%}"
+                f"Возможный источник: {result.get('title')}\n"
+                f"Совпадение: {float(result.get('similarity') or 0):.1%}"
             )
+
+    def _extract_search_query_from_text(s: str) -> str:
+        s = s or ""
+        m = re.search(r"(?im)^\s*SEARCH_QUERY:\s*(.*)\s*$", s)
+        return (m.group(1) or "").strip() if m else ""
+
+    search_q = _extract_search_query_from_text(out_text)
+    tmdb_q = search_q or (caption or "").strip()
+
+    # If vision produced a query, try TMDb candidates and let user pick
+    if tmdb_q:
+        try:
+            items = await _tmdb_best_effort(tmdb_q, limit=5)
+        except Exception:
+            items = []
+
+        if items:
+            uid = _media_uid(user)
+            _media_set(uid, tmdb_q, items)
+
+            if session and user:
+                try:
+                    user.assistant_mode = "media"
+                    user.assistant_mode_until = now + timedelta(minutes=10)
+                    await session.commit()
+                except Exception:
+                    pass
+
+            return build_media_context(items) + "\n\nВыбери номер варианта."
+
     if out_text:
         return out_text
 
