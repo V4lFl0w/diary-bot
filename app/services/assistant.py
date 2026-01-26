@@ -42,6 +42,20 @@ MEDIA_NOT_FOUND_REPLY_RU = (
 
 
 
+
+
+def _is_asking_for_title(text: str) -> bool:
+    t = (text or "").strip().lower()
+    pats = (
+        "какое название", "как называется", "название фильма", "название у фильма",
+        "как называется фильм", "как называется этот фильм", "что за название",
+    )
+    return any(x in t for x in pats)
+
+def _is_affirmation(text: str) -> bool:
+    t = (text or "").strip().lower()
+    return bool(re.match(r"^(да|ага|угу)\b", t)) or t.startswith("это ") or t.startswith("да,") or t.startswith("да ")
+
 def _extract_search_query_from_text(s: str) -> str:
     s = s or ""
     m = re.search(r"(?im)^\s*SEARCH_QUERY:\s*(.*)\s*$", s)
@@ -536,10 +550,29 @@ async def run_assistant(
             if 0 <= idx < len(opts):
                 return _format_one_media(opts[idx])
 
+        # 1.5) "Как называется/какое название" — это не новый поиск, показываем варианты
+        if st and _is_asking_for_title(text):
+            return build_media_context(st.get("items") or []) + "\n\nВыбери номер варианта."
+
+        raw = (text or "").strip()
+        prev_q = (st.get("query") if st else "") or ""
+        if st and _is_affirmation(raw):
+            y = _extract_year(raw)
+            if y and prev_q:
+                query = f"{prev_q} {y}".strip()
+            else:
+                return build_media_context(st.get("items") or []) + "\n\nВыбери номер варианта."
+        else:
+            query = raw
+
         # 2) Merge уточнение with previous query
-        query = (text or "").strip()
+        # query is prepared above
         if st and _looks_like_year_or_hint(query) and st.get("query"):
-            query = _normalize_tmdb_query(query)
+            y = _extract_year(query)
+            if y:
+                query = f"{st['query']} {y}".strip()
+            else:
+                query = f"{st['query']} {query}".strip()
 
         # 3) Too generic → ask 1 detail
         if len(query) < 6 and ("фильм" in query.lower() or "что за" in query.lower()):
@@ -553,6 +586,10 @@ async def run_assistant(
 
         # 4) Best-effort TMDb search (ru first, fallback en, year filter, dedupe, sort)
         query = _normalize_tmdb_query(query)
+        try:
+            print(f"[media] prev_q={prev_q!r} raw={raw!r} -> query={query!r}")
+        except Exception:
+            pass
 
         try:
             items = await _tmdb_best_effort(query, limit=5)

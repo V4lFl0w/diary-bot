@@ -7,6 +7,21 @@ import httpx
 
 TMDB_API = "https://api.themoviedb.org/3"
 
+
+TMDB_IMG = "https://image.tmdb.org/t/p"
+
+def _tmdb_image_url(path: Optional[str], *, size: str = "w342") -> str:
+    if not path:
+        return ""
+    path = str(path).strip()
+    if not path:
+        return ""
+    if path.startswith("http://") or path.startswith("https://"):
+        return path
+    if not path.startswith("/"):
+        path = "/" + path
+    return f"{TMDB_IMG}/{size}{path}"
+
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     v = os.getenv(name)
     return v if v not in (None, "") else default
@@ -78,6 +93,10 @@ async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5) 
             "overview": it.get("overview") or "",
             "popularity": it.get("popularity") or 0,
             "vote_average": it.get("vote_average") or 0,
+            "poster_path": it.get("poster_path") or "",
+            "backdrop_path": it.get("backdrop_path") or "",
+            "poster_url": _tmdb_image_url(it.get("poster_path"), size="w342"),
+            "backdrop_url": _tmdb_image_url(it.get("backdrop_path"), size="w780"),
         })
         if len(out) >= limit:
             break
@@ -96,5 +115,7 @@ def build_media_context(items: List[Dict[str, Any]]) -> str:
         mt = it.get("media_type") or "?"
         ov = (it.get("overview") or "").strip()
         ov = ov[:450] + ("…" if len(ov) > 450 else "")
-        lines.append(f"{i}) [{mt}] {t} ({y}) — {ov}")
+        poster = (it.get("poster_url") or "").strip()
+        poster_str = f"\n   🖼 {poster}" if poster else ""
+        lines.append(f"{i}) [{mt}] {t} ({y}) — {ov}{poster_str}")
     return "\n".join(lines)
