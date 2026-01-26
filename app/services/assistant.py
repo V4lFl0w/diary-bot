@@ -859,3 +859,30 @@ async def run_assistant_vision(
 
         except Exception:
             items = []
+
+        if items:
+            if user is not None:
+                user.assistant_mode = "media"
+                user.assistant_mode_until = now + timedelta(minutes=10)
+                if session:
+                    await session.commit()
+
+            uid = _media_uid(user)
+            if uid:
+                _media_set(uid, tmdb_q, items)
+
+            return build_media_context(items) + "Выбери номер варианта."
+
+        return MEDIA_NOT_FOUND_REPLY_RU
+    
+    # --- Failsafe: Vision must always return text ---
+    final_text = (out_text or "").strip()
+
+    if not final_text:
+        final_text = (
+            "Я не смог уверенно определить источник по изображению. "
+            "Попробуй описать сцену словами или добавить деталь "
+            "(актёр, год, что происходит)."
+        )
+
+    return final_text
