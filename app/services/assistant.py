@@ -474,49 +474,54 @@ async def run_assistant(
 
     client = AsyncOpenAI(api_key=api_key)
     model = _pick_model()
-
     plan = _assistant_plan(user)
 
-    # --- MEDIA RAG (films/series): retrieve before generation ---
-    media_ctx = ""
-    items = []  # tmdb candidates
     now = datetime.now(timezone.utc)
-    sticky_media = False
+
+    # --- MEDIA state (DB + in-memory fallback) ---
+    uid = _media_uid(user)
+    st = _media_get(uid)  # in-memory session, survives even if session=None
+
+    sticky_media_db = False
     if user:
         mode = getattr(user, "assistant_mode", None)
         until = getattr(user, "assistant_mode_until", None)
         if mode == "media" and until and until > now:
-            sticky_media = True
+            sticky_media_db = True
 
-    is_media = _is_media_query(text) or sticky_media
+    # IMPORTANT: if we have in-memory session => treat as media follow-up
+    is_media = _is_media_query(text) or sticky_media_db or bool(st)
 
     if is_media:
-        uid = _media_uid(user)
-        st = _media_get(uid)
-
-        # 1) Если пользователь выбрал номер из прошлых вариантов
+        # 1) User picked an option number
         if st and _looks_like_choice(text):
             idx = int(text.strip()) - 1
             opts = st.get("items") or []
             if 0 <= idx < len(opts):
-                chosen = opts[idx]
-                return _format_one_media(chosen)
+                return _format_one_media(opts[idx])
 
-        # 2) Если это уточнение (год/актёр/короткая подсказка) — добавляем к прошлому запросу
+        # 2) Merge уточнение with previous query
         query = (text or "").strip()
         if st and _looks_like_year_or_hint(query) and st.get("query"):
             query = f"{st['query']} {query}".strip()
 
-        # 3) Если запрос слишком общий ("что за фильм?") — просим 1 конкретную деталь
+        # 3) Too generic → ask 1 detail
         if len(query) < 6 and ("фильм" in query.lower() or "что за" in query.lower()):
+            # keep media mode alive for follow-ups even without DB session
+            if user is not None:
+                user.assistant_mode = "media"
+                user.assistant_mode_until = now + timedelta(minutes=10)
+                if session:
+                    await session.commit()
             return MEDIA_NOT_FOUND_REPLY_RU
 
+        # 4) Best-effort TMDb search (ru first, fallback en, year filter, dedupe, sort)
         try:
             items = await _tmdb_best_effort(query, limit=5)
         except Exception:
             items = []
 
-        # продлеваем sticky media-режим, чтобы следующий месседж считался уточнением
+        # keep sticky media mode (DB if possible)
         if user is not None:
             user.assistant_mode = "media"
             user.assistant_mode_until = now + timedelta(minutes=10)
@@ -524,19 +529,18 @@ async def run_assistant(
                 await session.commit()
 
         if not items:
-            # если был прошлый запрос — просим деталь, но сохраняем прошлый стейт
-            if st and st.get("query"):
-                return MEDIA_NOT_FOUND_REPLY_RU
+            # keep last query in memory so next hint still treated as media
+            if uid:
+                _media_set(uid, query, [])
             return MEDIA_NOT_FOUND_REPLY_RU
 
         _media_set(uid, query, items)
         return build_media_context(items) + "\n\nВыбери номер варианта."
 
+    # ---- Normal assistant (non-media) ----
     ctx = await build_context(session, user, lang, plan)
 
     prev_id = getattr(user, "assistant_prev_response_id", None) if user else None
-
-    # если не использовался > 24 часов — начинаем новую ветку
     if user:
         last_used = getattr(user, "assistant_last_used_at", None)
         if last_used and (datetime.now(timezone.utc) - last_used) > timedelta(hours=24):
@@ -544,16 +548,11 @@ async def run_assistant(
 
     prompt = (
         f"Context:\n{ctx}\n\n"
-        + (f"Media DB search context (TMDb):\n{media_ctx}\n\n" if media_ctx else "")
-        + "User message:\n" + text + "\n"
+        "User message:\n" + (text or "") + "\n"
     )
 
-    
-    # для media-запросов отключаем previous_response_id, чтобы не тянуть старую ветку и не галюнило
-    prev_for_call = prev_id  # keep thread even for media (sticky follow-ups)
-
     resp = await client.responses.create(
-        previous_response_id=prev_for_call,
+        previous_response_id=prev_id,
         model=model,
         instructions=_instructions(lang, plan),
         input=prompt,
@@ -571,8 +570,7 @@ async def run_assistant(
             meta={"lang": lang},
         )
 
-    out = getattr(resp, "output_text", None)
-    out_text = (out or "").strip()
+    out_text = (getattr(resp, "output_text", None) or "").strip()
 
     resp_id = getattr(resp, "id", None)
     if session and user and resp_id:
@@ -581,11 +579,7 @@ async def run_assistant(
             user.assistant_prev_response_id = str(resp_id)
             changed = True
         user.assistant_last_used_at = datetime.now(timezone.utc)
-        # sticky media-mode: продлеваем на 2 минуты, чтобы следующий месседж считался уточнением
-        if is_media:
-            user.assistant_mode = "media"
-            user.assistant_mode_until = now + timedelta(minutes=10)
-            changed = True
+        changed = True
 
         if changed:
             await session.commit()
@@ -593,7 +587,6 @@ async def run_assistant(
     if out_text:
         return out_text
 
-    # fallback
     try:
         return str(getattr(resp, "output", "")).strip() or "⚠️ Empty response."
     except Exception:
@@ -735,15 +728,152 @@ async def run_assistant_vision(
                 f"Совпадение: {float(result.get('similarity') or 0):.1%}"
             )
 
-    def _extract_search_query_from_text(s: str) -> str:
-        s = s or ""
-        m = re.search(r"(?im)^\s*SEARCH_QUERY:\s*(.*)\s*$", s)
-        return (m.group(1) or "").strip() if m else ""
+# =========================
+# AUTOPATCH: vision->tmdb fix (override)
+# - removes duplicate run_assistant_vision by overriding with one correct impl
+# - makes tmdb_q = SEARCH_QUERY only (no caption fallback)
+# =========================
 
+def _extract_search_query_from_text(s: str) -> str:
+    s = s or ""
+    m = re.search(r"(?im)^\s*SEARCH_QUERY:\s*(.*)\s*$", s)
+    if m:
+        return (m.group(1) or "").strip()
+    return ""
+
+
+async def run_assistant_vision(
+    user: Optional[User],
+    image_bytes: bytes,
+    caption: str,
+    lang: str,
+    *,
+    session: Any = None,
+) -> str:
+    if AsyncOpenAI is None:
+        return "🤖 Vision временно недоступен (сервер без openai)."
+
+    api_key = _env("OPENAI_API_KEY")
+    if not api_key:
+        return {
+            "uk": "❌ Не задано OPENAI_API_KEY.",
+            "en": "❌ OPENAI_API_KEY is missing.",
+            "ru": "❌ Не задан OPENAI_API_KEY.",
+        }.get(lang, "❌ OPENAI_API_KEY missing.")
+
+    plan = _assistant_plan(user)
+    if plan != "pro":
+        return {
+            "ru": "Фото доступно только в PRO.",
+            "uk": "Фото доступне лише в PRO.",
+            "en": "Photos are PRO-only.",
+        }.get(lang, "PRO-only.")
+
+    client = AsyncOpenAI(api_key=api_key)
+
+    prompt_text = (caption or "").strip() or {
+        "ru": "Определи, что на фото. Если это кадр из фильма/сериала/мульта/аниме — попробуй определить источник.",
+        "uk": "Визнач, що на фото. Якщо це кадр з фільму/серіалу/мультфільму/аніме — спробуй визначити джерело.",
+        "en": "Identify what’s in the image. If it’s a movie/series/cartoon/anime frame, try to identify the source.",
+    }.get(lang, "Identify the image and, if it's a movie/series/cartoon/anime frame, try to identify the source.")
+
+    hard_keywords = (
+        "текст", "что написано", "прочитай", "скрин", "скриншот",
+        "ошибка", "error", "traceback", "лог", "qr", "кьюар",
+        "инструкция", "меню", "чек", "рецепт", "состав",
+    )
+    is_hard = any(k in prompt_text.lower() for k in hard_keywords)
+
+    model_default = _env("ASSISTANT_VISION_MODEL", _pick_model())
+    model_hard = _env("ASSISTANT_VISION_MODEL_HARD", model_default)
+    model = model_hard if is_hard else model_default
+
+    import base64
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:image/jpeg;base64,{b64}"
+
+    now = datetime.now(timezone.utc)
+
+    # sticky MEDIA MODE after vision (so next text treated as уточнение)
+    is_media = _is_media_query(prompt_text)
+    if session and user and is_media:
+        try:
+            user.assistant_mode = "media"
+            user.assistant_mode_until = now + timedelta(minutes=10)
+            await session.commit()
+        except Exception:
+            pass
+
+    instr = (
+        ANTI_HALLUCINATION_PREFIX
+        + _instructions(lang, plan)
+        + "\n"
+        + (
+            "Ты видишь изображение.\n"
+            "Если это кадр из фильма/сериала/мульта/аниме — попробуй определить источник.\n"
+            "Если не уверен — так и скажи. Не выдумывай детали.\n\n"
+            "В конце добавь строку:\n"
+            "SEARCH_QUERY: <короткий запрос для поиска (название/персонаж/год/ключевые слова)>\n"
+            "Если не можешь — напиши:\n"
+            "SEARCH_QUERY:\n"
+        )
+    )
+
+    try:
+        resp = await client.responses.create(
+            model=model,
+            instructions=instr,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": prompt_text},
+                        {"type": "input_image", "image_url": data_url},
+                    ],
+                }
+            ],
+            max_output_tokens=450,
+        )
+    except Exception as e:
+        return {
+            "ru": f"⚠️ Не смог обработать фото ({type(e).__name__}). Попробуй отправить фото меньшего размера или сжать скрин.",
+            "uk": f"⚠️ Не зміг обробити фото ({type(e).__name__}). Спробуй надіслати менше фото або стиснути скрін.",
+            "en": f"⚠️ I couldn’t process the photo ({type(e).__name__}). Try sending a smaller image or compress the screenshot.",
+        }.get(lang, f"⚠️ Vision error: {type(e).__name__}")
+
+    if session:
+        await log_llm_usage(
+            session,
+            user_id=getattr(user, "id", None) if user else None,
+            feature="vision",
+            model=model,
+            plan=plan,
+            resp=resp,
+            meta={"lang": lang},
+        )
+
+    out_text = (getattr(resp, "output_text", None) or "").strip()
+    out_text = str(out_text)
+
+    # trace.moe (anime)
+    if any(k in out_text.lower() for k in ("аниме", "anime")):
+        try:
+            result = await trace_moe_identify(image_bytes)
+        except Exception:
+            result = None
+
+        if result and result.get("similarity", 0) >= 0.9:
+            return (
+                "🎬 Это кадр из аниме.\n\n"
+                f"Название: {result.get('title')}\n"
+                f"Серия: {result.get('episode')}\n"
+                f"Совпадение: {float(result.get('similarity', 0)):.1%}"
+            )
+
+    # Vision -> TMDb candidates (STRICT: only SEARCH_QUERY)
     search_q = _extract_search_query_from_text(out_text)
-    tmdb_q = search_q or (caption or "").strip()
+    tmdb_q = search_q  # <-- no caption fallback
 
-    # If vision produced a query, try TMDb candidates and let user pick
     if tmdb_q:
         try:
             items = await _tmdb_best_effort(tmdb_q, limit=5)
@@ -754,20 +884,12 @@ async def run_assistant_vision(
             uid = _media_uid(user)
             _media_set(uid, tmdb_q, items)
 
-            if session and user:
-                try:
-                    user.assistant_mode = "media"
-                    user.assistant_mode_until = now + timedelta(minutes=10)
+            if user is not None:
+                user.assistant_mode = "media"
+                user.assistant_mode_until = now + timedelta(minutes=10)
+                if session:
                     await session.commit()
-                except Exception:
-                    pass
 
             return build_media_context(items) + "\n\nВыбери номер варианта."
 
-    if out_text:
-        return out_text
-
-    try:
-        return str(getattr(resp, "output", "")).strip() or "⚠️ Empty response."
-    except Exception:
-        return "⚠️ Не смог прочитать ответ vision."
+    return out_text or "⚠️ Empty response."
