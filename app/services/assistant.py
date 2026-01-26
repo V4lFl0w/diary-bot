@@ -357,28 +357,23 @@ async def run_assistant(
 
     is_media = _is_media_query(text) or sticky_media
     if is_media:
+        now = datetime.now(timezone.utc)
         try:
             items = await tmdb_search_multi(text, lang="ru-RU", limit=5)
-            media_ctx = build_media_context(items)
-            # MEDIA_HARD_FALLBACK: если нет кандидатов — не уходим в болтовню, просим 1 деталь
-            if media_ctx.startswith("Ничего не найдено") or media_ctx.startswith("TMDb error"):
-                # продлеваем sticky-режим, чтобы следующее сообщение считалось уточнением
-                if user is not None:
-                    user.assistant_mode = "media"
-                    user.assistant_mode_until = now + timedelta(minutes=10)
-                    if session:
-                        await session.commit()
-                return MEDIA_NOT_FOUND_REPLY_RU
         except Exception:
-            media_ctx = "Ничего не найдено в базе источника."
-        # ✅ HARD MEDIA GUARD: no hallucination for media id
-        if is_media:
-            if (not items) or (len(items) == 1 and items[0].get("_error")):
-                return (
-                    "Не уверен(а), что могу определить фильм/сериал по этому описанию.\n"
-                    "Скажи 1 деталь: год/актёр/язык/страна или что происходит в кадре (2–3 факта)."
-                )
-            return build_media_context(items) + "\n\nКакой вариант ближе? (ответь номером)"
+            items = []
+
+        # продлеваем sticky media-режим, чтобы следующий месседж считался уточнением
+        if user is not None:
+            user.assistant_mode = "media"
+            user.assistant_mode_until = now + timedelta(minutes=10)
+            if session:
+                await session.commit()
+
+        if not items:
+            return MEDIA_NOT_FOUND_REPLY_RU
+
+        return build_media_context(items) + "\n\nВыбери номер варианта."
 
 
     ctx = await build_context(session, user, lang, plan)
@@ -397,22 +392,14 @@ async def run_assistant(
         + "User message:\n" + text + "\n"
     )
 
-    media_rules = ""
-    if is_media:
-        media_rules = """
-ВАЖНО (MEDIA MODE):
-- Ты в режиме ПОИСКА фильма/сериала. Не обсуждай сюжет, эмоции и продолжение истории.
-- Отвечай ТОЛЬКО как поисковик: покажи кандидатов из TMDb или скажи 'не уверен(а)'.
-- Если кандидатов нет/данных мало — попроси 1 уточнение (год/актёр/сцена/язык/страна).
-- НЕ угадывай названия и НЕ придумывай факты.
-"""
+    
     # для media-запросов отключаем previous_response_id, чтобы не тянуть старую ветку и не галюнило
     prev_for_call = prev_id  # keep thread even for media (sticky follow-ups)
 
     resp = await client.responses.create(
         previous_response_id=prev_for_call,
         model=model,
-        instructions=_instructions(lang, plan) + media_rules,
+        instructions=_instructions(lang, plan),
         input=prompt,
         max_output_tokens=(260 if plan == "basic" else 650),
     )
