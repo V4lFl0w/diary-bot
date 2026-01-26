@@ -356,6 +356,14 @@ async def run_assistant(
             media_ctx = build_media_context(items)
         except Exception:
             media_ctx = "Ничего не найдено в базе источника."
+        # ✅ HARD MEDIA GUARD: no hallucination for media id
+        if is_media:
+            if (not items) or (len(items) == 1 and items[0].get("_error")):
+                return (
+                    "Не уверен(а), что могу определить фильм/сериал по этому описанию.\n"
+                    "Скажи 1 деталь: год/актёр/язык/страна или что происходит в кадре (2–3 факта)."
+                )
+            return build_media_context(items) + "\n\nКакой вариант ближе? (ответь номером)"
 
 
     ctx = await build_context(session, user, lang, plan)
