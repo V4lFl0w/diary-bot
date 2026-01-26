@@ -34,6 +34,11 @@ ANTI_HALLUCINATION_PREFIX = (
     "- Если нужно — задай 1 уточняющий вопрос.\n\n"
 )
 
+MEDIA_NOT_FOUND_REPLY_RU = (
+    "Не нашёл точного совпадения в базе. Дай 1 деталь, и я попробую ещё раз: "
+    "год / актёр / страна / язык / что происходит в сцене (1–2 факта)."
+)
+
 
 def _env(name: str, default: str = "") -> str:
     v = os.getenv(name)
@@ -341,6 +346,7 @@ async def run_assistant(
 
     # --- MEDIA RAG (films/series): retrieve before generation ---
     media_ctx = ""
+    items = []  # tmdb candidates
     now = datetime.now(timezone.utc)
     sticky_media = False
     if user:
@@ -354,6 +360,15 @@ async def run_assistant(
         try:
             items = await tmdb_search_multi(text, lang="ru-RU", limit=5)
             media_ctx = build_media_context(items)
+            # MEDIA_HARD_FALLBACK: если нет кандидатов — не уходим в болтовню, просим 1 деталь
+            if media_ctx.startswith("Ничего не найдено") or media_ctx.startswith("TMDb error"):
+                # продлеваем sticky-режим, чтобы следующее сообщение считалось уточнением
+                if user is not None:
+                    user.assistant_mode = "media"
+                    user.assistant_mode_until = now + timedelta(minutes=10)
+                    if session:
+                        await session.commit()
+                return MEDIA_NOT_FOUND_REPLY_RU
         except Exception:
             media_ctx = "Ничего не найдено в базе источника."
         # ✅ HARD MEDIA GUARD: no hallucination for media id
@@ -384,13 +399,13 @@ async def run_assistant(
 
     media_rules = ""
     if is_media:
-        media_rules = (
-            "\n\nВАЖНО (MEDIA MODE):\n"
-            "- Отвечай ТОЛЬКО на основе блока Media DB search context (TMDb).\n"
-            "- Если в TMDb ничего не найдено или данных недостаточно — скажи: 'не уверен(а)' и задай 1 уточняющий вопрос (название/год/актёр/сцена).\n"
-            "- НЕ угадывай названия и НЕ придумывай факты.\n"
-        )
-
+        media_rules = """
+ВАЖНО (MEDIA MODE):
+- Ты в режиме ПОИСКА фильма/сериала. Не обсуждай сюжет, эмоции и продолжение истории.
+- Отвечай ТОЛЬКО как поисковик: покажи кандидатов из TMDb или скажи 'не уверен(а)'.
+- Если кандидатов нет/данных мало — попроси 1 уточнение (год/актёр/сцена/язык/страна).
+- НЕ угадывай названия и НЕ придумывай факты.
+"""
     # для media-запросов отключаем previous_response_id, чтобы не тянуть старую ветку и не галюнило
     prev_for_call = prev_id  # keep thread even for media (sticky follow-ups)
 
@@ -426,7 +441,7 @@ async def run_assistant(
         # sticky media-mode: продлеваем на 2 минуты, чтобы следующий месседж считался уточнением
         if is_media:
             user.assistant_mode = "media"
-            user.assistant_mode_until = now + timedelta(minutes=2)
+            user.assistant_mode_until = now + timedelta(minutes=10)
             changed = True
 
         changed = True
@@ -501,7 +516,7 @@ async def run_assistant_vision(
     if session and user and is_media:
         try:
             user.assistant_mode = "media"
-            user.assistant_mode_until = now + timedelta(minutes=2)
+            user.assistant_mode_until = now + timedelta(minutes=10)
             await session.commit()
         except Exception:
             pass
