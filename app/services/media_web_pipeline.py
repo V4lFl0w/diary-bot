@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import os
+import logging
 import re
 import json
 import urllib.parse
 import urllib.request
 from typing import List, Tuple
 
-
+_LOG = logging.getLogger(__name__)
+_DEBUG = os.getenv('MEDIA_WEB_DEBUG', '').lower() in ('1','true','yes','on')
 def _norm(q: str) -> str:
     q = (q or "").strip()
     q = re.sub(r"\s+", " ", q)
@@ -56,7 +58,9 @@ def _http_json(url: str, headers: dict | None = None, timeout: int = 10) -> dict
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
         return json.loads(raw.decode("utf-8", errors="ignore"))
-    except Exception:
+    except Exception as e:
+        if _DEBUG:
+            _LOG.warning('media_web_pipeline http_json FAIL url=%s err=%r', url, e)
         return None
 
 
@@ -118,8 +122,12 @@ def _brave_candidates(q: str, limit: int = 6) -> List[str]:
 
 def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
+    if _DEBUG:
+        _LOG.info('SERPAPI CALL q=%r limit=%s has_key=%s', q, limit, bool(key))
     if not key:
+        _LOG.info('SERPAPI: enabled=%s (no key)', False)
         return []
+    _LOG.info('SERPAPI: enabled=%s', True)
     q = _norm(q)
     if not q:
         return []
