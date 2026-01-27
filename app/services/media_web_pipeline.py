@@ -114,6 +114,8 @@ def _brave_candidates(q: str, limit: int = 6) -> List[str]:
     return out
 
 
+
+
 def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
     if not key:
@@ -121,7 +123,7 @@ def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     q = _norm(q)
     if not q:
         return []
-    # SerpAPI Google Search JSON endpoint
+
     base = "https://serpapi.com/search.json"
     params = {
         "engine": "google",
@@ -133,40 +135,54 @@ def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     data = _http_json(url, timeout=15)
     if not isinstance(data, dict):
         return []
+
     out: List[str] = []
 
-    # organic_results: title/snippet
-    organic = data.get("organic_results") or []
-    if isinstance(organic, list):
-        for r in organic[:limit]:
-            if not isinstance(r, dict):
-                continue
-            t = r.get("title")
-            s = r.get("snippet")
-            if isinstance(t, str) and t.strip():
-                out.append(t.strip())
-            if isinstance(s, str) and s.strip() and len(out) < limit:
-                out.append(s.strip())
+    def add_title(t):
+        if not isinstance(t, str):
+            return
+        t = _norm(t)
+        if not t:
+            return
+        tl = t.lower()
+        bad = ("watch", "online", "stream", "full movie", "hd", "netflix", "torrent")
+        if any(x in tl for x in bad):
+            return
+        if len(t) > 85:
+            return
+        if t.count(" ") >= 12:
+            return
+        out.append(t)
 
-    # knowledge_graph title
     kg = data.get("knowledge_graph") or {}
     if isinstance(kg, dict):
-        t = kg.get("title")
-        if isinstance(t, str) and t.strip():
-            out.insert(0, t.strip())
+        add_title(kg.get("title"))
 
-    return out[:limit]
+    ab = data.get("answer_box") or {}
+    if isinstance(ab, dict):
+        add_title(ab.get("title"))
+        org = ab.get("organic_result") or {}
+        if isinstance(org, dict):
+            add_title(org.get("title"))
+
+    for block_key in ("movie_results", "tv_results"):
+        block = data.get(block_key) or {}
+        if isinstance(block, dict):
+            add_title(block.get("title") or block.get("name"))
+
+    organic = data.get("organic_results") or []
+    if isinstance(organic, list):
+        for r in organic[:limit*3]:
+            if not isinstance(r, dict):
+                continue
+            add_title(r.get("title"))
+            if len(out) >= limit:
+                break
+
+    return _dedupe(out)[:limit]
 
 
 async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple[List[str], str]:
-    """
-    Returns (candidates, tag).
-    Order:
-      - heuristics (strip SxxEyy)
-      - Wikipedia OpenSearch (free)
-      - Brave (if key)
-      - SerpAPI (if key + use_serpapi=True)
-    """
     q = _norm(query)
     if not q:
         return [], "empty_query"
@@ -179,37 +195,18 @@ async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple
     stripped = _strip_episode_tokens(q)
 
     cands: List[str] = []
-    if stripped and stripped.lower() != q.lower():
-        cands.append(stripped)
 
-    # free wiki baseline
-    wiki_qs = _dedupe([stripped, q])
-    wiki_titles: List[str] = []
-    for wq in wiki_qs:
-        if not wq:
-            continue
-        wiki_titles += _wiki_opensearch(wq, lang="ru", limit=6)
-        wiki_titles += _wiki_opensearch(wq, lang="en", limit=6)
+    # 🎯 Если есть S02E10 — даём TMDB максимально понятные варианты
+    m_sxe = _SXXEYY_RE.search(q)
+    if m_sxe and stripped:
+        s = int(m_sxe.group(1))
+        e = int(m_sxe.group(2))
+        cands.append(f"{stripped} S{s}E{e}")
+        cands.append(f"{stripped} season {s} episode {e}")
+        cands.append(f"{stripped} episode {e}")
+        cands.append(f"{stripped} season {s}")
 
-    for t in wiki_titles:
-        t2 = _norm(t)
-        if not t2:
-            continue
-        if year and year not in t2:
-            cands.append(f"{t2} {year}")
-        cands.append(t2)
-
-    # Brave (if key)
-    brave = _brave_candidates(q, limit=6)
-    for t in brave:
-        t2 = _norm(t)
-        if not t2:
-            continue
-        cands.append(t2)
-        if year and year not in t2:
-            cands.append(f"{t2} {year}")
-
-    # SerpAPI (only if requested)
+    # 🔥 1. SERPAPI ПЕРВЫМ (самый чистый источник названий)
     if use_serpapi:
         serp = _serpapi_candidates(q, limit=6)
         for t in serp:
@@ -220,10 +217,37 @@ async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple
             if year and year not in t2:
                 cands.append(f"{t2} {year}")
 
-    # always include original query last
+    # 2. Базовое очищенное название
+    if stripped and stripped.lower() != q.lower():
+        cands.append(stripped)
+
+    # 3. Wikipedia
+    wiki_qs = _dedupe([stripped, q])
+    for wq in wiki_qs:
+        if not wq:
+            continue
+        for t in _wiki_opensearch(wq, lang="ru", limit=5) + _wiki_opensearch(wq, lang="en", limit=5):
+            t2 = _norm(t)
+            if not t2:
+                continue
+            cands.append(t2)
+            if year and year not in t2:
+                cands.append(f"{t2} {year}")
+
+    # 4. Brave (если есть ключ)
+    brave = _brave_candidates(q, limit=5)
+    for t in brave:
+        t2 = _norm(t)
+        if not t2:
+            continue
+        cands.append(t2)
+        if year and year not in t2:
+            cands.append(f"{t2} {year}")
+
+    # всегда добавляем исходный запрос в конец
     cands.append(q)
 
-    cands = _dedupe(cands)[:14]
+    cands = _dedupe(cands)[:15]
 
     tag = "wiki"
     if brave and not use_serpapi:

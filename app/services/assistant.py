@@ -682,7 +682,7 @@ async def run_assistant(
         # --- WEB fallback (cheap -> expensive) ---
         if not items and query:
             try:
-                cands, tag = await web_to_tmdb_candidates(query, use_serpapi=False)
+                cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
                 for c in cands:
                     items = await _tmdb_best_effort(c, limit=5)
                     if items:
