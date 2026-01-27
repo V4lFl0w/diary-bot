@@ -9,6 +9,47 @@ from typing import Optional, Any
 
 from zoneinfo import ZoneInfo
 from sqlalchemy import select, desc
+
+
+# --- TMDB query sanitizer: TMDB hates long "scene description" queries ---
+_SXXEYY_RE = re.compile(r"(?i)\bS(\d{1,2})\s*E(\d{1,2})\b")
+_YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
+
+def _tmdb_sanitize_query(q: str) -> str:
+    q = (q or "").strip()
+    q = re.sub(r"\s+", " ", q)
+
+    # remove common RU "scene" words and punctuation clutter
+    q = re.sub(r"(?i)\b(сцена|что происходит|что происходит в сцене|факт|факта|актер|актёр|страна|язык|мем|meme)\b.*$", "", q).strip()
+    q = re.sub(r"[\"“”‘’]+", "", q).strip()
+
+    # Keep only: title-ish part + optional year
+    year = None
+    m = _YEAR_RE.search(q)
+    if m:
+        year = m.group(1)
+
+    # If query has SxxEyy, transform into short canonical form
+    m2 = _SXXEYY_RE.search(q)
+    if m2:
+        s = int(m2.group(1)); e = int(m2.group(2))
+        # remove SxxEyy tokens from base title
+        base = _SXXEYY_RE.sub("", q).strip()
+        base = re.sub(r"\s+", " ", base).strip(" -–—,:;")
+        if base:
+            return f"{base} S{s}E{e}"
+
+    # Hard length cap (TMDB works best with short queries)
+    q = q.strip(" -–—,:;")
+    if year and year not in q:
+        # don't append year blindly if it bloats; only if short
+        if len(q) <= 40:
+            q = f"{q} {year}"
+
+    if len(q) > 60:
+        q = q[:60].rsplit(" ", 1)[0].strip()
+
+    return q
 try:
     from openai import AsyncOpenAI
 except ModuleNotFoundError:
@@ -125,7 +166,7 @@ def _media_set(uid: str, query: str, items: list[dict]) -> None:
     if not uid:
         return
     q = _normalize_tmdb_query(query)
-    _MEDIA_SESSIONS[uid] = {"query": q, "items": items or [], "ts": _time_now()}
+    _MEDIA_SESSIONS[uid] = {"query": _tmdb_sanitize_query(q), "items": items or [], "ts": _time_now()}
 
 def _looks_like_choice(text: str) -> bool:
     t = (text or "").strip()
@@ -630,9 +671,9 @@ async def run_assistant(
 
         # короткое уточнение (год/актёр/страна/язык/серия/эпизод) — добавляем к прошлому запросу
         if st and prev_q and _looks_like_year_or_hint(raw) and len(raw) <= 60:
-            query = _normalize_tmdb_query(f"{prev_q} {raw}")
+            query = _tmdb_sanitize_query(_normalize_tmdb_query(f"{prev_q} {raw}"))
         else:
-            query = _normalize_tmdb_query(raw)
+            query = _tmdb_sanitize_query(_normalize_tmdb_query(raw))
 
 
         # 3) Too generic → ask 1 detail
@@ -647,9 +688,9 @@ async def run_assistant(
 
         # 4) Best-effort TMDb search (ru first, fallback en, year filter, dedupe, sort)
         cleaned = _clean_media_query(query)
-        query = _normalize_tmdb_query(cleaned or query)
+        query = _tmdb_sanitize_query(_normalize_tmdb_query(cleaned or query))
         try:
-            print(f"[media] prev_q={prev_q!r} raw={raw!r} -> query={query!r}")
+            print(f"[media] prev_q={prev_q!r} raw={raw!r} -> query=_tmdb_sanitize_query({query!r}")
         except Exception:
             pass
 
