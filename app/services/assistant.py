@@ -15,6 +15,23 @@ from sqlalchemy import select, desc
 _SXXEYY_RE = re.compile(r"(?i)\bS(\d{1,2})\s*E(\d{1,2})\b")
 _YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
+
+def _looks_like_freeform_media_query(q: str) -> bool:
+    ql = (q or "").lower().strip()
+    if not ql:
+        return False
+    bad_words = (
+        "сцена", "момент", "в конце", "в начале", "актёр", "актер", "в очках", "в костюмах",
+        "про", "где", "когда", "как называется", "помогите найти",
+        "полиция", "женщина", "мужчина", "сериал", "фильм", "серия", "эпизод",
+    )
+    if any(w in ql for w in bad_words):
+        return True
+    if len(ql) >= 45 or ql.count(" ") >= 6:
+        return True
+    return False
+
+
 def _tmdb_sanitize_query(q: str) -> str:
     q = (q or "").strip()
     q = re.sub(r"\s+", " ", q)
@@ -720,7 +737,12 @@ async def run_assistant(
 
         except Exception:
             items = []
-        # --- WEB fallback (cheap -> expensive) ---
+                # If query looks like a free-form description, do not trust early TMDB guesses:
+        # force WEB pipeline (SerpAPI/Wiki/Brave) to extract the real title.
+        if items and query and _looks_like_freeform_media_query(query):
+            items = []
+
+# --- WEB fallback (cheap -> expensive) ---
         if not items and query:
             try:
                 cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
