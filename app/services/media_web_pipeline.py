@@ -133,6 +133,8 @@ def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     }
     url = base + "?" + urllib.parse.urlencode(params)
     data = _http_json(url, timeout=15)
+    print('[serpapi] url:', url)
+    print('[serpapi] ok:', isinstance(data, dict), 'keys:', list(data.keys())[:10] if isinstance(data, dict) else None)
     if not isinstance(data, dict):
         return []
 
