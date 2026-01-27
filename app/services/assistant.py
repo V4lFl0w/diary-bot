@@ -19,6 +19,7 @@ from app.models.journal import JournalEntry
 from app.services.llm_usage import log_llm_usage
 from app.services.media_id import trace_moe_identify
 from app.services.media_search import tmdb_search_multi, build_media_context
+from app.services.media_web_pipeline import web_to_tmdb_candidates
 
 
 MENU_NOISE = {
@@ -34,14 +35,21 @@ ANTI_HALLUCINATION_PREFIX = (
     "- Если нужно — задай 1 уточняющий вопрос.\n\n"
 )
 
+
 MEDIA_NOT_FOUND_REPLY_RU = (
     "Не нашёл точного совпадения в базе. Дай 1 деталь, и я попробую ещё раз: "
     "год / актёр / страна / язык / что происходит в сцене (1–2 факта)."
 )
 
+def _extract_media_kind_marker(text: str) -> str:
+    t = (text or "").strip()
+    m = re.match(r"^__MEDIA_KIND__:(voice|video|video_note)\b", t)
+    return m.group(1) if m else ""
 
-
-
+MEDIA_VIDEO_STUB_REPLY_RU = (
+    "Понял. По видео/кружку/голосу я скоро научусь находить фильмы/серии.\n"
+    "Пока так: пришли 1 кадр (скрин) или опиши сцену текстом (1–2 факта) + год/актёр, если знаешь."
+)
 
 
 def _is_asking_for_title(text: str) -> bool:
@@ -125,11 +133,25 @@ def _looks_like_choice(text: str) -> bool:
 
 def _looks_like_year_or_hint(text: str) -> bool:
     t = (text or "").strip().lower()
+    if not t:
+        return False
+
+    # год
     if re.search(r"\b(19\d{2}|20\d{2})\b", t):
         return True
-    # короткие уточнения: актёр/страна/язык/год/серия/эпизод
-    hint_words = ("год", "акт", "актер", "актёр", "страна", "язык", "серия", "эпизод", "сезон")
-    return any(w in t for w in hint_words) or (len(t) <= 30 and " " in t)
+
+    # 1–2 слова (часто это уточнение: "Америка", "США", "комедия", "Netflix")
+    parts = t.split()
+    if 1 <= len(parts) <= 2 and len(t) <= 18:
+        return True
+
+    # короткие уточнения: актёр/страна/язык/год/серия/эпизод + страны/аббревиатуры
+    hint_words = (
+        "год", "акт", "актер", "актёр", "страна", "язык",
+        "серия", "эпизод", "сезон",
+        "сша", "америка", "usa", "us", "uk", "нетфликс", "netflix", "hbo", "amazon"
+    )
+    return any(w in t for w in hint_words)
 
 
 def _extract_year(text: str) -> Optional[str]:
@@ -137,8 +159,20 @@ def _extract_year(text: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+
+
+# remove common filler words from media query
+def _clean_media_query(s: str) -> str:
+    # убираем русские служебные слова
+    s = re.sub(r"\b(год|акт[ёе]р|акт[ёе]ры|и|в|с|фильм|сериал|когда-то)\b", " ", s, flags=re.IGNORECASE)
+    # аккуратно с английскими тоже
+    s = re.sub(r"\b(year|actor|actors|film|movie|and)\b", " ", s, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _parse_media_hints(text: str) -> dict:
-    t = (text or "").lower()
+    t_raw = (text or "").strip()
+    t = t_raw.lower()
 
     year = None
     m = re.search(r"\b(19\d{2}|20\d{2})\b", t)
@@ -151,12 +185,15 @@ def _parse_media_hints(text: str) -> dict:
     elif "фильм" in t or "кино" in t:
         kind = "movie"
 
-    cast = re.findall(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", text)
+    # актёры: поддержка кириллицы + латиницы
+    cast_ru = re.findall(r"\b[А-ЯЁІЇЄ][а-яёіїє]+ [А-ЯЁІЇЄ][а-яёіїє]+\b", t_raw)
+    cast_en = re.findall(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", t_raw)
+    cast = (cast_ru + cast_en)[:2]
 
-    keywords = re.sub(r"[^a-zA-Zа-яА-Я0-9 ]", " ", text)
+    keywords = re.sub(r"[^a-zA-Zа-яА-ЯёЁІіЇїЄє0-9 ]", " ", t_raw)
     keywords = " ".join(w for w in keywords.split() if len(w) > 3)[:80]
 
-    return {"year": year, "kind": kind, "cast": cast[:2], "keywords": keywords.strip()}
+    return {"year": year, "kind": kind, "cast": cast, "keywords": keywords.strip()}
 
 
 def _dedupe_media(items: list[dict]) -> list[dict]:
@@ -280,7 +317,6 @@ def _assistant_plan(user: Optional[User]) -> str:
         return "free"
 
     now = datetime.now(timezone.utc)
-
     # если premium_until есть и он истёк → FREE
     pu = getattr(user, "premium_until", None)
     if pu is not None:
@@ -472,7 +508,7 @@ async def build_context(session: Any, user: Optional[User], lang: str, plan: str
             parts.append("Assistant profile (long-term):")
             parts.append(str(profile)[:2000])
 
-    take = 0 if plan == "basic" else 5
+    take = 0 if plan in {"free", "basic"} else 5
 
     recent = await _fetch_recent_journal(session, user, limit=30, take=take)
     if recent:
@@ -549,6 +585,10 @@ async def run_assistant(
     model = _pick_model()
     plan = _assistant_plan(user)
 
+    kind_marker = _extract_media_kind_marker(text)
+    if kind_marker:
+        return MEDIA_VIDEO_STUB_REPLY_RU
+
     now = datetime.now(timezone.utc)
 
     # --- MEDIA state (DB + in-memory fallback) ---
@@ -575,7 +615,10 @@ async def run_assistant(
 
         # 1.5) "Как называется/какое название" — это не новый поиск, показываем варианты
         if st and _is_asking_for_title(text):
-            return build_media_context(st.get("items") or []) + "\n\nВыбери номер варианта."
+            opts = st.get("items") or []
+            if not opts:
+                return MEDIA_NOT_FOUND_REPLY_RU
+            return build_media_context(opts) + "\n\nВыбери номер варианта."
         # 2) Build query (new query vs follow-up hint)# 2) Merge уточнение with previous query
         # 2) Build query (new query vs follow-up hint)
         raw = (text or "").strip()
@@ -603,7 +646,8 @@ async def run_assistant(
             return MEDIA_NOT_FOUND_REPLY_RU
 
         # 4) Best-effort TMDb search (ru first, fallback en, year filter, dedupe, sort)
-        query = _normalize_tmdb_query(query)
+        cleaned = _clean_media_query(query)
+        query = _normalize_tmdb_query(cleaned or query)
         try:
             print(f"[media] prev_q={prev_q!r} raw={raw!r} -> query={query!r}")
         except Exception:
@@ -617,7 +661,7 @@ async def run_assistant(
 
             # 🔹 If nothing found — use parsed hints
             hints = _parse_media_hints(query)
-            if hints.get("keywords"):
+            if (not items) and hints.get("keywords"):
                 items = await _tmdb_best_effort(hints["keywords"], limit=5)
 
             if not items and hints.get("cast"):
@@ -635,6 +679,23 @@ async def run_assistant(
 
         except Exception:
             items = []
+        # --- WEB fallback (cheap -> expensive) ---
+        if not items and query:
+            try:
+                cands, tag = await web_to_tmdb_candidates(query, use_serpapi=False)
+                for c in cands:
+                    items = await _tmdb_best_effort(c, limit=5)
+                    if items:
+                        break
+                # second attempt (SerpAPI) only if still empty
+                if (not items) and (os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")):
+                    cands2, tag2 = await web_to_tmdb_candidates(query, use_serpapi=True)
+                    for c in cands2:
+                        items = await _tmdb_best_effort(c, limit=5)
+                        if items:
+                            break
+            except Exception:
+                pass
 
         # keep sticky media mode (DB if possible)
         if user is not None:
@@ -841,7 +902,7 @@ async def run_assistant_vision(
 
             # 🔹 If nothing found — use parsed hints
             hints = _parse_media_hints(tmdb_q)
-            if hints.get("keywords"):
+            if (not items) and hints.get("keywords"):
                 items = await _tmdb_best_effort(hints["keywords"], limit=5)
 
             if not items and hints.get("cast"):
@@ -871,7 +932,7 @@ async def run_assistant_vision(
             if uid:
                 _media_set(uid, tmdb_q, items)
 
-            return build_media_context(items) + "Выбери номер варианта."
+            return build_media_context(items) + "\n\nВыбери номер варианта."
 
         return MEDIA_NOT_FOUND_REPLY_RU
     

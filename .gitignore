@@ -57,3 +57,4 @@ __pycache__/
 # local db
 *.db
 *.bak.*
+tools/
