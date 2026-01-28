@@ -1163,11 +1163,7 @@ async def run_assistant_vision(
 
         # Default: return title directly if confident (or single result)
         top = items[0]
-        if len(items) == 1:
-            return _format_one_media(top)
 
-        if _media_confident(top) and float(top.get('vote_average') or 0) >= 7.8:
-            return _format_one_media(top)
 
         return build_media_context(items) + "\n\nВыбери номер варианта."
 
