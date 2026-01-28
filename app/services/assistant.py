@@ -341,7 +341,7 @@ def _format_one_media(item: dict) -> str:
         try:
             line += f" • ⭐ {float(rating):.1f}"
         except Exception:
-            pass
+                print("[media][web_fallback] error")
 
     if overview:
         line += f"\n\n{overview[:700]}"
@@ -737,12 +737,19 @@ async def run_assistant(
 
         except Exception:
             items = []
+        # If query looks like a free-form description, do not trust early TMDB guesses:
+        # force WEB pipeline (SerpAPI/Wiki/Brave) to extract the real title.
+        try:
+            if items and query and _looks_like_freeform_media_query(raw):
+                items = []
+        except Exception:
+            pass
                 # If query looks like a free-form description, do not trust early TMDB guesses:
         # force WEB pipeline (SerpAPI/Wiki/Brave) to extract the real title.
         if items and query and _looks_like_freeform_media_query(query):
             items = []
 
-# --- WEB fallback (cheap -> expensive) ---
+        # --- WEB fallback (cheap -> expensive) ---
         if not items and query:
             try:
                 cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
