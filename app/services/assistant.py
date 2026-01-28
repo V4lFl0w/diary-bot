@@ -97,6 +97,76 @@ MEDIA_NOT_FOUND_REPLY_RU = (
     "год / актёр / страна / язык / что происходит в сцене (1–2 факта)."
 )
 
+
+# --- vision/media generic captions guard ---
+_GENERIC_MEDIA_CAPTIONS = {
+    "otkuda kadr", "otkuda kadr?",
+    "otkuda kadr?",  # ru will still be handled by normalization below
+    "otkuda kadr ?",
+    "otkuda-kadr",
+    "otkuda_kadr",
+    "otkuda",
+    "chto za film", "chto za film?",
+    "chto za serial", "chto za serial?",
+    "kak nazyvaetsya", "kak nazyvaetsya?",
+}
+
+def _is_generic_media_caption(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    t = re.sub(r"\s+", " ", t).strip()
+    # also treat common RU phrases as generic
+    if t in {
+        "откуда кадр", "откуда кадр?",
+        "что за фильм", "что за фильм?",
+        "что за сериал", "что за сериал?",
+        "что за мультик", "что за мультик?",
+        "как называется", "как называется?",
+        "как называется фильм", "как называется сериал",
+    }:
+        return True
+    return t in _GENERIC_MEDIA_CAPTIONS or len(t) <= 5
+
+def _extract_title_like_from_model_text(text: str) -> str:
+    """Try to extract a title from model explanation."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+
+    # RU quotes: \u00ab...\u00bb
+    m = re.search(r"[\u00ab](.+?)[\u00bb]", t)
+    if m:
+        cand = (m.group(1) or "").strip()
+        if 2 <= len(cand) <= 80:
+            return cand
+
+    # EN quotes "..."
+    m = re.search(r"\"(.+?)\"", t)
+    if m:
+        cand = (m.group(1) or "").strip()
+        if 2 <= len(cand) <= 80:
+            return cand
+
+    # Title: / Название:
+    m = re.search(r"(?im)^\s*(title|название)\s*:\s*(.+?)\s*$", t)
+    if m:
+        cand = (m.group(2) or "").strip()
+        cand = re.sub(r"\s+", " ", cand)
+        if 2 <= len(cand) <= 80:
+            return cand
+
+    return ""
+
+def _media_confident(item: dict) -> bool:
+    """Conservative confidence heuristic for Vision results."""
+    try:
+        pop = float(item.get("popularity") or 0)
+        va = float(item.get("vote_average") or 0)
+    except Exception:
+        return False
+    return (pop >= 25 and va >= 6.8) or (pop >= 60) or (va >= 7.6)
+
 def _extract_media_kind_marker(text: str) -> str:
     t = (text or "").strip()
     m = re.match(r"^__MEDIA_KIND__:(voice|video|video_note)\b", t)
@@ -993,85 +1063,76 @@ async def run_assistant_vision(
 
             return build_media_context(items) + "\n\nВыбери номер варианта."
 
-# Vision → TMDb candidates
+    # Vision → TMDb candidates (robust)
     caption_str = (caption or "").strip()
+
+    # Prefer explicit SEARCH_QUERY from model, then title extracted from the explanation.
     search_q = _normalize_tmdb_query(_extract_search_query_from_text(out_text))
-    tmdb_q = search_q or _normalize_tmdb_query(caption_str)
+    title_from_text = _normalize_tmdb_query(_extract_title_like_from_model_text(out_text))
 
-    if tmdb_q:
+    # Build candidate list in priority order
+    cand_list: list[str] = []
+    for c in (search_q, title_from_text):
+        c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
+        if c and c not in cand_list:
+            cand_list.append(c)
+
+    # Caption is used ONLY if it is not a generic phrase like "Откуда кадр?"
+    if caption_str and (not _is_generic_media_caption(caption_str)):
+        c = _tmdb_sanitize_query(_normalize_tmdb_query(caption_str))
+        if c and c not in cand_list:
+            cand_list.append(c)
+
+    # If we still have nothing -> ask for 1 detail (no TMDb spam)
+    if not cand_list:
+        return MEDIA_NOT_FOUND_REPLY_RU
+
+    items: list[dict] = []
+    used_query = ""
+
+    # Try TMDb for each candidate
+    for q in cand_list:
         try:
-            items = []
-
-            # 🔹 First try direct search by model/caption query
-            items = await _tmdb_best_effort(tmdb_q, limit=5)
-
-            # 🔹 If nothing found — use parsed hints
-            hints = _parse_media_hints(tmdb_q)
-            if (not items) and hints.get("keywords"):
-                items = await _tmdb_best_effort(hints["keywords"], limit=5)
-
-            if not items and hints.get("cast"):
-                from app.services.media_search import tmdb_search_person, tmdb_discover_with_people
-                for actor in hints["cast"]:
-                    pid = await tmdb_search_person(actor)
-                    if pid:
-                        items = await tmdb_discover_with_people(
-                            pid,
-                            year=hints.get("year"),
-                            kind=hints.get("kind"),
-                        )
-                        if items:
-                            break
-
+            items = await _tmdb_best_effort(q, limit=5)
         except Exception:
             items = []
-
         if items:
-            if user is not None:
-                user.assistant_mode = "media"
-                user.assistant_mode_until = now + timedelta(minutes=10)
-                if session:
-                    await session.commit()
+            used_query = q
+            break
 
-            uid = _media_uid(user)
-            if uid:
-                _media_set(uid, tmdb_q, items)
-
-            return build_media_context(items) + "\n\nВыбери номер варианта."
-
-        # --- WEB fallback for Vision (TMDb may guess wrong / miss) ---
+    # WEB fallback (only if still empty)
+    if (not items) and cand_list:
         try:
-            cands, tag = await web_to_tmdb_candidates(tmdb_q, use_serpapi=True)
+            q0 = cand_list[0]
+            cands, tag = await web_to_tmdb_candidates(q0, use_serpapi=True)
             for c in cands:
                 items = await _tmdb_best_effort(c, limit=5)
                 if items:
+                    used_query = c
                     break
         except Exception:
             items = []
 
-        if items:
-            if user is not None:
-                user.assistant_mode = "media"
-                user.assistant_mode_until = now + timedelta(minutes=10)
-                if session:
-                    await session.commit()
+    if items:
+        if user is not None:
+            user.assistant_mode = "media"
+            user.assistant_mode_until = now + timedelta(minutes=10)
+            if session:
+                await session.commit()
 
-            uid = _media_uid(user)
-            if uid:
-                _media_set(uid, tmdb_q, items)
+        uid = _media_uid(user)
+        if uid:
+            _media_set(uid, used_query or (cand_list[0] if cand_list else ""), items)
 
-            return build_media_context(items) + "Выбери номер варианта."
+        # Default: return title directly if confident (or single result)
+        top = items[0]
+        if len(items) == 1 or _media_confident(top):
+            return _format_one_media(top)
 
-        return MEDIA_NOT_FOUND_REPLY_RU
-    
+        return build_media_context(items) + "\n\nВыбери номер варианта."
+
     # --- Failsafe: Vision must always return text ---
     final_text = (out_text or "").strip()
-
-    if not final_text:
-        final_text = (
-            "Я не смог уверенно определить источник по изображению. "
-            "Попробуй описать сцену словами или добавить деталь "
-            "(актёр, год, что происходит)."
-        )
-
-    return final_text
+    if final_text:
+        return final_text
+    return MEDIA_NOT_FOUND_REPLY_RU
