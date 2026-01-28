@@ -77,9 +77,7 @@ from app.models.journal import JournalEntry
 from app.services.llm_usage import log_llm_usage
 from app.services.media_id import trace_moe_identify
 from app.services.media_search import tmdb_search_multi, build_media_context
-from app.services.media_web_pipeline import web_to_tmdb_candidates
-
-
+from app.services.media_web_pipeline import web_to_tmdb_candidates, image_bytes_to_tmdb_candidates
 MENU_NOISE = {
     "📊 Статистика", "🧾 Сегодня", "📓 Журнал", "🏠 Главное меню",
     "💎 Премиум", "⚙️ Настройки", "🧘 Медиа",
@@ -958,6 +956,46 @@ async def run_assistant_vision(
                     f"Совпадение: {sim:.1%}"
                 )
     # иначе — не ломаем основной поток, просто идём дальше (TMDb)
+    
+    # --- Lens (bytes -> Spaces -> Google Lens -> candidates -> TMDb) ---
+    # NOTE: works only if image_bytes is a real JPG/PNG; dummy bytes will produce empty cands.
+    try:
+        lens_cands, lens_tag = await image_bytes_to_tmdb_candidates(
+            image_bytes,
+            ext="jpg",
+            use_serpapi_lens=True,
+            hl=("ru" if (lang or "ru") == "ru" else "en"),
+            prefix="frames",
+        )
+    except Exception:
+        lens_cands, lens_tag = [], "lens_fail"
+
+    if lens_cands:
+        try:
+            items = []
+            used_cand = lens_cands[0]
+            for cand in lens_cands[:12]:
+                items = await _tmdb_best_effort(cand, limit=5)
+                if items:
+                    used_cand = cand
+                    break
+        except Exception:
+            items = []
+            used_cand = lens_cands[0] if lens_cands else ""
+
+        if items:
+            if user is not None:
+                user.assistant_mode = "media"
+                user.assistant_mode_until = now + timedelta(minutes=10)
+                if session:
+                    await session.commit()
+
+            uid = _media_uid(user)
+            if uid:
+                _media_set(uid, used_cand, items)
+
+            return build_media_context(items) + "\n\nВыбери номер варианта."
+
     # Vision → TMDb candidates
     caption_str = (caption or "").strip()
     search_q = _normalize_tmdb_query(_extract_search_query_from_text(out_text))
