@@ -118,8 +118,6 @@ def _brave_candidates(q: str, limit: int = 6) -> List[str]:
     return out
 
 
-
-
 def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
     if _DEBUG:
@@ -190,6 +188,94 @@ def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     return _dedupe(out)[:limit]
 
 
+def _serpapi_lens_candidates(image_url: str, limit: int = 8, hl: str = "ru") -> List[str]:
+    """
+    SerpAPI Google Lens: по публичному URL картинки достаём кандидаты названий
+    (visual_matches titles + related_content queries).
+    """
+    key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
+    image_url = _norm(image_url)
+    if _DEBUG:
+        _LOG.info("SERPAPI LENS CALL url=%r limit=%s has_key=%s", image_url, limit, bool(key))
+    if not key or not image_url:
+        return []
+
+    base = "https://serpapi.com/search.json"
+    params = {
+        "engine": "google_lens",
+        "url": image_url,
+        "api_key": key,
+        "hl": hl,
+    }
+    url = base + "?" + urllib.parse.urlencode(params)
+    data = _http_json(url, timeout=25)
+    if not isinstance(data, dict):
+        return []
+
+    out: List[str] = []
+
+    def add(s: str):
+        if not isinstance(s, str):
+            return
+        s2 = _norm(s)
+        if not s2:
+            return
+        sl = s2.lower()
+        bad = (
+            "watch", "online", "stream", "full movie", "hd", "netflix", "torrent",
+            "смотреть", "онлайн", "hdrezka", "торрент",
+        )
+        if any(x in sl for x in bad):
+            return
+        if len(s2) > 100:
+            return
+        out.append(s2)
+
+    vm = data.get("visual_matches") or []
+    if isinstance(vm, list):
+        for r in vm[: max(10, limit * 2)]:
+            if not isinstance(r, dict):
+                continue
+            add(r.get("title") or "")
+            if len(out) >= limit:
+                break
+
+    rc = data.get("related_content") or []
+    if isinstance(rc, list) and len(out) < limit:
+        for r in rc[: max(10, limit * 2)]:
+            if not isinstance(r, dict):
+                continue
+            add(r.get("query") or "")
+            if len(out) >= limit:
+                break
+
+    return _dedupe(out)[:limit]
+
+
+async def image_to_tmdb_candidates(
+    image_url: str,
+    use_serpapi_lens: bool = True,
+    hl: str = "ru",
+) -> Tuple[List[str], str]:
+    """
+    Кадр/скрин (по URL) -> SerpAPI Lens -> список текстовых кандидатов,
+    которые дальше можно гонять в TMDB search/multi.
+    """
+    u = _norm(image_url)
+    if not u:
+        return [], "empty_image_url"
+
+    cands: List[str] = []
+
+    if use_serpapi_lens:
+        lens = _serpapi_lens_candidates(u, limit=10, hl=hl)
+        cands.extend(lens)
+
+    cands = _dedupe(cands)[:15]
+    tag = "lens" if use_serpapi_lens else "no_lens"
+    return cands, tag
+
+
 async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple[List[str], str]:
     q = _norm(query)
     if not q:
@@ -242,25 +328,12 @@ async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple
             if year and year not in t2:
                 cands.append(f"{t2} {year}")
 
-    # 4. Brave (если есть ключ)
-    brave = _brave_candidates(q, limit=5)
-    for t in brave:
-        t2 = _norm(t)
-        if not t2:
-            continue
-        cands.append(t2)
-        if year and year not in t2:
-            cands.append(f"{t2} {year}")
-
     # всегда добавляем исходный запрос в конец
     cands.append(q)
 
     cands = _dedupe(cands)[:15]
 
     tag = "wiki"
-    if brave and not use_serpapi:
-        tag = "wiki+brave"
     if use_serpapi:
-        tag = "wiki+brave+serpapi" if brave else "wiki+serpapi"
-
+        tag = "wiki+serpapi"
     return cands, tag
