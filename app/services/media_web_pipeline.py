@@ -8,6 +8,34 @@ import json
 import urllib.parse
 import urllib.request
 from typing import List, Tuple
+
+# --- candidate cleanup: drop SEO/stock-image junk that often comes from web search ---
+_SEO_TRASH_TOKENS = (
+    "изображения", "картинки", "скачать", "download", "wallpaper", "обои",
+    "png", "jpeg", "jpg", "free", "бесплатно", "stock", "shutterstock",
+    "depositphotos", "pinterest", "unsplash", "pixabay", "istock",
+    "отзывы", "форум", "инструкция", "как", "почему", "что значит",
+)
+
+def _looks_like_seo_trash_title(s: str) -> bool:
+    sl = (s or "").lower()
+    return any(t in sl for t in _SEO_TRASH_TOKENS)
+
+def _clean_title_cands(cands: list[str]) -> list[str]:
+    out: list[str] = []
+    seen = set()
+    for c in (cands or []):
+        c2 = (c or "").strip()
+        if not c2:
+            continue
+        if _looks_like_seo_trash_title(c2):
+            continue
+        key = c2.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(c2)
+    return out
 from app.services.media_text import YEAR_RE as _YEAR_RE, SXXEYY_RE as _SXXEYY_RE
 
 _LOG = logging.getLogger(__name__)
@@ -407,4 +435,5 @@ async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple
     tag = "wiki"
     if use_serpapi:
         tag = "wiki+serpapi"
+    cands = _clean_title_cands(list(cands or []))
     return cands, tag

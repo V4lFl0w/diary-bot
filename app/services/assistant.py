@@ -252,6 +252,49 @@ BAD_MEDIA_QUERY_WORDS = {
     "смотрите", "запись", "обзор", "интервью"
 }
 
+# --- media query cleaning: turn human phrasing into search-friendly query ---
+_MEDIA_LEADING_NOISE = (
+    "название фильма", "название сериала", "название мультика",
+    "как называется", "что за фильм", "что за сериал", "что за мультик",
+    "какой фильм", "какой сериал", "какой мультик",
+    "какой кинчик", "какой кенчик",
+    "откуда этот отрывок", "что за хуйня", "че за хуйня", "шо за хуйня",
+)
+
+_MEDIA_NOISE_REGEX = [
+    r"\bв главной роли\b",
+    r"\bглавная роль\b",
+    r"\bактер(ы|а)?\b",
+    r"\bактриса\b",
+    r"\bкто играет\b",
+    r"\bнужно название\b",
+    r"\bподскажи\b",
+    r"\bпожалуйста\b",
+]
+
+def _media_clean_user_query(q: str) -> str:
+    q0 = (q or "").strip()
+    if not q0:
+        return ""
+
+    ql = q0.lower().strip()
+
+    # remove leading canned phrases
+    for p in _MEDIA_LEADING_NOISE:
+        ql = ql.replace(p, " ")
+
+    # remove other noise patterns
+    for pat in _MEDIA_NOISE_REGEX:
+        ql = re.sub(pat, " ", ql, flags=re.IGNORECASE)
+
+    # normalize punctuation
+    ql = re.sub(r"[“”\"'`]", " ", ql)
+    ql = re.sub(r"[,.;:!?()$begin:math:display$$end:math:display${}<>/\\\\|_+=~\-]+", " ", ql)
+    ql = re.sub(r"\s{2,}", " ", ql).strip()
+
+    # fallback to original if we over-cleaned
+    return ql if ql else q0
+
 def _is_bad_media_query(q: str) -> bool:
     ql = (q or "").lower().strip()
     if not ql:
@@ -870,6 +913,7 @@ async def run_assistant(
         # 1) wiki/brave (без SerpAPI)
         # 2) SerpAPI только если есть ключ
         if not items and query:
+            query = _media_clean_user_query(query)
             async def _try_cands(cands: list[str]) -> list[dict]:
                 out: list[dict] = []
                 for c in (cands or [])[:15]:
@@ -884,6 +928,14 @@ async def run_assistant(
                 return out
 
             try:
+                # --- media refinement guard ---
+                # If user sends non-digit while media session is active, treat it as query refinement.
+                if (st or sticky_media_db) and text:
+                    t = text.strip()
+                    if t and (not re.fullmatch(r'\d+', t)) and (not t.startswith('/')):
+                        query = t
+                        items = []
+                # --- end guard ---
                 cands, tag = await web_to_tmdb_candidates(query, use_serpapi=False)
                 items = await _try_cands(cands)
             except Exception:
