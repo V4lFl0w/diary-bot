@@ -188,6 +188,86 @@ def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     return _dedupe(out)[:limit]
 
 
+# --- Lens post-processing (cleanup titles -> TMDB-friendly short candidates) ---
+
+_LENS_SITE_TOKENS = {
+    "imdb", "youtube", "netflix", "wikipedia", "reddit", "tiktok", "instagram", "facebook",
+    "twitter", "x", "x.com", "kinopoisk", "hdrezka", "rezka", "torrent", "rutube", "ok.ru",
+}
+
+def _strip_site_suffix(s: str) -> str:
+    s = _norm(s)
+    if not s:
+        return ""
+    # Split like: "Title - 9-1-1 - YouTube" or "Something - IMDb"
+    parts = [p.strip() for p in s.split(" - ") if p and p.strip()]
+    if len(parts) >= 2:
+        last = parts[-1].lower().strip(" .")
+        if last in _LENS_SITE_TOKENS:
+            parts = parts[:-1]
+    # Also common " | Site" pattern
+    parts2 = [p.strip() for p in re.split(r"\s+\|\s+", " - ".join(parts)) if p.strip()]
+    if len(parts2) >= 2:
+        last2 = parts2[-1].lower().strip(" .")
+        if last2 in _LENS_SITE_TOKENS:
+            parts2 = parts2[:-1]
+    return _norm(" - ".join(parts2))
+
+def _extract_known_titles(s: str) -> List[str]:
+    """Extract extra short candidates from the phrase (series name/person name)."""
+    out: List[str] = []
+    s2 = _norm(s)
+    if not s2:
+        return out
+
+    # Example: 9-1-1
+    if re.search(r"\b9-1-1\b", s2, flags=re.I):
+        out.append("9-1-1")
+
+    # "Aisha Hinds - Actress" -> "Aisha Hinds"
+    m = re.match(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s*-\s*(actor|actress)\b", s2, flags=re.I)
+    if m:
+        out.append(m.group(1).strip())
+
+    # If phrase contains an explicit "X Y" (two capitalized words) and it's short enough,
+    # we may use it as a person candidate — but keep it conservative.
+    m2 = re.search(r"\b([A-Z][a-z]+)\s+([A-Z][a-z]+)\b", s2)
+    if m2:
+        cand = f"{m2.group(1)} {m2.group(2)}"
+        if 5 <= len(cand) <= 40:
+            out.append(cand)
+
+    return out
+
+def _clean_lens_candidates(raw: List[str], limit: int = 15) -> List[str]:
+    cleaned: List[str] = []
+
+    for s in (raw or []):
+        base = _strip_site_suffix(s)
+
+        # Drop super long garbage
+        if not base:
+            continue
+        if len(base) > 120:
+            continue
+
+        # Collect extracted short titles first
+        cleaned.extend(_extract_known_titles(base))
+
+        # Also keep the base phrase itself (already without site suffix)
+        cleaned.append(base)
+
+    cleaned = _dedupe(cleaned)
+
+    # If we have "9-1-1" — force it to be first (fast TMDB hit)
+    key = "9-1-1"
+    for i, x in enumerate(cleaned):
+        if x.strip().lower() == key.lower():
+            cleaned.insert(0, cleaned.pop(i))
+            break
+
+    return cleaned[:limit]
+
 def _serpapi_lens_candidates(image_url: str, limit: int = 8, hl: str = "ru") -> List[str]:
     """
     SerpAPI Google Lens: по публичному URL картинки достаём кандидаты названий
@@ -271,9 +351,44 @@ async def image_to_tmdb_candidates(
         lens = _serpapi_lens_candidates(u, limit=10, hl=hl)
         cands.extend(lens)
 
-    cands = _dedupe(cands)[:15]
+    # post-process: raw lens titles -> TMDB-friendly candidates
+    cands = _clean_lens_candidates(cands, limit=15)
     tag = "lens" if use_serpapi_lens else "no_lens"
     return cands, tag
+
+
+
+async def image_bytes_to_tmdb_candidates(
+    image_bytes: bytes,
+    ext: str = "jpg",
+    use_serpapi_lens: bool = True,
+    hl: str = "ru",
+    prefix: str = "frames",
+) -> Tuple[List[str], str]:
+    """
+    Bytes (Telegram photo/file bytes) -> upload to Spaces -> public URL -> SerpAPI Lens -> TMDB-friendly candidates.
+    Requires Spaces env vars (see app/services/s3_uploader.py).
+    """
+    if not image_bytes:
+        return [], "empty_image_bytes"
+
+    # Import lazily to avoid hard-fail if uploader not configured in some envs
+    try:
+        from app.services.s3_uploader import upload_bytes_get_url
+    except Exception as e:
+        if _DEBUG:
+            _LOG.warning("media_web_pipeline: cannot import Spaces uploader: %r", e)
+        return [], "no_spaces_uploader"
+
+    try:
+        public_url = await upload_bytes_get_url(image_bytes, ext=ext, prefix=prefix)
+    except Exception as e:
+        if _DEBUG:
+            _LOG.warning("media_web_pipeline: Spaces upload failed: %r", e)
+        return [], "spaces_upload_fail"
+
+    cands, tag = await image_to_tmdb_candidates(public_url, use_serpapi_lens=use_serpapi_lens, hl=hl)
+    return cands, f"{tag}+spaces"
 
 
 async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple[List[str], str]:
