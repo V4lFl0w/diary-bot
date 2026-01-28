@@ -253,6 +253,37 @@ def _normalize_tmdb_query(q: str, *, max_len: int = 140) -> str:
     q = re.sub(r"^(фильм|сериал|мульт(ик)?|кино)\s+", "", q, flags=re.I).strip()
     return q
 
+
+# --- BAD OCR / GENERIC QUERY FILTER FOR MEDIA SEARCH ---
+BAD_MEDIA_QUERY_WORDS = {
+    "news", "sport", "sports", "channel", "subscribe", "live", "official",
+    "trailer", "shorts", "tiktok", "instagram", "reels",
+    "главные", "новости", "канал", "подпишись", "подписаться",
+    "смотрите", "запись", "обзор", "интервью"
+}
+
+def _is_bad_media_query(q: str) -> bool:
+    ql = q.lower().strip()
+
+    # слишком короткий
+    if len(ql) < 3:
+        return True
+
+    # одно слово = мусор
+    if len(ql.split()) == 1:
+        return True
+
+    # содержит стоп-слова
+    for w in BAD_MEDIA_QUERY_WORDS:
+        if w in ql:
+            return True
+
+    # слишком много цифр
+    if sum(c.isdigit() for c in ql) > len(ql) * 0.4:
+        return True
+
+    return False
+
 # --- media session cache (in-memory, no DB migrations) ---
 from time import time as _time_now
 
@@ -849,6 +880,8 @@ async def run_assistant(
             try:
                 cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
                 for c in cands:
+                    if _is_bad_media_query(c):
+                        continue
                     c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
                     if not _good_tmdb_cand(c):
                         continue
@@ -859,6 +892,8 @@ async def run_assistant(
                 if (not items) and (os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")):
                     cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
                     for c in cands:
+                        if _is_bad_media_query(c):
+                            continue
                         c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
                         if not _good_tmdb_cand(c):
                             continue
@@ -1078,6 +1113,7 @@ async def run_assistant_vision(
             items = []
             used_cand = lens_cands[0]
             for cand in lens_cands[:12]:
+                if _is_bad_media_query(cand): continue
                 cand = _tmdb_sanitize_query(_normalize_tmdb_query(cand))
                 if not _good_tmdb_cand(cand):
                     continue
@@ -1161,6 +1197,8 @@ async def run_assistant_vision(
             q0 = cand_list[0]
             cands, tag = await web_to_tmdb_candidates(q0, use_serpapi=True)
             for c in cands:
+                if _is_bad_media_query(c):
+                    continue
                 c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
                 if not _good_tmdb_cand(c):
                     continue
