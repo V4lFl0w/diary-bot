@@ -8,6 +8,7 @@ import json
 import urllib.parse
 import urllib.request
 from typing import List, Tuple
+from app.services.media_text import YEAR_RE as _YEAR_RE, SXXEYY_RE as _SXXEYY_RE
 
 _LOG = logging.getLogger(__name__)
 _DEBUG = os.getenv('MEDIA_WEB_DEBUG', '').lower() in ('1','true','yes','on')
@@ -15,7 +16,6 @@ def _norm(q: str) -> str:
     q = (q or "").strip()
     q = re.sub(r"\s+", " ", q)
     return q
-
 
 def _dedupe(seq: List[str]) -> List[str]:
     seen = set()
@@ -31,11 +31,7 @@ def _dedupe(seq: List[str]) -> List[str]:
         out.append(x)
     return out
 
-
-_SXXEYY_RE = re.compile(r"(?i)\bS(\d{1,2})\s*E(\d{1,2})\b")
 _SEASON_EP_RE = re.compile(r"(?i)\b(season|s)\s*(\d{1,2})\b.*\b(episode|e)\s*(\d{1,3})\b")
-_YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
-
 
 def _strip_episode_tokens(q: str) -> str:
     q = _norm(q)
@@ -43,7 +39,6 @@ def _strip_episode_tokens(q: str) -> str:
     q2 = _SEASON_EP_RE.sub("", q2)
     q2 = re.sub(r"(?i)\b(ep|episode|серия|сезон)\b\s*\d{1,3}", "", q2)
     return _norm(q2)
-
 
 def _http_json(url: str, headers: dict | None = None, timeout: int = 10) -> dict | list | None:
     req = urllib.request.Request(
@@ -62,7 +57,6 @@ def _http_json(url: str, headers: dict | None = None, timeout: int = 10) -> dict
         if _DEBUG:
             _LOG.warning('media_web_pipeline http_json FAIL url=%s err=%r', url, e)
         return None
-
 
 def _wiki_opensearch(q: str, lang: str = "en", limit: int = 6) -> List[str]:
     q = _norm(q)
@@ -84,39 +78,6 @@ def _wiki_opensearch(q: str, lang: str = "en", limit: int = 6) -> List[str]:
     if not isinstance(titles, list):
         return []
     return [t for t in titles if isinstance(t, str)]
-
-
-def _brave_candidates(q: str, limit: int = 6) -> List[str]:
-    key = os.getenv("BRAVE_API_KEY") or os.getenv("BRAVE_SEARCH_API_KEY")
-    if not key:
-        return []
-    q = _norm(q)
-    if not q:
-        return []
-    # Brave Search API endpoint
-    base = "https://api.search.brave.com/res/v1/web/search"
-    params = {"q": q, "count": str(max(3, min(limit, 10)))}
-    url = base + "?" + urllib.parse.urlencode(params)
-    data = _http_json(url, headers={"X-Subscription-Token": key}, timeout=12)
-    if not isinstance(data, dict):
-        return []
-    web = data.get("web") or {}
-    results = web.get("results") or []
-    out: List[str] = []
-    if isinstance(results, list):
-        for r in results[:limit]:
-            if not isinstance(r, dict):
-                continue
-            title = r.get("title") or ""
-            desc = r.get("description") or ""
-            # title usually best
-            if isinstance(title, str) and title.strip():
-                out.append(title.strip())
-            # sometimes description carries "Movie (2010)" etc.
-            if isinstance(desc, str) and desc.strip() and len(out) < limit:
-                out.append(desc.strip())
-    return out
-
 
 def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
@@ -186,7 +147,6 @@ def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
                 break
 
     return _dedupe(out)[:limit]
-
 
 # --- Lens post-processing (cleanup titles -> TMDB-friendly short candidates) ---
 
@@ -331,7 +291,6 @@ def _serpapi_lens_candidates(image_url: str, limit: int = 8, hl: str = "ru") -> 
 
     return _dedupe(out)[:limit]
 
-
 async def image_to_tmdb_candidates(
     image_url: str,
     use_serpapi_lens: bool = True,
@@ -355,8 +314,6 @@ async def image_to_tmdb_candidates(
     cands = _clean_lens_candidates(cands, limit=15)
     tag = "lens" if use_serpapi_lens else "no_lens"
     return cands, tag
-
-
 
 async def image_bytes_to_tmdb_candidates(
     image_bytes: bytes,
@@ -389,7 +346,6 @@ async def image_bytes_to_tmdb_candidates(
 
     cands, tag = await image_to_tmdb_candidates(public_url, use_serpapi_lens=use_serpapi_lens, hl=hl)
     return cands, f"{tag}+spaces"
-
 
 async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple[List[str], str]:
     q = _norm(query)
