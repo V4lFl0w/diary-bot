@@ -339,7 +339,7 @@ def _format_one_media(item: dict) -> str:
         try:
             line += f" • ⭐ {float(rating):.1f}"
         except Exception:
-                print("[media][web_fallback] error")
+            pass
 
     if overview:
         line += f"\n\n{overview[:700]}"
@@ -659,7 +659,7 @@ async def run_assistant(
             sticky_media_db = True
 
     # IMPORTANT: if we have in-memory session => treat as media follow-up
-    is_media = _is_media_query(text) or sticky_media_db or bool(st) or (st is None and _looks_like_year_or_hint(text))
+    is_media = _is_media_query(text) or sticky_media_db or bool(st) or ((sticky_media_db or bool(st)) and _looks_like_year_or_hint(text))
 
     if is_media:
         # 1) User picked an option number
@@ -735,17 +735,14 @@ async def run_assistant(
 
         except Exception:
             items = []
-        # If query looks like a free-form description, do not trust early TMDB guesses:
-        # force WEB pipeline (SerpAPI/Wiki/Brave) to extract the real title.
+
+        # If user sent a long free-form scene description, TMDb guesses are often noisy.
+        # In that case, force WEB pipeline to extract the real title.
         try:
-            if items and query and _looks_like_freeform_media_query(raw):
+            if items and raw and _looks_like_freeform_media_query(raw):
                 items = []
         except Exception:
             pass
-                # If query looks like a free-form description, do not trust early TMDB guesses:
-        # force WEB pipeline (SerpAPI/Wiki/Brave) to extract the real title.
-        if items and query and _looks_like_freeform_media_query(query):
-            items = []
 
         # --- WEB fallback (cheap -> expensive) ---
         if not items and query:
@@ -991,12 +988,12 @@ async def run_assistant_vision(
                     await session.commit()
 
             uid = _media_uid(user)
-            if uid:
+            if uid and used_cand:
                 _media_set(uid, used_cand, items)
 
             return build_media_context(items) + "\n\nВыбери номер варианта."
 
-    # Vision → TMDb candidates
+# Vision → TMDb candidates
     caption_str = (caption or "").strip()
     search_q = _normalize_tmdb_query(_extract_search_query_from_text(out_text))
     tmdb_q = search_q or _normalize_tmdb_query(caption_str)
