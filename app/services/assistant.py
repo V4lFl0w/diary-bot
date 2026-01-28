@@ -78,6 +78,10 @@ def _good_tmdb_cand(q: str) -> bool:
 
     ql = q.lower()
 
+    # reject short adjective-only phrases (often model prose, not a title)
+    if (ql.startswith('легендарн') or ql.startswith('российск') or ql.startswith('советск')) and q.count(' ') <= 1:
+        return False
+
     # reject obvious article/list headlines
     bad = ("ведомост", "топ", "лучших", "подбор", "подборк", "список", "15 ", "10 ", "20 ")
     if any(b in ql for b in bad):
@@ -246,6 +250,7 @@ def _normalize_tmdb_query(q: str, *, max_len: int = 140) -> str:
 
     # remove leading generic junk
     q = re.sub(r"^(что за|как называется)\s+", "", q, flags=re.I).strip()
+    q = re.sub(r"^(фильм|сериал|мульт(ик)?|кино)\s+", "", q, flags=re.I).strip()
     return q
 
 # --- media session cache (in-memory, no DB migrations) ---
@@ -1104,20 +1109,33 @@ async def run_assistant_vision(
     search_q = _normalize_tmdb_query(_extract_search_query_from_text(out_text))
     title_from_text = _normalize_tmdb_query(_extract_title_like_from_model_text(out_text))
 
-    # Build candidate list in priority order
+# Build candidate list in priority order
+
     cand_list: list[str] = []
+
+
     for c in (search_q, title_from_text):
+
         c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
-        if c and c not in cand_list:
+
+        if c and _good_tmdb_cand(c) and c not in cand_list:
+
             cand_list.append(c)
+
 
     # Caption is used ONLY if it is not a generic phrase like "Откуда кадр?"
+
     if caption_str and (not _is_generic_media_caption(caption_str)):
+
         c = _tmdb_sanitize_query(_normalize_tmdb_query(caption_str))
-        if c and c not in cand_list:
+
+        if c and _good_tmdb_cand(c) and c not in cand_list:
+
             cand_list.append(c)
 
+
     # If we still have nothing -> ask for 1 detail (no TMDb spam)
+
     if not cand_list:
         return MEDIA_NOT_FOUND_REPLY_RU
 
@@ -1126,6 +1144,9 @@ async def run_assistant_vision(
 
     # Try TMDb for each candidate
     for q in cand_list:
+        if not _good_tmdb_cand(q):
+            continue
+
         try:
             items = await _tmdb_best_effort(q, limit=5)
         except Exception:
