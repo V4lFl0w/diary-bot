@@ -661,7 +661,7 @@ async def run_assistant(
             sticky_media_db = True
 
     # IMPORTANT: if we have in-memory session => treat as media follow-up
-    is_media = _is_media_query(text) or sticky_media_db or bool(st)
+    is_media = _is_media_query(text) or sticky_media_db or bool(st) or (st is None and _looks_like_year_or_hint(text))
 
     if is_media:
         # 1) User picked an option number
@@ -1003,6 +1003,29 @@ async def run_assistant_vision(
                 _media_set(uid, tmdb_q, items)
 
             return build_media_context(items) + "\n\nВыбери номер варианта."
+
+        # --- WEB fallback for Vision (TMDb may guess wrong / miss) ---
+        try:
+            cands, tag = await web_to_tmdb_candidates(tmdb_q, use_serpapi=True)
+            for c in cands:
+                items = await _tmdb_best_effort(c, limit=5)
+                if items:
+                    break
+        except Exception:
+            items = []
+
+        if items:
+            if user is not None:
+                user.assistant_mode = "media"
+                user.assistant_mode_until = now + timedelta(minutes=10)
+                if session:
+                    await session.commit()
+
+            uid = _media_uid(user)
+            if uid:
+                _media_set(uid, tmdb_q, items)
+
+            return build_media_context(items) + "Выбери номер варианта."
 
         return MEDIA_NOT_FOUND_REPLY_RU
     
