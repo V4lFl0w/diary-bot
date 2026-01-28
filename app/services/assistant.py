@@ -67,6 +67,31 @@ def _tmdb_sanitize_query(q: str) -> str:
         q = q[:60].rsplit(" ", 1)[0].strip()
 
     return q
+
+
+def _good_tmdb_cand(q: str) -> bool:
+    q = (q or "").strip()
+    if not q:
+        return False
+    if len(q) > 70:
+        return False
+
+    ql = q.lower()
+
+    # reject obvious article/list headlines
+    bad = ("ведомост", "топ", "лучших", "подбор", "подборк", "список", "15 ", "10 ", "20 ")
+    if any(b in ql for b in bad):
+        return False
+
+    # too many words => not a title
+    if q.count(" ") >= 7:
+        return False
+
+    # must contain letters
+    if not any(ch.isalpha() for ch in q):
+        return False
+
+    return True
 try:
     from openai import AsyncOpenAI
 except ModuleNotFoundError:
@@ -819,13 +844,19 @@ async def run_assistant(
             try:
                 cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
                 for c in cands:
+                    c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
+                    if not _good_tmdb_cand(c):
+                        continue
                     items = await _tmdb_best_effort(c, limit=5)
                     if items:
                         break
                 # second attempt (SerpAPI) only if still empty
                 if (not items) and (os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")):
-                    cands2, tag2 = await web_to_tmdb_candidates(query, use_serpapi=True)
-                    for c in cands2:
+                    cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
+                    for c in cands:
+                        c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
+                        if not _good_tmdb_cand(c):
+                            continue
                         items = await _tmdb_best_effort(c, limit=5)
                         if items:
                             break
@@ -1042,6 +1073,9 @@ async def run_assistant_vision(
             items = []
             used_cand = lens_cands[0]
             for cand in lens_cands[:12]:
+                cand = _tmdb_sanitize_query(_normalize_tmdb_query(cand))
+                if not _good_tmdb_cand(cand):
+                    continue
                 items = await _tmdb_best_effort(cand, limit=5)
                 if items:
                     used_cand = cand
@@ -1106,6 +1140,9 @@ async def run_assistant_vision(
             q0 = cand_list[0]
             cands, tag = await web_to_tmdb_candidates(q0, use_serpapi=True)
             for c in cands:
+                c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
+                if not _good_tmdb_cand(c):
+                    continue
                 items = await _tmdb_best_effort(c, limit=5)
                 if items:
                     used_query = c
@@ -1126,7 +1163,10 @@ async def run_assistant_vision(
 
         # Default: return title directly if confident (or single result)
         top = items[0]
-        if len(items) == 1 or _media_confident(top):
+        if len(items) == 1:
+            return _format_one_media(top)
+
+        if _media_confident(top) and float(top.get('vote_average') or 0) >= 7.8:
             return _format_one_media(top)
 
         return build_media_context(items) + "\n\nВыбери номер варианта."
