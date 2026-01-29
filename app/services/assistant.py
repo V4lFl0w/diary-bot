@@ -1,218 +1,93 @@
-# app/services/assistant.py
 from __future__ import annotations
+# app/services/assistant.py
+
+
 
 import os
 import json
 import re
-
 import logging
-
-
-log = logging.getLogger("media")
-
-def _d(event: str, **kw) -> None:
-    """Structured debug logger for media/vision pipeline."""
-    safe = {}
-    for k, v in kw.items():
-        try:
-            import json as _json
-            _json.dumps(v, ensure_ascii=False, default=str)
-            safe[k] = v
-        except Exception:
-            safe[k] = str(v)
-    try:
-        log.info("[media] %s | %s", event, safe)
-    except Exception:
-        pass
-from datetime import datetime, timezone, timedelta, time as dtime
-from typing import Optional, Any
+from time import time as _time_now
+from datetime import datetime, timezone, timedelta
+from typing import Optional, Any, TYPE_CHECKING, cast
 
 from zoneinfo import ZoneInfo
 from sqlalchemy import select, desc
 from app.services.media_text import YEAR_RE as _YEAR_RE, SXXEYY_RE as _SXXEYY_RE
 
-# --- TMDB query sanitizer: TMDB hates long "scene description" queries ---
+# --- Optional OpenAI import (server may not have it) ---
 
-def _clean_query_for_tmdb(q: str) -> str:
-    """
-    Clean noisy captions/hashtags/emojis before sending to TMDb.
-    Keeps letters/digits/basic punctuation, strips hashtags and weird symbols.
-    """
-    q = (q or "").strip()
-    if not q:
-        return ""
-    # remove hashtags like #anadearmas
-    q = re.sub(r"#\w+", " ", q, flags=re.UNICODE)
-    # remove excessive punctuation/emojis; keep words, spaces, dash and apostrophe
-    q = re.sub(r"[^\w\s\-']", " ", q, flags=re.UNICODE)
-    # collapse spaces
-    q = re.sub(r"\s+", " ", q, flags=re.UNICODE).strip()
-    # avoid too-short junk
-    return q
-
-def _looks_like_freeform_media_query(q: str) -> bool:
-    ql = (q or "").lower().strip()
-    if not ql:
-        return False
-    bad_words = (
-        "сцена", "момент", "в конце", "в начале", "актёр", "актер", "в очках", "в костюмах",
-        "про", "где", "когда", "как называется", "помогите найти",
-        "полиция", "женщина", "мужчина", "сериал", "фильм", "серия", "эпизод",
-    )
-    if any(w in ql for w in bad_words):
-        return True
-    if len(ql) >= 45 or ql.count(" ") >= 6:
-        return True
-    return False
-
-def _tmdb_sanitize_query(q: str) -> str:
-    q = (q or "").strip()
-    q = re.sub(r"\s+", " ", q)
-
-    # remove common RU "scene" words and punctuation clutter
-    q = re.sub(r"(?i)\b(сцена|что происходит|что происходит в сцене|факт|факта|актер|актёр|страна|язык|мем|meme)\b.*$", "", q).strip()
-    q = re.sub(r"[\"“”‘’]+", "", q).strip()
-
-    # Keep only: title-ish part + optional year
-    year = None
-    m = _YEAR_RE.search(q)
-    if m:
-        year = m.group(1)
-
-    # If query has SxxEyy, transform into short canonical form
-    m2 = _SXXEYY_RE.search(q)
-    if m2:
-        s = int(m2.group(1)); e = int(m2.group(2))
-        # remove SxxEyy tokens from base title
-        base = _SXXEYY_RE.sub("", q).strip()
-        base = re.sub(r"\s+", " ", base).strip(" -–—,:;")
-        if base:
-            return f"{base} S{s}E{e}"
-
-    # Hard length cap (TMDB works best with short queries)
-    q = q.strip(" -–—,:;")
-    if year and year not in q:
-        # don't append year blindly if it bloats; only if short
-        if len(q) <= 40:
-            q = f"{q} {year}"
-
-    if len(q) > 60:
-        q = q[:60].rsplit(" ", 1)[0].strip()
-
-    return q
-
-def _good_tmdb_cand(q: str) -> bool:
-    q = (q or "").strip()
-    if not q:
-        return False
-
-    # hard caps
-    if len(q) > 70:
-        return False
-
-    ql = q.lower()
-
-    # must contain letters
-    if not any(ch.isalpha() for ch in q):
-        return False
-
-    # too many words => not a title
-    if q.count(" ") >= 7:
-        return False
-
-    # reject short adjective-only phrases (often model prose, not a title)
-    if (ql.startswith("легендарн") or ql.startswith("российск") or ql.startswith("советск")) and q.count(" ") <= 1:
-        return False
-
-    # reject obvious list/headline queries
-    bad = ("ведомост", "топ", "лучших", "подбор", "подборк", "список", "15 ", "10 ", "20 ")
-    if any(b in ql for b in bad):
-        return False
-
-    return True
-
-
-def _reject_obvious_junk(q: str) -> bool:
-    ql = (q or "").strip().lower()
-    if not ql:
-        return True
-
-    # explicit junk
-    if ql in {"movie", "film", "series", "tv", "deep", "movie deep"}:
-        return True
-
-    # patterns like "movie X" with 1 extra token
-    if ql.startswith("movie ") and len(ql.split()) <= 2:
-        return True
-
-    return False
-
+# --- Anti-hallucination prefix (local-only; do not import) ---
+ANTI_HALLUCINATION_PREFIX: str = ""
 
 try:
     from openai import AsyncOpenAI
 except ModuleNotFoundError:
     AsyncOpenAI = None  # type: ignore
 
+# --- Models (real import for runtime; clean types for pyright) ---
 from app.models.user import User
 from app.models.journal import JournalEntry
-from app.services.llm_usage import log_llm_usage
-from app.services.media_id import trace_moe_identify
-from app.services.media_search import tmdb_search_multi, build_media_context
-from app.services.media_web_pipeline import web_to_tmdb_candidates, image_bytes_to_tmdb_candidates
-MENU_NOISE = {
-    "📊 Статистика", "🧾 Сегодня", "📓 Журнал", "🏠 Главное меню",
-    "💎 Премиум", "⚙️ Настройки", "🧘 Медиа",
-}
 
-ANTI_HALLUCINATION_PREFIX = (
-    "ВАЖНО:\n"
-    "- Если ты НЕ УВЕРЕН(а) — прямо скажи: 'не уверен(а)'.\n"
-    "- НЕ угадывай названия фильмов/мультфильмов/людей/мест.\n"
-    "- Не придумывай детали, которых не видно.\n"
-    "- Если нужно — задай 1 уточняющий вопрос.\n\n"
-)
+# --- Project-level constants (fallbacks) ---
+# Used by _is_generic_media_caption
+_GENERIC_MEDIA_CAPTIONS: set[str] = {
+    "откуда кадр",
+    "откуда кадр?",
+    "что за фильм",
+    "что за фильм?",
+    "что за сериал",
+    "что за сериал?",
+    "что за мультик",
+    "что за мультик?",
+    "как называется",
+    "как называется?",
+}
 
 MEDIA_NOT_FOUND_REPLY_RU = (
-    "Не нашёл точного совпадения в базе. Дай 1 деталь, и я попробую ещё раз: "
-    "год / актёр / страна / язык / что происходит в сцене (1–2 факта)."
+    "Не могу уверенно найти по этому запросу.\n"
+    "Дай 1–2 факта: актёр/актриса, примерный год, страна или что происходит в сцене."
 )
 
-# --- vision/media generic captions guard ---
-_GENERIC_MEDIA_CAPTIONS = {
-    "otkuda kadr", "otkuda kadr?",
-    "otkuda kadr?",  # ru will still be handled by normalization below
-    "otkuda kadr ?",
-    "otkuda-kadr",
-    "otkuda_kadr",
-    "otkuda",
-    "chto za film", "chto za film?",
-    "chto za serial", "chto za serial?",
-    "kak nazyvaetsya", "kak nazyvaetsya?",
-}
 
-def _is_generic_media_caption(text: str) -> bool:
-    t = (text or "").strip().lower()
-    if not t:
-        return True
-    t = re.sub(r"\s+", " ", t).strip()
-    # also treat common RU phrases as generic
-    if t in {
-        "откуда кадр", "откуда кадр?",
-        "что за фильм", "что за фильм?",
-        "что за сериал", "что за сериал?",
-        "что за мультик", "что за мультик?",
-        "как называется", "как называется?",
-        "как называется фильм", "как называется сериал",
-    }:
-        return True
-    return t in _GENERIC_MEDIA_CAPTIONS or len(t) <= 5
+# --- restored media helpers (from assistant.py.bak2) ---
+def _dedupe_media(items: list[dict]) -> list[dict]:
+    seen = set()
+    out: list[dict] = []
+    for it in items or []:
+        key = (
+            it.get("media_type"),
+            it.get("id"),
+            ((it.get("title") or "") + "|" + (it.get("name") or "")).lower(),
+            it.get("year"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(it)
+    return out
 
+def _sort_media(items: list[dict]) -> list[dict]:
+    def score(it: dict) -> float:
+        try:
+            return (
+                float(it.get("popularity") or 0) * 0.8
+                + float(it.get("vote_average") or 0) * 2.0
+            )
+        except Exception:
+            return 0.0
+
+    return sorted(items or [], key=score, reverse=True)
+
+
+
+# --- restored helpers (from assistant.py.bak2) ---
 def _extract_title_like_from_model_text(text: str) -> str:
     """Try to extract a title from model explanation."""
     t = (text or "").strip()
     if not t:
         return ""
-    
+
     # RU quotes: «...»
     m = re.search(r"[«](.+?)[»]", t)
     if m:
@@ -241,14 +116,38 @@ def _extract_title_like_from_model_text(text: str) -> str:
 # --- safety: scrub explicit overviews (TMDb sometimes returns NSFW text even with include_adult=false) ---
 _EXPLICIT_OVERVIEW_WORDS = (
     # EN
-    "sex", "sexual", "porn", "nude", "nudity", "tits", "boobs", "penis", "vagina",
-    "rape", "incest", "blowjob", "handjob",
+    "sex",
+    "sexual",
+    "porn",
+    "nude",
+    "nudity",
+    "tits",
+    "boobs",
+    "penis",
+    "vagina",
+    "rape",
+    "incest",
+    "blowjob",
+    "handjob",
     # RU/UA (минимальный набор явных маркеров)
-    "секс", "сексуал", "порно", "обнажен", "обнаж", "эрот", "трах", "член", "вагин",
-    "грудь", "сиськ", "изнасил",
+    "секс",
+    "сексуал",
+    "порно",
+    "обнажен",
+    "обнаж",
+    "эрот",
+    "трах",
+    "член",
+    "вагин",
+    "грудь",
+    "сиськ",
+    "изнасил",
     # ES/other
-    "tetas", "desnudo", "desnuda",
+    "tetas",
+    "desnudo",
+    "desnuda",
 )
+
 def _is_explicit_text(t: str) -> bool:
     tl = (t or "").lower()
     return any(w in tl for w in _EXPLICIT_OVERVIEW_WORDS)
@@ -264,6 +163,307 @@ def _scrub_media_item(it: dict) -> dict:
         it = dict(it)
         it["overview"] = ""
     return it
+
+def _parse_media_hints(text: str) -> dict:
+    t_raw = (text or "").strip()
+    t = t_raw.lower()
+
+    year = None
+    m = re.search(r"\b(19\d{2}|20\d{2})\b", t)
+    if m:
+        year = m.group(1)
+
+    kind = None
+    if "сериал" in t:
+        kind = "tv"
+    elif "фильм" in t or "кино" in t:
+        kind = "movie"
+
+    # актёры: поддержка кириллицы + латиницы
+    cast_ru = re.findall(r"\b[А-ЯЁІЇЄ][а-яёіїє]+ [А-ЯЁІЇЄ][а-яёіїє]+\b", t_raw)
+    cast_en = re.findall(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", t_raw)
+    cast = (cast_ru + cast_en)[:2]
+
+    keywords = re.sub(r"[^a-zA-Zа-яА-ЯёЁІіЇїЄє0-9 ]", " ", t_raw)
+    keywords = " ".join(w for w in keywords.split() if len(w) > 3)[:80]
+
+    return {"year": year, "kind": kind, "cast": cast, "keywords": keywords.strip()}
+
+async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
+    """
+    Best-effort TMDb retrieval (faster):
+    - run ru-RU and en-US in parallel
+    - dedupe + soft year filter + sort
+    """
+    import asyncio
+
+    q = _normalize_tmdb_query(query)
+    if not q:
+        return []
+
+    year = _extract_year(q)
+
+    async def _safe(lang: str) -> list[dict]:
+        try:
+            items = await tmdb_search_multi(q, lang=lang, limit=limit)
+        except Exception:
+            return []
+        if items and isinstance(items[0], dict) and items[0].get("_error"):
+            return []
+        return items or []
+
+    items_ru, items_en = await asyncio.gather(
+        _safe("ru-RU"),
+        _safe("en-US"),
+        return_exceptions=False,
+    )
+
+    items = _dedupe_media((items_ru or []) + (items_en or []))
+
+    # safety: drop adult + scrub explicit overview
+    items = _scrub_media_items(items)
+
+    if year:
+        filtered = [it for it in items if str(it.get("year") or "") == year]
+        if filtered:
+            items = filtered
+
+    return _sort_media(items)[:limit]
+
+
+
+def build_media_context(items: list[dict]) -> str:
+    """Numbered list for TMDb search results."""
+    if not items:
+        return MEDIA_NOT_FOUND_REPLY_RU
+    lines: list[str] = ["Нашёл варианты:"]
+    for i, it in enumerate(items[:10], 1):
+        try:
+            lines.append(f"\n{i}) {_format_one_media(it)}")
+        except Exception:
+            title = it.get("title") or it.get("name") or "Без названия"
+            year = it.get("year") or ""
+            lines.append(f"\n{i}) {title} {f'({year})' if year else ''}".strip())
+    return "\n".join(lines)
+
+
+# --- Services imports (try real, otherwise safe stubs) ---
+try:
+    from app.services.media_search import tmdb_search_multi  # expected existing
+except Exception:  # pragma: no cover
+
+    async def tmdb_search_multi(*args: Any, **kwargs: Any) -> list[dict]:
+        return []
+
+
+try:
+    from app.services.media_web_pipeline import web_to_tmdb_candidates  # expected existing
+except Exception:  # pragma: no cover
+
+    async def web_to_tmdb_candidates(
+        *args: Any, **kwargs: Any
+    ) -> tuple[list[str], str]:
+        return ([], "web_stub")
+
+
+try:
+    from app.services.media_web_pipeline import (
+        image_bytes_to_tmdb_candidates,
+    )  # expected existing
+except Exception:  # pragma: no cover
+
+    async def image_bytes_to_tmdb_candidates(
+        *args: Any, **kwargs: Any
+    ) -> tuple[list[str], str]:
+        return ([], "lens_stub")
+
+
+try:
+    from app.services.media_id import trace_moe_identify  # expected existing
+except Exception:  # pragma: no cover
+
+    async def trace_moe_identify(*args: Any, **kwargs: Any) -> Optional[dict]:
+        return None
+
+
+try:
+    from app.services.llm_usage import log_llm_usage  # expected existing
+except Exception:  # pragma: no cover
+
+    async def log_llm_usage(*args: Any, **kwargs: Any) -> None:
+        return None
+
+
+# --- Optional project prompts (safe fallback for workers/tests) ---
+
+# --- TMDB query sanitizer: TMDB hates long "scene description" queries ---
+
+
+def _clean_query_for_tmdb(q: str) -> str:
+    """
+    Clean noisy captions/hashtags/emojis before sending to TMDb.
+    Keeps letters/digits/basic punctuation, strips hashtags and weird symbols.
+    """
+    q = (q or "").strip()
+    if not q:
+        return ""
+    # remove hashtags like #anadearmas
+    q = re.sub(r"#\w+", " ", q, flags=re.UNICODE)
+    # remove excessive punctuation/emojis; keep words, spaces, dash and apostrophe
+    q = re.sub(r"[^\w\s\-']", " ", q, flags=re.UNICODE)
+    # collapse spaces
+    q = re.sub(r"\s+", " ", q, flags=re.UNICODE).strip()
+    # avoid too-short junk
+    return q
+
+
+def _looks_like_freeform_media_query(q: str) -> bool:
+    ql = (q or "").lower().strip()
+    if not ql:
+        return False
+    bad_words = (
+        "сцена",
+        "момент",
+        "в конце",
+        "в начале",
+        "актёр",
+        "актер",
+        "в очках",
+        "в костюмах",
+        "про",
+        "где",
+        "когда",
+        "как называется",
+        "помогите найти",
+        "полиция",
+        "женщина",
+        "мужчина",
+        "сериал",
+        "фильм",
+        "серия",
+        "эпизод",
+    )
+    if any(w in ql for w in bad_words):
+        return True
+    if len(ql) >= 45 or ql.count(" ") >= 6:
+        return True
+    return False
+
+
+def _tmdb_sanitize_query(q: str) -> str:
+    q = (q or "").strip()
+    q = re.sub(r"\s+", " ", q)
+
+    # remove common RU "scene" words and punctuation clutter
+    q = re.sub(
+        r"(?i)\b(сцена|что происходит|что происходит в сцене|факт|факта|актер|актёр|страна|язык|мем|meme)\b.*$",
+        "",
+        q,
+    ).strip()
+    q = re.sub(r"[\"“”‘’]+", "", q).strip()
+
+    # Keep only: title-ish part + optional year
+    year = None
+    m = _YEAR_RE.search(q)
+    if m:
+        year = m.group(1)
+
+    # If query has SxxEyy, transform into short canonical form
+    m2 = _SXXEYY_RE.search(q)
+    if m2:
+        s = int(m2.group(1))
+        e = int(m2.group(2))
+        # remove SxxEyy tokens from base title
+        base = _SXXEYY_RE.sub("", q).strip()
+        base = re.sub(r"\s+", " ", base).strip(" -–—,:;")
+        if base:
+            return f"{base} S{s}E{e}"
+
+    # Hard length cap (TMDB works best with short queries)
+    q = q.strip(" -–—,:;")
+    if year and year not in q:
+        # don't append year blindly if it bloats; only if short
+        if len(q) <= 40:
+            q = f"{q} {year}"
+
+    if len(q) > 60:
+        q = q[:60].rsplit(" ", 1)[0].strip()
+
+    return q
+
+
+def _good_tmdb_cand(q: str) -> bool:
+    q = (q or "").strip()
+    if not q:
+        return False
+
+    # hard caps
+    if len(q) > 70:
+        return False
+
+    ql = q.lower()
+
+    # must contain letters
+    if not any(ch.isalpha() for ch in q):
+        return False
+
+    # too many words => not a title
+    if q.count(" ") >= 7:
+        return False
+
+    # reject short adjective-only phrases (often model prose, not a title)
+    if (
+        ql.startswith("легендарн")
+        or ql.startswith("российск")
+        or ql.startswith("советск")
+    ) and q.count(" ") <= 1:
+        return False
+
+    # reject obvious list/headline queries
+    bad = (
+        "ведомост",
+        "топ",
+        "лучших",
+        "подбор",
+        "подборк",
+        "список",
+        "15 ",
+        "10 ",
+        "20 ",
+    )
+    if any(b in ql for b in bad):
+        return False
+
+    return True
+
+
+def _is_generic_media_caption(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    t = re.sub(r"\s+", " ", t).strip()
+
+    if t in _GENERIC_MEDIA_CAPTIONS:
+        return True
+
+    # legacy/common phrases (keep behavior, avoid unreachable)
+    if t in {
+        "откуда кадр",
+        "откуда кадр?",
+        "что за фильм",
+        "что за фильм?",
+        "что за сериал",
+        "что за сериал?",
+        "что за мультик",
+        "что за мультик?",
+        "как называется",
+        "как называется?",
+        "как называется фильм",
+        "как называется сериал",
+    }:
+        return True
+
+    return False
 
 
 def _format_media_pick(item: dict) -> str:
@@ -292,7 +492,6 @@ def _format_media_pick(item: dict) -> str:
         lines.append("")
         lines.append(url)
     return "\n".join(lines)
-
 
 
 def _lens_clean_candidate(s: str) -> str:
@@ -352,6 +551,7 @@ def _lens_clean_candidate(s: str) -> str:
 
     return base.strip()
 
+
 def _lens_bad_candidate(s: str) -> bool:
     """
     Lens часто возвращает:
@@ -365,9 +565,39 @@ def _lens_bad_candidate(s: str) -> bool:
         return True
 
     bad = (
-        "edits", "edit", "channel", "youtube", "tiktok", "instagram", "reels", "shorts",
-        "subscribe", "like", "share", "official", "music video", "mood music", "compilation",
-        "fanmade", "trailer", "clip", "status", "threads",
+        "edits",
+        "edit",
+        "channel",
+        "youtube",
+        "tiktok",
+        "instagram",
+        "reels",
+        "shorts",
+        "subscribe",
+        "like",
+        "share",
+        "official",
+        "music video",
+        "mood music",
+        "compilation",
+        "fanmade",
+        "trailer",
+        "clip",
+        "status",
+        "threads",
+        "funny",
+        "moments",
+        "best",
+        "scenes",
+        "scene",
+        "memes",
+        "meme",
+        "interview",
+        "actor",
+        "cast",
+        "behind the scenes",
+        "bts",
+        "short",
     )
     if any(b in sl for b in bad):
         return True
@@ -381,6 +611,7 @@ def _lens_bad_candidate(s: str) -> bool:
         return True
 
     return False
+
 
 def _lens_score_candidate(raw: str) -> int:
     """
@@ -405,9 +636,9 @@ def _lens_score_candidate(raw: str) -> int:
 
     # explicit (YEAR)
     if re.search(r"\(\s*(19\d{2}|20\d{2})\s*\)", s):
-        score += 140
+            score += 40
     if re.search(r"\b(19\d{2}|20\d{2})\b", s):
-        score += 60
+            score += 25
 
     # word count preference
     words = re.findall(r"[A-Za-zА-Яа-яЁёІіЇїЄє0-9'’\-]+", s)
@@ -430,13 +661,14 @@ def _lens_score_candidate(raw: str) -> int:
     elif L <= 60:
         score += 10
     else:
-        score -= (L - 60)
+        score -= L - 60
 
     # must contain letters
     if not any(ch.isalpha() for ch in s):
         score -= 120
 
     return score
+
 
 def _pick_best_lens_candidates(lens_cands: list[str], *, limit: int = 12) -> list[str]:
     """
@@ -466,25 +698,23 @@ def _pick_best_lens_candidates(lens_cands: list[str], *, limit: int = 12) -> lis
     return out[:limit]
 
 
-
 def _is_explicit_title(item: dict) -> bool:
     try:
-        title = str(item.get('title') or item.get('name') or '')
+        title = str(item.get("title") or item.get("name") or "")
     except Exception:
         return False
     return _is_explicit_text(title)
 
+
 def _scrub_media_items(items: list[dict]) -> list[dict]:
     out = []
-    for it in (items or []):
-        if isinstance(it, dict) and it.get('adult'):
+    for it in items or []:
+        if isinstance(it, dict) and it.get("adult"):
             continue
         if isinstance(it, dict) and _is_explicit_title(it):
             continue
         out.append(_scrub_media_item(it) if isinstance(it, dict) else it)
     return out
-
-
 
 
 def _media_confident(item: dict) -> bool:
@@ -496,27 +726,42 @@ def _media_confident(item: dict) -> bool:
         return False
     return (pop >= 25 and va >= 6.8) or (pop >= 60) or (va >= 7.6)
 
+
 def _extract_media_kind_marker(text: str) -> str:
     t = (text or "").strip()
     m = re.match(r"^__MEDIA_KIND__:(voice|video|video_note)\b", t)
     return m.group(1) if m else ""
+
 
 MEDIA_VIDEO_STUB_REPLY_RU = (
     "Понял. По видео/кружку/голосу я скоро научусь находить фильмы/серии.\n"
     "Пока так: пришли 1 кадр (скрин) или опиши сцену текстом (1–2 факта) + год/актёр, если знаешь."
 )
 
+
 def _is_asking_for_title(text: str) -> bool:
     t = (text or "").strip().lower()
     pats = (
-        "какое название", "как называется", "название фильма", "название у фильма",
-        "как называется фильм", "как называется этот фильм", "что за название",
+        "какое название",
+        "как называется",
+        "название фильма",
+        "название у фильма",
+        "как называется фильм",
+        "как называется этот фильм",
+        "что за название",
     )
     return any(x in t for x in pats)
 
+
 def _is_affirmation(text: str) -> bool:
     t = (text or "").strip().lower()
-    return bool(re.match(r"^(да|ага|угу)\b", t)) or t.startswith("это ") or t.startswith("да,") or t.startswith("да ")
+    return (
+        bool(re.match(r"^(да|ага|угу)\b", t))
+        or t.startswith("это ")
+        or t.startswith("да,")
+        or t.startswith("да ")
+    )
+
 
 def _extract_search_query_from_text(s: str) -> str:
     s = s or ""
@@ -524,6 +769,7 @@ def _extract_search_query_from_text(s: str) -> str:
     if m:
         return (m.group(1) or "").strip()
     return ""
+
 
 def _normalize_tmdb_query(q: str, *, max_len: int = 140) -> str:
     """
@@ -551,27 +797,104 @@ def _normalize_tmdb_query(q: str, *, max_len: int = 140) -> str:
     q = re.sub(r"^(фильм|сериал|мульт(ик)?|кино)\s+", "", q, flags=re.I).strip()
     return q
 
+
 # --- BAD OCR / GENERIC QUERY FILTER FOR MEDIA SEARCH ---
 BAD_MEDIA_QUERY_WORDS = {
-    "news", "sport", "sports", "channel", "subscribe", "live", "official",
-    "trailer", "shorts", "tiktok", "instagram", "reels",
-    "главные", "новости", "канал", "подпишись", "подписаться",
-    "смотрите", "запись", "обзор", "интервью",
+    "news",
+    "sport",
+    "sports",
+    "channel",
+    "subscribe",
+    "live",
+    "official",
+    "trailer",
+    "shorts",
+    "tiktok",
+    "instagram",
+    "reels",
+    "главные",
+    "новости",
+    "канал",
+    "подпишись",
+    "подписаться",
+    "смотрите",
+    "запись",
+    "обзор",
+    "интервью",
     "edit",
     "edits",
     "compilation",
     "fanmade",
     "youtube",
     "music",
-    "video"
+    "video",
+}
+
+
+GENERIC_TITLE_WORDS = {
+    # EN
+    "man",
+    "men",
+    "woman",
+    "women",
+    "boy",
+    "girl",
+    "guy",
+    "people",
+    "person",
+    "kid",
+    "kids",
+    "movie",
+    "film",
+    "series",
+    "tv",
+    "show",
+    "clip",
+    "scene",
+    "video",
+    "shorts",
+    "trailer",
+    # RU/UA
+    "мужчина",
+    "мужчины",
+    "женщина",
+    "женщины",
+    "парень",
+    "девушка",
+    "люди",
+    "человек",
+    "ребенок",
+    "ребёнок",
+    "фильм",
+    "кино",
+    "сериал",
+    "мульт",
+    "мультик",
+    "кадр",
+    "сцена",
+    "момент",
+    "видео",
+    "шортс",
+    "трейлер",
 }
 # --- media query cleaning: turn human phrasing into search-friendly query ---
 _MEDIA_LEADING_NOISE = (
-    "название фильма", "название сериала", "название мультика",
-    "как называется", "что за фильм", "что за сериал", "что за мультик",
-    "какой фильм", "какой сериал", "какой мультик",
-    "какой кинчик", "какой кенчик",
-    "откуда этот отрывок", "что за хуйня", "че за хуйня", "шо за хуйня",
+    "название фильма",
+    "название сериала",
+    "название мультика",
+    "как называется",
+    "что за фильм",
+    "что за сериал",
+    "что за мультик",
+    "какой фильм",
+    "какой сериал",
+    "какой мультик",
+    "какой кинчик",
+    "какой кенчик",
+    "откуда этот отрывок",
+    "что за хуйня",
+    "че за хуйня",
+    "шо за хуйня",
 )
 
 _MEDIA_NOISE_REGEX = [
@@ -584,6 +907,7 @@ _MEDIA_NOISE_REGEX = [
     r"\bподскажи\b",
     r"\bпожалуйста\b",
 ]
+
 
 def _media_clean_user_query(q: str) -> str:
     q0 = (q or "").strip()
@@ -608,6 +932,7 @@ def _media_clean_user_query(q: str) -> str:
     # fallback to original if we over-cleaned
     return ql if ql else q0
 
+
 def _is_bad_media_query(q: str) -> bool:
     ql = (q or "").lower().strip()
     if not ql:
@@ -623,6 +948,8 @@ def _is_bad_media_query(q: str) -> bool:
     # но режем "news", "sport", "trailer", "subscribe" и т.п.
     if len(words) == 1:
         w = words[0]
+        if w in GENERIC_TITLE_WORDS:
+            return True
         # цифро-мусор / слишком мало букв
         letters = sum(ch.isalpha() for ch in w)
         digits = sum(ch.isdigit() for ch in w)
@@ -647,11 +974,33 @@ def _is_bad_media_query(q: str) -> bool:
 
     return False
 
+
 # --- media session cache (in-memory, no DB migrations) ---
-from time import time as _time_now
+
+
+log = logging.getLogger("media")
+
+
+def _d(event: str, **kw) -> None:
+    """Structured debug logger for media/vision pipeline."""
+    safe = {}
+    for k, v in kw.items():
+        try:
+            import json as _json
+
+            _json.dumps(v, ensure_ascii=False, default=str)
+            safe[k] = v
+        except Exception:
+            safe[k] = str(v)
+    try:
+        log.info("[media] %s | %s", event, safe)
+    except Exception:
+        pass
+
 
 _MEDIA_TTL_SEC = 10 * 60
 _MEDIA_SESSIONS: dict[str, dict] = {}
+
 
 def _media_uid(user: Any) -> str:
     # prefer tg_id, fallback to db id
@@ -659,6 +1008,7 @@ def _media_uid(user: Any) -> str:
         return ""
     v = getattr(user, "tg_id", None) or getattr(user, "id", None)
     return str(v) if v is not None else ""
+
 
 def _media_get(uid: str) -> Optional[dict]:
     if not uid:
@@ -671,15 +1021,22 @@ def _media_get(uid: str) -> Optional[dict]:
         return None
     return s
 
+
 def _media_set(uid: str, query: str, items: list[dict]) -> None:
     if not uid:
         return
     q = _normalize_tmdb_query(query)
-    _MEDIA_SESSIONS[uid] = {"query": _tmdb_sanitize_query(q), "items": items or [], "ts": _time_now()}
+    _MEDIA_SESSIONS[uid] = {
+        "query": _tmdb_sanitize_query(q),
+        "items": items or [],
+        "ts": _time_now(),
+    }
+
 
 def _looks_like_choice(text: str) -> bool:
     t = (text or "").strip()
     return bool(re.fullmatch(r"\d{1,2}", t))
+
 
 def _looks_like_year_or_hint(text: str) -> bool:
     t = (text or "").strip().lower()
@@ -697,114 +1054,31 @@ def _looks_like_year_or_hint(text: str) -> bool:
 
     # короткие уточнения: актёр/страна/язык/год/серия/эпизод + страны/аббревиатуры
     hint_words = (
-        "год", "акт", "актер", "актёр", "страна", "язык",
-        "серия", "эпизод", "сезон",
-        "сша", "америка", "usa", "us", "uk", "нетфликс", "netflix", "hbo", "amazon"
+        "год",
+        "акт",
+        "актер",
+        "актёр",
+        "страна",
+        "язык",
+        "серия",
+        "эпизод",
+        "сезон",
+        "сша",
+        "америка",
+        "usa",
+        "us",
+        "uk",
+        "нетфликс",
+        "netflix",
+        "hbo",
+        "amazon",
     )
     return any(w in t for w in hint_words)
+
 
 def _extract_year(text: str) -> Optional[str]:
     m = re.search(r"\b(19\d{2}|20\d{2})\b", (text or ""))
     return m.group(1) if m else None
-
-# remove common filler words from media query
-def _clean_media_query(s: str) -> str:
-    # убираем русские служебные слова
-    s = re.sub(r"\b(год|акт[ёе]р|акт[ёе]ры|и|в|с|фильм|сериал|когда-то)\b", " ", s, flags=re.IGNORECASE)
-    # аккуратно с английскими тоже
-    s = re.sub(r"\b(year|actor|actors|film|movie|and)\b", " ", s, flags=re.IGNORECASE)
-    return re.sub(r"\s+", " ", s).strip()
-
-def _parse_media_hints(text: str) -> dict:
-    t_raw = (text or "").strip()
-    t = t_raw.lower()
-
-    year = None
-    m = re.search(r"\b(19\d{2}|20\d{2})\b", t)
-    if m:
-        year = m.group(1)
-
-    kind = None
-    if "сериал" in t:
-        kind = "tv"
-    elif "фильм" in t or "кино" in t:
-        kind = "movie"
-
-    # актёры: поддержка кириллицы + латиницы
-    cast_ru = re.findall(r"\b[А-ЯЁІЇЄ][а-яёіїє]+ [А-ЯЁІЇЄ][а-яёіїє]+\b", t_raw)
-    cast_en = re.findall(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", t_raw)
-    cast = (cast_ru + cast_en)[:2]
-
-    keywords = re.sub(r"[^a-zA-Zа-яА-ЯёЁІіЇїЄє0-9 ]", " ", t_raw)
-    keywords = " ".join(w for w in keywords.split() if len(w) > 3)[:80]
-
-    return {"year": year, "kind": kind, "cast": cast, "keywords": keywords.strip()}
-
-def _dedupe_media(items: list[dict]) -> list[dict]:
-    seen = set()
-    out: list[dict] = []
-    for it in items or []:
-        key = (
-            it.get("media_type"),
-            it.get("id"),
-            ((it.get("title") or "") + "|" + (it.get("name") or "")).lower(),
-            it.get("year"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(it)
-    return out
-
-def _sort_media(items: list[dict]) -> list[dict]:
-    def score(it: dict) -> float:
-        try:
-            return float(it.get("popularity") or 0) * 0.8 + float(it.get("vote_average") or 0) * 2.0
-        except Exception:
-            return 0.0
-
-    return sorted(items or [], key=score, reverse=True)
-
-async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
-    """
-    Best-effort TMDb retrieval (faster):
-    - run ru-RU and en-US in parallel
-    - dedupe + soft year filter + sort
-    """
-    import asyncio
-
-    q = _normalize_tmdb_query(query)
-    if not q:
-        return []
-
-    year = _extract_year(q)
-
-    async def _safe(lang: str) -> list[dict]:
-        try:
-            items = await tmdb_search_multi(q, lang=lang, limit=limit)
-        except Exception:
-            return []
-        if items and isinstance(items[0], dict) and items[0].get("_error"):
-            return []
-        return items or []
-
-    items_ru, items_en = await asyncio.gather(
-        _safe("ru-RU"),
-        _safe("en-US"),
-        return_exceptions=False,
-    )
-
-    items = _dedupe_media((items_ru or []) + (items_en or []))
-
-    # safety: drop adult + scrub explicit overview
-    items = _scrub_media_items(items)
-
-    if year:
-        filtered = [it for it in items if str(it.get("year") or "") == year]
-        if filtered:
-            items = filtered
-
-    return _sort_media(items)[:limit]
 
 
 def _format_one_media(item: dict) -> str:
@@ -814,7 +1088,9 @@ def _format_one_media(item: dict) -> str:
     overview = (item.get("overview") or "").strip()
     rating = item.get("vote_average", None)
     kind = (item.get("media_type") or "").strip()
-    kind_ru = "сериал" if kind == "tv" else "фильм" if kind == "movie" else kind or "медиа"
+    kind_ru = (
+        "сериал" if kind == "tv" else "фильм" if kind == "movie" else kind or "медиа"
+    )
 
     line = f"🎬 {title}"
     if year:
@@ -831,12 +1107,15 @@ def _format_one_media(item: dict) -> str:
         line += f"\n\n{overview[:700]}"
     return line
 
+
 def _env(name: str, default: str = "") -> str:
     v = os.getenv(name)
     return v if v else default
 
+
 def _pick_model() -> str:
     return _env("ASSISTANT_MODEL", "gpt-4.1-mini")
+
 
 def _user_name(user: Optional[User]) -> str:
     for attr in ("first_name", "name", "username"):
@@ -845,12 +1124,14 @@ def _user_name(user: Optional[User]) -> str:
             return str(v)
     return "друг"
 
+
 def _user_tz(user: Optional[User]) -> ZoneInfo:
     tz_name = getattr(user, "tz", None) or "UTC"
     try:
         return ZoneInfo(str(tz_name))
     except Exception:
         return ZoneInfo("UTC")
+
 
 def _assistant_plan(user: Optional[User]) -> str:
     if not user:
@@ -877,30 +1158,46 @@ def _assistant_plan(user: Optional[User]) -> str:
     # дефолтный тариф премиума
     return "basic"
 
+
 def _now_str_user(user: Optional[User]) -> str:
     tz = _user_tz(user)
     return datetime.now(tz).strftime("%Y-%m-%d %H:%M")
+
 
 def _is_media_query(text: str) -> bool:
     t = (text or "").lower()
     # ключевые слова + типичные запросы на поиск названия
     keys = (
-        "фильм", "сериал", "кино", "мульт", "мультик",
-        "лента", "кадр", "по кадру", "по этому кадру",
-        "season", "episode", "movie", "tv", "series",
-        "актёр", "актер", "режисс", "персонаж",
-        "как называется", "что за фильм", "что за сериал", "что за мультик"
+        "фильм",
+        "сериал",
+        "кино",
+        "мульт",
+        "мультик",
+        "лента",
+        "кадр",
+        "по кадру",
+        "по этому кадру",
+        "season",
+        "episode",
+        "movie",
+        "tv",
+        "series",
+        "актёр",
+        "актер",
+        "режисс",
+        "персонаж",
+        "как называется",
+        "что за фильм",
+        "что за сериал",
+        "что за мультик",
     )
     return any(k in t for k in keys)
+
 
 def _is_noise(text: str) -> bool:
     s = (text or "").strip()
     if not s:
         return True
-
-    if s in MENU_NOISE:
-        return True
-
     letters = sum(ch.isalpha() for ch in s)
     if letters == 0:
         return True
@@ -926,49 +1223,6 @@ def _is_noise(text: str) -> bool:
 
     return False
 
-def meaning_score(s: str) -> float:
-    s = (s or "").strip()
-    if not s:
-        return 0.0
-
-    letters = sum(ch.isalpha() for ch in s)
-    if letters == 0:
-        return 0.0
-
-    tokens = re.findall(r"[A-Za-zА-Яа-яЁёІіЇїЄє]+", s.lower())
-    w = len(tokens)
-
-    score = 0.0
-
-    if w >= 8:
-        score += 0.45
-    elif w >= 5:
-        score += 0.30
-    elif w >= 3:
-        score += 0.15
-    else:
-        score -= 0.10
-
-    ratio = letters / max(1, len(s))
-    if ratio >= 0.55:
-        score += 0.20
-    elif ratio >= 0.35:
-        score += 0.10
-    else:
-        score -= 0.15
-
-    if tokens:
-        most = max(tokens.count(x) for x in set(tokens))
-        rep = most / max(1, len(tokens))
-        if rep >= 0.6 and len(tokens) >= 4:
-            score -= 0.35
-        elif rep >= 0.4 and len(tokens) >= 5:
-            score -= 0.15
-
-    if any(x in s.lower() for x in ("bot_tg", "test", "asdf", "qwerty")):
-        score -= 0.35
-
-    return max(0.0, min(1.0, score))
 
 def _as_user_ts(user: Optional[User], ts: Any) -> str:
     """
@@ -988,6 +1242,7 @@ def _as_user_ts(user: Optional[User], ts: Any) -> str:
             return ts.strftime("%Y-%m-%d %H:%M")
         except Exception:
             return "?"
+
 
 async def _fetch_recent_journal(
     session: Any,
@@ -1022,17 +1277,20 @@ async def _fetch_recent_journal(
 
     return out
 
-async def build_context(session: Any, user: Optional[User], lang: str, plan: str) -> str:
+
+async def build_context(
+    session: Any, user: Optional[User], lang: str, plan: str
+) -> str:
     parts: list[str] = []
     parts.append(f"Time now: {_now_str_user(user)}")
 
     if user:
         parts.append(
             "User: "
-            f"id={getattr(user,'id',None)}, "
-            f"tg_id={getattr(user,'tg_id',None)}, "
+            f"id={getattr(user, 'id', None)}, "
+            f"tg_id={getattr(user, 'tg_id', None)}, "
             f"name={_user_name(user)}, "
-            f"tz={getattr(user,'tz',None)}"
+            f"tz={getattr(user, 'tz', None)}"
         )
 
         last_used = getattr(user, "assistant_last_used_at", None)
@@ -1053,6 +1311,7 @@ async def build_context(session: Any, user: Optional[User], lang: str, plan: str
             parts.append(f"- [{ts}] {txt}")
 
     return "\n".join(parts)
+
 
 def _instructions(lang: str, plan: str) -> str:
     base_map = {
@@ -1083,20 +1342,29 @@ def _instructions(lang: str, plan: str) -> str:
     )
 
     if plan == "basic":
-        return base + style + (
-            "Режим BASIC:\n"
-            "- 2–6 предложений.\n"
-            "- Без планов и стратегий без запроса.\n"
-            "- Журнал не использовать как память.\n"
+        return (
+            base
+            + style
+            + (
+                "Режим BASIC:\n"
+                "- 2–6 предложений.\n"
+                "- Без планов и стратегий без запроса.\n"
+                "- Журнал не использовать как память.\n"
+            )
         )
 
-    return base + style + (
-        "Режим PRO:\n"
-        "- Можно использовать последние записи журнала как контекст.\n"
-        "- Можно предлагать чеклисты и структуру.\n"
-        "- Можно задать до 2 уточняющих вопросов.\n"
-        "- Стиль: умный близкий помощник.\n"
+    return (
+        base
+        + style
+        + (
+            "Режим PRO:\n"
+            "- Можно использовать последние записи журнала как контекст.\n"
+            "- Можно предлагать чеклисты и структуру.\n"
+            "- Можно задать до 2 уточняющих вопросов.\n"
+            "- Стиль: умный близкий помощник.\n"
+        )
     )
+
 
 async def run_assistant(
     user: Optional[User],
@@ -1147,7 +1415,13 @@ async def run_assistant(
     )
 
     if is_media:
-        _d("media.enter", is_media=is_media, sticky_media_db=sticky_media_db, has_st=bool(st), uid=uid)  # DBG_MEDIA_RUN_ASSISTANT_V1
+        _d(
+            "media.enter",
+            is_media=is_media,
+            sticky_media_db=sticky_media_db,
+            has_st=bool(st),
+            uid=uid,
+        )  # DBG_MEDIA_RUN_ASSISTANT_V1
         raw_text = (text or "").strip()
 
         # 1) User picked an option number: "1", "2", ...
@@ -1156,7 +1430,10 @@ async def run_assistant(
             opts = st.get("items") or []
             if 0 <= idx < len(opts):
                 picked = opts[idx]
-                return _format_media_pick(picked) + "\n\nХочешь — напиши другое название/описание, я поищу ещё."
+                return (
+                    _format_media_pick(picked)
+                    + "\n\nХочешь — напиши другое название/описание, я поищу ещё."
+                )
 
         # 1.5) "Как называется/какое название" — это не новый поиск, показываем варианты
         if st and _is_asking_for_title(raw_text):
@@ -1170,12 +1447,14 @@ async def run_assistant(
         prev_q = ((st.get("query") if st else "") or "").strip()
 
         # не даём "ядовитым" фразам портить поисковую строку
-        if st and re.search(r"(?i)\b(не\s*то|не\s*подходит|ничего\s*не|такого\s*фильма|не\s*существует)\b", raw):
+        if st and re.search(
+            r"(?i)\b(не\s*то|не\s*подходит|ничего\s*не|такого\s*фильма|не\s*существует)\b",
+            raw,
+        ):
             return MEDIA_NOT_FOUND_REPLY_RU
 
         # короткое уточнение (год/актёр/страна/язык/серия/эпизод) — добавляем к прошлому запросу
-        raw = _clean_query_for_tmdb(raw)
-
+        raw = _normalize_tmdb_query(raw)
         if st and prev_q and _looks_like_year_or_hint(raw) and len(raw) <= 60:
             query = _tmdb_sanitize_query(_normalize_tmdb_query(f"{prev_q} {raw}"))
         else:
@@ -1186,14 +1465,14 @@ async def run_assistant(
         if len(query) < 6 and ("фильм" in query.lower() or "что за" in query.lower()):
             # keep media mode alive for follow-ups even without DB session
             if user is not None:
-                user.assistant_mode = "media"
-                user.assistant_mode_until = now + timedelta(minutes=10)
+                setattr(user, "assistant_mode", "media")
+                setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
                 if session:
                     await session.commit()
             return MEDIA_NOT_FOUND_REPLY_RU
 
         # 4) Best-effort TMDb search (ru first, fallback en, year filter, dedupe, sort)
-        cleaned = _clean_media_query(query)
+        cleaned = _normalize_tmdb_query(query)
         query = _tmdb_sanitize_query(_normalize_tmdb_query(cleaned or query))
 
         try:
@@ -1202,7 +1481,14 @@ async def run_assistant(
             # 🔹 First try direct search by model/caption query
             items = await _tmdb_best_effort(query, limit=5)
             items = _scrub_media_items(items)
-            _d("media.tmdb.primary", q=query, n=len(items or []), top=((items or [{}])[0].get('title') or (items or [{}])[0].get('name')) if items else None)
+            _d(
+                "media.tmdb.primary",
+                q=query,
+                n=len(items or []),
+                top=((items or [{}])[0].get("title") or (items or [{}])[0].get("name"))
+                if items
+                else None,
+            )
 
             # 🔹 If nothing found — use parsed hints
             hints = _parse_media_hints(query)
@@ -1210,7 +1496,11 @@ async def run_assistant(
                 items = await _tmdb_best_effort(hints["keywords"], limit=5)
 
             if not items and hints.get("cast"):
-                from app.services.media_search import tmdb_search_person, tmdb_discover_with_people
+                from app.services.media_search import (
+                    tmdb_search_person,
+                    tmdb_discover_with_people,
+                )
+
                 for actor in hints["cast"]:
                     pid = await tmdb_search_person(actor)
                     if pid:
@@ -1238,7 +1528,7 @@ async def run_assistant(
         # 1) wiki/brave (без SerpAPI)
         # 2) SerpAPI только если есть ключ
         if not items and query:
-            query = _media_clean_user_query(query)
+            query = _normalize_tmdb_query(query)
             async def _try_cands(cands: list[str]) -> list[dict]:
                 out: list[dict] = []
                 for c in (cands or [])[:15]:
@@ -1257,29 +1547,43 @@ async def run_assistant(
                 # If user sends non-digit while media session is active, treat it as query refinement.
                 if (st or sticky_media_db) and text:
                     t = text.strip()
-                    if t and (not re.fullmatch(r'\d+', t)) and (not t.startswith('/')):
+                    if t and (not re.fullmatch(r"\d+", t)) and (not t.startswith("/")):
                         query = t
                         items = []
                 # --- end guard ---
                 cands, tag = await web_to_tmdb_candidates(query, use_serpapi=False)
-                _d("media.web.cands", use_serpapi=False, tag=tag, n=len(cands or []), sample=(cands or [])[:5])
+                _d(
+                    "media.web.cands",
+                    use_serpapi=False,
+                    tag=tag,
+                    n=len(cands or []),
+                    sample=(cands or [])[:5],
+                )
                 items = await _try_cands(cands)
             except Exception:
                 items = []
 
             # SerpAPI — только если всё ещё пусто и реально есть ключ
-            if (not items) and (os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")):
+            if (not items) and (
+                os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
+            ):
                 try:
                     cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
-                    _d("media.web.cands_serp", use_serpapi=True, tag=tag, n=len(cands or []), sample=(cands or [])[:5])
+                    _d(
+                        "media.web.cands_serp",
+                        use_serpapi=True,
+                        tag=tag,
+                        n=len(cands or []),
+                        sample=(cands or [])[:5],
+                    )
                     items = await _try_cands(cands)
                 except Exception:
                     pass
 
         # keep sticky media mode (DB if possible)
         if user is not None:
-            user.assistant_mode = "media"
-            user.assistant_mode_until = now + timedelta(minutes=10)
+            setattr(user, "assistant_mode", "media")
+            setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
             if session:
                 await session.commit()
 
@@ -1288,7 +1592,7 @@ async def run_assistant(
             if uid:
                 _media_set(uid, query, [])
             return MEDIA_NOT_FOUND_REPLY_RU
-        
+
         items = _scrub_media_items(items)
         if uid:
             _media_set(uid, query, items)
@@ -1303,10 +1607,7 @@ async def run_assistant(
         if last_used and (datetime.now(timezone.utc) - last_used) > timedelta(hours=24):
             prev_id = None
 
-    prompt = (
-        f"Context:\n{ctx}\n\n"
-        "User message:\n" + (text or "") + "\n"
-    )
+    prompt = f"Context:\n{ctx}\n\nUser message:\n" + (text or "") + "\n"
 
     resp = await client.responses.create(
         previous_response_id=prev_id,
@@ -1348,6 +1649,7 @@ async def run_assistant(
         return str(getattr(resp, "output", "")).strip() or "⚠️ Empty response."
     except Exception:
         return "⚠️ Не смог прочитать ответ модели."
+
 
 def _extract_media_json_from_model_text(text: str) -> Optional[dict]:
     """
@@ -1409,6 +1711,7 @@ def _extract_media_json_from_model_text(text: str) -> Optional[dict]:
 
     return None
 
+
 def _build_tmdb_queries_from_media_json(mj: Optional[dict]) -> list[str]:
     """
     Converts extracted media JSON into a prioritized list of short TMDb queries.
@@ -1424,7 +1727,7 @@ def _build_tmdb_queries_from_media_json(mj: Optional[dict]) -> list[str]:
     out: list[str] = []
 
     def add(q: str) -> None:
-        q = _clean_query_for_tmdb(_tmdb_sanitize_query(_normalize_tmdb_query(q)))
+        q = _tmdb_sanitize_query(_normalize_tmdb_query(q))
         if q and q not in out and _good_tmdb_cand(q):
             out.append(q)
 
@@ -1440,7 +1743,7 @@ def _build_tmdb_queries_from_media_json(mj: Optional[dict]) -> list[str]:
             s = (str(it) if it is not None else "").strip()
             if not s:
                 continue
-            s2 = _clean_query_for_tmdb(_tmdb_sanitize_query(_normalize_tmdb_query(s)))
+            s2 = _tmdb_sanitize_query(_normalize_tmdb_query(s))
             if s2 and s2 not in res:
                 res.append(s2)
         return res
@@ -1493,15 +1796,28 @@ def _build_tmdb_queries_from_media_json(mj: Optional[dict]) -> list[str]:
 
     # Priority 3: keywords
     for k in (keywords_new or [])[:6]:
-        if k and len(k) >= 4:
-            add(k)
+        k = (k or "").strip()
+        if not k:
+            continue
+        kl = k.lower()
+        # не даём общим словам попадать в TMDb
+        if (" " not in kl) and (kl in GENERIC_TITLE_WORDS):
+            continue
+        if len(k) < 4:
+            continue
+        add(k)
 
     if not keywords_new:
         joined = " ".join((keywords_legacy or [])[:6]).strip()
         if joined:
+            jl = joined.lower().strip()
+            if jl in GENERIC_TITLE_WORDS:
+                joined = ""
+        if joined:
             add(joined[:80])
 
     return out[:12]
+
 
 async def run_assistant_vision(
     user: Optional[User],
@@ -1536,12 +1852,28 @@ async def run_assistant_vision(
         "ru": "Определи, что на фото. Если это кадр из фильма/сериала/мульта — попробуй определить источник.",
         "uk": "Визнач, що на фото. Якщо це кадр з фільму/серіалу/мультфільму — спробуй визначити джерело.",
         "en": "Identify what’s in the image. If it’s a movie/series/cartoon frame, try to identify the source.",
-    }.get(lang, "Identify the image and, if it's a movie/series/cartoon frame, try to identify the source.")
+    }.get(
+        lang,
+        "Identify the image and, if it's a movie/series/cartoon frame, try to identify the source.",
+    )
 
     hard_keywords = (
-        "текст", "что написано", "прочитай", "скрин", "скриншот",
-        "ошибка", "error", "traceback", "лог", "qr", "кьюар",
-        "инструкция", "меню", "чек", "рецепт", "состав"
+        "текст",
+        "что написано",
+        "прочитай",
+        "скрин",
+        "скриншот",
+        "ошибка",
+        "error",
+        "traceback",
+        "лог",
+        "qr",
+        "кьюар",
+        "инструкция",
+        "меню",
+        "чек",
+        "рецепт",
+        "состав",
     )
     is_hard = any(k in prompt_text.lower() for k in hard_keywords)
 
@@ -1550,6 +1882,7 @@ async def run_assistant_vision(
     model = model_hard if is_hard else model_default
 
     import base64
+
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:image/jpeg;base64,{b64}"
 
@@ -1566,7 +1899,7 @@ async def run_assistant_vision(
             "ВАЖНО: игнорируй хэштеги (#...), никнеймы (@...), эмодзи, UI-кнопки (Subscribe/Like/Share),\n"
             "названия каналов, музыку/название трека, лайки/просмотры и декоративный текст.\n\n"
             "Сначала верни СТРОГО JSON (без пояснений):\n"
-            "{\"actors\":[\"...\"],\"title_hints\":[\"...\"],\"keywords\":[\"...\"]}\n"
+            '{"actors":["..."],"title_hints":["..."],"keywords":["..."]}\n'
             "- actors: имена актёров/актрис (желательно латиницей), минимум 2 если распознаны\n"
             "- title_hints: возможное название/видимый тайтл (если есть)\n"
             "- keywords: 2–5 коротких слов про сцену/жанр (EN или RU)\n\n"
@@ -1579,7 +1912,7 @@ async def run_assistant_vision(
         resp = await client.responses.create(
             model=model,
             instructions=instr,
-            input=[
+            input=cast(Any, [
                 {
                     "role": "user",
                     "content": [
@@ -1587,7 +1920,7 @@ async def run_assistant_vision(
                         {"type": "input_image", "image_url": data_url},
                     ],
                 }
-            ],
+            ]),
             max_output_tokens=450,
         )
     except Exception as e:
@@ -1628,7 +1961,7 @@ async def run_assistant_vision(
                     f"Совпадение: {sim:.1%}"
                 )
     # иначе — не ломаем основной поток, просто идём дальше (TMDb)
-    
+
     # --- Lens (bytes -> Spaces -> Google Lens -> candidates -> TMDb) ---
     # NOTE: works only if image_bytes is a real JPG/PNG; dummy bytes will produce empty cands.
     try:
@@ -1641,13 +1974,19 @@ async def run_assistant_vision(
         )
     except Exception:
         lens_cands, lens_tag = [], "lens_fail"
-    _d("vision.lens", lens_tag=lens_tag, lens_cands=(lens_cands or [])[:8])  # DBG_VISION_LENS_V2
+    _d(
+        "vision.lens", lens_tag=lens_tag, lens_cands=(lens_cands or [])[:8]
+    )  # DBG_VISION_LENS_V2
+    best_lens_fallback: list[str] = []
+
     if lens_cands:
         try:
             items = []
             used_cand = ""
 
             ordered = _pick_best_lens_candidates(lens_cands, limit=12)
+
+            best_lens_fallback = ordered[:8]
             _d("vision.lens.pick", ordered=ordered[:10])
 
             for cand in ordered:
@@ -1657,7 +1996,7 @@ async def run_assistant_vision(
                 if _lens_bad_candidate(cand0):
                     continue
 
-                cand0 = _clean_query_for_tmdb(cand0)
+                cand0 = _normalize_tmdb_query(cand0)
                 if not cand0 or len(cand0) < 3:
                     continue
                 if _is_bad_media_query(cand0):
@@ -1666,9 +2005,6 @@ async def run_assistant_vision(
                 cand0 = _tmdb_sanitize_query(_normalize_tmdb_query(cand0))
                 if not _good_tmdb_cand(cand0):
                     continue
-                if _reject_obvious_junk(cand0):
-                    continue
-
                 items = await _tmdb_best_effort(cand0, limit=5)
                 if items:
                     used_cand = cand0
@@ -1680,8 +2016,8 @@ async def run_assistant_vision(
 
         if items:
             if user is not None:
-                user.assistant_mode = "media"
-                user.assistant_mode_until = now + timedelta(minutes=10)
+                setattr(user, "assistant_mode", "media")
+                setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
                 if session:
                     await session.commit()
 
@@ -1695,11 +2031,20 @@ async def run_assistant_vision(
 
     # Vision → TMDb candidates (robust)
     caption_str = (caption or "").strip()
-    _d("vision.model_out", caption=caption_str[:120], out_text=(out_text or "")[:250], is_generic_caption=_is_generic_media_caption(caption_str))  # DBG_VISION_MODEL_OUT_V2
+    _d(
+        "vision.model_out",
+        caption=caption_str[:120],
+        out_text=(out_text or "")[:250],
+        is_generic_caption=_is_generic_media_caption(caption_str),
+    )  # DBG_VISION_MODEL_OUT_V2
     # Prefer explicit SEARCH_QUERY from model, then title extracted from the explanation.
     search_q = _normalize_tmdb_query(_extract_search_query_from_text(out_text))
-    title_from_text = _normalize_tmdb_query(_extract_title_like_from_model_text(out_text))
-    _d("vision.extract", search_q=search_q, title_from_text=title_from_text)  # DBG_VISION_EXTRACT_V2
+    title_from_text = _normalize_tmdb_query(
+        _extract_title_like_from_model_text(out_text)
+    )
+    _d(
+        "vision.extract", search_q=search_q, title_from_text=title_from_text
+    )  # DBG_VISION_EXTRACT_V2
 
     # CAND_LIST_JSON_PRIORITY_V1
     try:
@@ -1711,33 +2056,36 @@ async def run_assistant_vision(
         json_queries = []
 
     # Build candidate list in priority order (JSON -> model text)
+    # Build candidate list in priority order:
+    # 1) Vision JSON (actors/title_hints/keywords)
+    # 2) Model SEARCH_QUERY / title extracted from text
+    # 3) Caption (only if not generic)
+    # 4) Lens fallback (only after Vision sources)
     cand_list: list[str] = []
 
     for c in (json_queries or []):
-        c = _clean_query_for_tmdb(_tmdb_sanitize_query(_normalize_tmdb_query(c)))
+        c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
         if c and _good_tmdb_cand(c) and c not in cand_list:
             cand_list.append(c)
 
     for c in (search_q, title_from_text):
-        c = _clean_query_for_tmdb(_tmdb_sanitize_query(_normalize_tmdb_query(c)))
+        c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
         if c and _good_tmdb_cand(c) and c not in cand_list:
             cand_list.append(c)
-
-
-
-
 
     # Caption is used ONLY if it is not a generic phrase like "Откуда кадр?"
-
     if caption_str and (not _is_generic_media_caption(caption_str)):
-        c = _clean_query_for_tmdb(_tmdb_sanitize_query(_normalize_tmdb_query(caption_str)))
+        c = _tmdb_sanitize_query(_normalize_tmdb_query(caption_str))
         if c and _good_tmdb_cand(c) and c not in cand_list:
-
             cand_list.append(c)
 
-    # If we still have nothing -> ask for 1 detail (no TMDb spam)
+    # Lens fallback goes LAST (weak source)
+    for c in (best_lens_fallback or [])[:8]:
+        c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
+        if c and _good_tmdb_cand(c) and c not in cand_list:
+            cand_list.append(c)
 
-    _d("vision.cand_list", cand_list=cand_list[:15])  # DBG_VISION_CAND_LIST_V2
+    _d("vision.cand_list", cand_list=cand_list[:15])  # DBG_VISION_CAND_LIST_V3
 
     if not cand_list:
         return MEDIA_NOT_FOUND_REPLY_RU
@@ -1749,22 +2097,25 @@ async def run_assistant_vision(
     for q in cand_list:
         if not _good_tmdb_cand(q):
             continue
-        if _reject_obvious_junk(q):
-            _d("vision.tmdb.reject_junk", q=q)
-            continue
         _d("vision.tmdb.try", q=q)  # DBG_VISION_TMBD_TRY_V2
 
         try:
-            q = _clean_query_for_tmdb(q)
+            q = _normalize_tmdb_query(q)
             items = await _tmdb_best_effort(q, limit=5)
-            items = [i for i in items if not i.get('adult')]
+            items = [i for i in items if not i.get("adult")]
         except Exception:
             items = []
         if items:
             used_query = q
             try:
                 top = items[0]
-                _d("vision.tmdb.hit", used_query=used_query, top_title=(top.get("title") or top.get("name")), top_year=top.get("year"), top_type=top.get("media_type"))
+                _d(
+                    "vision.tmdb.hit",
+                    used_query=used_query,
+                    top_title=(top.get("title") or top.get("name")),
+                    top_year=top.get("year"),
+                    top_type=top.get("media_type"),
+                )
             except Exception:
                 pass
             break
@@ -1780,11 +2131,11 @@ async def run_assistant_vision(
                 if _is_bad_media_query(c):
                     continue
                 c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
-                c = _clean_query_for_tmdb(c)
+                c = _normalize_tmdb_query(c)
                 if not _good_tmdb_cand(c):
                     continue
                 items = await _tmdb_best_effort(c, limit=5)
-                items = [i for i in items if not i.get('adult')]
+                items = [i for i in items if not i.get("adult")]
                 if items:
                     used_query = c
                     break
@@ -1793,8 +2144,8 @@ async def run_assistant_vision(
 
     if items:
         if user is not None:
-            user.assistant_mode = "media"
-            user.assistant_mode_until = now + timedelta(minutes=10)
+            setattr(user, "assistant_mode", "media")
+            setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
             if session:
                 await session.commit()
 
