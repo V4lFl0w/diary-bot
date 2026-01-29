@@ -454,35 +454,32 @@ def _sort_media(items: list[dict]) -> list[dict]:
 
 async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
     """
-    Best-effort TMDb retrieval:
-    - ru-RU first
-    - fallback to en-US (TMDb часто богаче на EN)
-    - dedupe + soft year filter + sort by usefulness
+    Best-effort TMDb retrieval (faster):
+    - run ru-RU and en-US in parallel
+    - dedupe + soft year filter + sort
     """
+    import asyncio
+
     q = _normalize_tmdb_query(query)
     if not q:
         return []
 
     year = _extract_year(q)
 
-    items: list[dict] = []
-    try:
-        items_ru = await tmdb_search_multi(q, lang="ru-RU", limit=limit)
-    except Exception:
-        items_ru = []
-
-    if items_ru and isinstance(items_ru[0], dict) and items_ru[0].get("_error"):
-        items_ru = []
-
-    items_en: list[dict] = []
-    if not items_ru:
+    async def _safe(lang: str) -> list[dict]:
         try:
-            items_en = await tmdb_search_multi(q, lang="en-US", limit=limit)
+            items = await tmdb_search_multi(q, lang=lang, limit=limit)
         except Exception:
-            items_en = []
+            return []
+        if items and isinstance(items[0], dict) and items[0].get("_error"):
+            return []
+        return items or []
 
-        if items_en and isinstance(items_en[0], dict) and items_en[0].get("_error"):
-            items_en = []
+    items_ru, items_en = await asyncio.gather(
+        _safe("ru-RU"),
+        _safe("en-US"),
+        return_exceptions=False,
+    )
 
     items = _dedupe_media((items_ru or []) + (items_en or []))
 
@@ -492,6 +489,7 @@ async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
             items = filtered
 
     return _sort_media(items)[:limit]
+
 
 def _format_one_media(item: dict) -> str:
     # items come from tmdb_search_multi(): title/year/media_type/overview/vote_average
@@ -1238,7 +1236,9 @@ async def run_assistant_vision(
     if (not items) and cand_list:
         try:
             q0 = cand_list[0]
-            cands, tag = await web_to_tmdb_candidates(q0, use_serpapi=True)
+            use_serp = bool(os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY"))
+            cands, tag = await web_to_tmdb_candidates(q0, use_serpapi=use_serp)
+
             for c in cands:
                 if _is_bad_media_query(c):
                     continue

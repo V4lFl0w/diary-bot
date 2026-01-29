@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -61,6 +63,22 @@ router = Router(name="assistant")
 class AssistantFSM(StatesGroup):
     waiting_question = State()
 
+async def _typing_loop(chat_id: int, *, interval: float = 4.0) -> None:
+    """
+    Keep Telegram 'typing…' status alive while we do long operations.
+    Call as a background task, cancel when done.
+    """
+    try:
+        while True:
+            try:
+                await bot.send_chat_action(chat_id=chat_id, action="typing")
+            except Exception:
+                pass
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        return
+
+
 
 def _normalize_lang(code: Optional[str]) -> str:
     s = (code or "ru").strip().lower()
@@ -108,6 +126,18 @@ def _has_premium(user: Optional[User]) -> bool:
     # 3) legacy fallback
     return bool(getattr(user, "has_premium", False))
 
+
+
+def _looks_like_media_text(text: str) -> bool:
+    t = (text or "").lower()
+    keys = (
+        "фильм", "сериал", "кино", "мульт", "мультик",
+        "кадр", "откуда кадр", "по кадру",
+        "как называется", "что за фильм", "что за сериал", "что за мультик",
+        "season", "episode", "movie", "series", "tv",
+        "актёр", "актер", "актриса", "режиссер", "режиссёр",
+    )
+    return any(k in t for k in keys)
 
 def _is_noise_msg(text: str) -> bool:
     t = (text or "").strip()
@@ -256,7 +286,19 @@ async def assistant_photo(
     img_bytes = buf.getvalue()
 
     caption = (m.caption or "").strip()
-    reply = await run_assistant_vision(user, img_bytes, caption, lang, session=session)
+
+    # ✅ instant feedback + typing loop (refresh ~every 4s)
+    await m.answer("Окей, ищу по базе + картинке 👀")
+    typing_task = asyncio.create_task(_typing_loop(m.chat.id, interval=4.0))
+    try:
+        reply = await run_assistant_vision(user, img_bytes, caption, lang, session=session)
+    finally:
+        typing_task.cancel()
+        try:
+            await typing_task
+        except Exception:
+            pass
+
     await m.answer(reply)
 
 
@@ -295,5 +337,28 @@ async def assistant_dialog(
     if not text:
         return
 
-    reply = await run_assistant(user, text, lang, session=session)
+    # ✅ Media queries can be slow (TMDb/Web/LLM). Give instant feedback + typing loop.
+    is_media_like = _looks_like_media_text(text)
+    if user:
+        now_utc = datetime.now(timezone.utc)
+        mode = getattr(user, "assistant_mode", None)
+        until = getattr(user, "assistant_mode_until", None)
+        if mode == "media" and until and until > now_utc:
+            is_media_like = True
+
+    typing_task = None
+    if is_media_like:
+        await m.answer("Окей, ищу по базе + картинке 👀")
+        typing_task = asyncio.create_task(_typing_loop(m.chat.id, interval=4.0))
+
+    try:
+        reply = await run_assistant(user, text, lang, session=session)
+    finally:
+        if typing_task:
+            typing_task.cancel()
+            try:
+                await typing_task
+            except Exception:
+                pass
+
     await m.answer(reply)
