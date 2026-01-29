@@ -212,9 +212,9 @@ def _extract_title_like_from_model_text(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return ""
-
-    # RU quotes: \u00ab...\u00bb
-    m = re.search(r"[\u00ab](.+?)[\u00bb]", t)
+    
+    # RU quotes: «...»
+    m = re.search(r"[«](.+?)[»]", t)
     if m:
         cand = (m.group(1) or "").strip()
         if 2 <= len(cand) <= 80:
@@ -236,6 +236,42 @@ def _extract_title_like_from_model_text(text: str) -> str:
             return cand
 
     return ""
+
+
+# --- safety: scrub explicit overviews (TMDb sometimes returns NSFW text even with include_adult=false) ---
+_EXPLICIT_OVERVIEW_WORDS = (
+    # EN
+    "sex", "sexual", "porn", "nude", "nudity", "tits", "boobs", "penis", "vagina",
+    "rape", "incest", "blowjob", "handjob",
+    # RU/UA (минимальный набор явных маркеров)
+    "секс", "сексуал", "порно", "обнажен", "обнаж", "эрот", "трах", "член", "вагин",
+    "грудь", "сиськ", "изнасил",
+)
+
+def _is_explicit_text(t: str) -> bool:
+    tl = (t or "").lower()
+    return any(w in tl for w in _EXPLICIT_OVERVIEW_WORDS)
+
+def _scrub_media_item(it: dict) -> dict:
+    # do not mutate original dict aggressively
+    if not isinstance(it, dict):
+        return it
+    if it.get("adult"):
+        return it
+    ov = it.get("overview") or ""
+    if ov and _is_explicit_text(str(ov)):
+        it = dict(it)
+        it["overview"] = ""
+    return it
+
+def _scrub_media_items(items: list[dict]) -> list[dict]:
+    out = []
+    for it in (items or []):
+        if isinstance(it, dict) and it.get("adult"):
+            continue
+        out.append(_scrub_media_item(it))
+    return out
+
 
 def _media_confident(item: dict) -> bool:
     """Conservative confidence heuristic for Vision results."""
@@ -539,6 +575,9 @@ async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
     )
 
     items = _dedupe_media((items_ru or []) + (items_en or []))
+
+    # safety: drop adult + scrub explicit overview
+    items = _scrub_media_items(items)
 
     if year:
         filtered = [it for it in items if str(it.get("year") or "") == year]
@@ -935,6 +974,7 @@ async def run_assistant(
 
             # 🔹 First try direct search by model/caption query
             items = await _tmdb_best_effort(query, limit=5)
+            items = _scrub_media_items(items)
             _d("media.tmdb.primary", q=query, n=len(items or []), top=((items or [{}])[0].get('title') or (items or [{}])[0].get('name')) if items else None)
 
             # 🔹 If nothing found — use parsed hints
@@ -1021,8 +1061,10 @@ async def run_assistant(
             if uid:
                 _media_set(uid, query, [])
             return MEDIA_NOT_FOUND_REPLY_RU
-
-        _media_set(uid, query, items)
+        
+        items = _scrub_media_items(items)
+        if uid:
+            _media_set(uid, query, items)
         return build_media_context(items) + "\n\nВыбери номер варианта."
 
     # ---- Normal assistant (non-media) ----
@@ -1082,22 +1124,32 @@ async def run_assistant(
 
 def _extract_media_json_from_model_text(text: str) -> Optional[dict]:
     """
-    Tries to extract JSON object from model output.
+    Extract JSON object from model output.
     Supports:
-    - fenced ```json ... ```
-    - fenced ``` ... ```
-    - marker MEDIA_JSON: { ... }
-    - last-resort first {...} block
+      - strict first-line JSON (the very first line is {...})
+      - fenced ```json ... ```
+      - fenced ``` ... ```
+      - marker MEDIA_JSON: { ... }
+      - last-resort {...} block
     Returns dict or None.
     """
     t = (text or "").strip()
     if not t:
         return None
 
+    # strict first-line JSON
+    if t.startswith("{"):
+        first = t.splitlines()[0].strip()
+        if first.endswith("}"):
+            try:
+                obj = json.loads(first)
+                return obj if isinstance(obj, dict) else None
+            except Exception:
+                pass
+
     # fenced ```json ... ```
     m = re.search(r"```json\s*(\{.*?\})\s*```", t, flags=re.S)
     if not m:
-        # any fenced block
         m = re.search(r"```(?:\w+)?\s*(\{.*?\})\s*```", t, flags=re.S)
     if m:
         try:
@@ -1115,11 +1167,10 @@ def _extract_media_json_from_model_text(text: str) -> Optional[dict]:
         except Exception:
             return None
 
-    # last resort: try to find first {...} block
+    # last resort: first {...}
     m = re.search(r"(\{.*\})", t, flags=re.S)
     if m:
         blob = m.group(1).strip()
-        # avoid huge captures
         if len(blob) > 8000:
             blob = blob[:8000]
             blob = blob.rsplit("}", 1)[0] + "}"
@@ -1131,40 +1182,69 @@ def _extract_media_json_from_model_text(text: str) -> Optional[dict]:
 
     return None
 
-
 def _build_tmdb_queries_from_media_json(mj: Optional[dict]) -> list[str]:
     """
-    Converts extracted media JSON into a list of short TMDb search candidates.
-    Expected keys (optional):
-      - title
-      - alt_titles / aka
-      - year
-      - sxxeyy / episode
-      - keywords
-      - cast
+    Converts extracted media JSON into a prioritized list of short TMDb queries.
+    Supports BOTH schemas:
+      A) New vision schema:
+         {"actors":[...],"title_hints":[...],"keywords":[...]}
+      B) Legacy schema:
+         {"title":..., "year":..., "alt_titles"/"aka":..., "cast":..., "keywords":...}
     """
     if not mj or not isinstance(mj, dict):
         return []
 
     out: list[str] = []
 
+    def add(q: str) -> None:
+        q = _clean_query_for_tmdb(_tmdb_sanitize_query(_normalize_tmdb_query(q)))
+        if q and q not in out and _good_tmdb_cand(q):
+            out.append(q)
+
+    def norm_list(x: Any) -> list[str]:
+        if not x:
+            return []
+        if isinstance(x, str):
+            x = [x]
+        if not isinstance(x, list):
+            return []
+        res: list[str] = []
+        for it in x:
+            s = (str(it) if it is not None else "").strip()
+            if not s:
+                continue
+            s2 = _clean_query_for_tmdb(_tmdb_sanitize_query(_normalize_tmdb_query(s)))
+            if s2 and s2 not in res:
+                res.append(s2)
+        return res
+
+    # A) new schema
+    actors = norm_list(mj.get("actors"))
+    title_hints = norm_list(mj.get("title_hints"))
+    keywords_new = norm_list(mj.get("keywords"))
+
+    # B) legacy schema
     title = str(mj.get("title") or "").strip()
     year = str(mj.get("year") or "").strip()
     sxxeyy = str(mj.get("sxxeyy") or mj.get("episode") or "").strip()
 
-    def add(q: str):
-        q = (q or "").strip()
-        if q and q not in out:
-            out.append(q)
+    alts = mj.get("alt_titles") or mj.get("aka") or []
+    if isinstance(alts, str):
+        alts = [alts]
+
+    cast_legacy = norm_list(mj.get("cast"))
+    keywords_legacy = norm_list(mj.get("keywords"))
+
+    # Priority 1: title hints / title
+    for t in (title_hints or [])[:6]:
+        add(t)
 
     if title:
         add(f"{title} {year}".strip() if year else title)
         if sxxeyy:
             add(f"{title} {sxxeyy}".strip())
 
-    alts = mj.get("alt_titles") or mj.get("aka") or []
-    if isinstance(alts, str):
-        alts = [alts]
+    # alt titles
     if isinstance(alts, list):
         for a in alts[:5]:
             a = str(a).strip()
@@ -1174,22 +1254,27 @@ def _build_tmdb_queries_from_media_json(mj: Optional[dict]) -> list[str]:
             if sxxeyy:
                 add(f"{a} {sxxeyy}".strip())
 
-    kw = mj.get("keywords") or []
-    if isinstance(kw, str):
-        kw = [kw]
-    if isinstance(kw, list):
-        joined = " ".join(str(x).strip() for x in kw[:6] if str(x).strip())
+    # Priority 2: actors combo (2 names)
+    if len(actors) >= 2:
+        add(f"{actors[0]} {actors[1]}")
+    elif len(actors) == 1:
+        add(actors[0])
+
+    # Priority 2b: legacy cast with title
+    if title and cast_legacy:
+        add(f"{title} {' '.join(cast_legacy[:2])}".strip())
+
+    # Priority 3: keywords
+    for k in (keywords_new or [])[:6]:
+        if k and len(k) >= 4:
+            add(k)
+
+    if not keywords_new:
+        joined = " ".join((keywords_legacy or [])[:6]).strip()
         if joined:
             add(joined[:80])
 
-    cast = mj.get("cast") or []
-    if isinstance(cast, str):
-        cast = [cast]
-    if isinstance(cast, list) and title and cast:
-        add(f"{title} {' '.join(str(x).strip() for x in cast[:2])}".strip())
-
     return out[:12]
-
 
 async def run_assistant_vision(
     user: Optional[User],
@@ -1249,12 +1334,17 @@ async def run_assistant_vision(
         + "\n"
         + (
             "Ты видишь изображение.\n"
-            "Если это кадр из фильма/сериала/мульта/аниме — попробуй определить источник.\n"
+            "Если это кадр из фильма/сериала/мульта/аниме — помоги найти источник.\n"
             "Если не уверен — так и скажи. Не выдумывай детали.\n\n"
-            "В конце добавь строку:\n"
-            "SEARCH_QUERY: <короткий запрос для поиска (название/персонаж/год/ключевые слова)>\n"
-            "Если не можешь — напиши:\n"
-            "SEARCH_QUERY:\n"
+            "ВАЖНО: игнорируй хэштеги (#...), никнеймы (@...), эмодзи, UI-кнопки (Subscribe/Like/Share),\n"
+            "названия каналов, музыку/название трека, лайки/просмотры и декоративный текст.\n\n"
+            "Сначала верни СТРОГО JSON (без пояснений):\n"
+            "{\"actors\":[\"...\"],\"title_hints\":[\"...\"],\"keywords\":[\"...\"]}\n"
+            "- actors: имена актёров/актрис (желательно латиницей), минимум 2 если распознаны\n"
+            "- title_hints: возможное название/видимый тайтл (если есть)\n"
+            "- keywords: 2–5 коротких слов про сцену/жанр (EN или RU)\n\n"
+            "ПОТОМ (на новой строке) добавь:\n"
+            "SEARCH_QUERY: <короткий запрос, максимум 6–8 слов>\n"
         )
     )
 
@@ -1331,7 +1421,11 @@ async def run_assistant_vision(
             items = []
             used_cand = lens_cands[0]
             for cand in lens_cands[:12]:
-                if _is_bad_media_query(cand): continue
+                cand = _clean_query_for_tmdb(cand)
+                if not cand or len(cand) < 3:
+                    continue
+                if _is_bad_media_query(cand):
+                    continue
                 cand = _tmdb_sanitize_query(_normalize_tmdb_query(cand))
                 if not _good_tmdb_cand(cand):
                     continue
@@ -1393,9 +1487,7 @@ async def run_assistant_vision(
     # Caption is used ONLY if it is not a generic phrase like "Откуда кадр?"
 
     if caption_str and (not _is_generic_media_caption(caption_str)):
-
-        c = _tmdb_sanitize_query(_normalize_tmdb_query(caption_str))
-
+        c = _clean_query_for_tmdb(_tmdb_sanitize_query(_normalize_tmdb_query(caption_str)))
         if c and _good_tmdb_cand(c) and c not in cand_list:
 
             cand_list.append(c)
