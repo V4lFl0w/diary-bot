@@ -307,6 +307,7 @@ async def assistant_photo(
 @router.message(
     AssistantFSM.waiting_question,
     F.text
+    & ~F.photo
     & ~F.text.func(_is_menu_click)  # ✅ меню-клики пропускаем другим хендлерам
     & ~F.text.startswith("/")       # ✅ команды не трогаем (кроме exit-хендлера выше)
 )

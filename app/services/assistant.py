@@ -1035,6 +1035,117 @@ async def run_assistant(
     except Exception:
         return "⚠️ Не смог прочитать ответ модели."
 
+def _extract_media_json_from_model_text(text: str) -> Optional[dict]:
+    """
+    Tries to extract JSON object from model output.
+    Supports:
+    - fenced ```json ... ```
+    - fenced ``` ... ```
+    - marker MEDIA_JSON: { ... }
+    - last-resort first {...} block
+    Returns dict or None.
+    """
+    t = (text or "").strip()
+    if not t:
+        return None
+
+    # fenced ```json ... ```
+    m = re.search(r"```json\s*(\{.*?\})\s*```", t, flags=re.S)
+    if not m:
+        # any fenced block
+        m = re.search(r"```(?:\w+)?\s*(\{.*?\})\s*```", t, flags=re.S)
+    if m:
+        try:
+            obj = json.loads(m.group(1))
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            return None
+
+    # marker MEDIA_JSON:
+    m = re.search(r"(?im)^\s*MEDIA_JSON\s*:\s*(\{.*\})\s*$", t, flags=re.S)
+    if m:
+        try:
+            obj = json.loads(m.group(1))
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            return None
+
+    # last resort: try to find first {...} block
+    m = re.search(r"(\{.*\})", t, flags=re.S)
+    if m:
+        blob = m.group(1).strip()
+        # avoid huge captures
+        if len(blob) > 8000:
+            blob = blob[:8000]
+            blob = blob.rsplit("}", 1)[0] + "}"
+        try:
+            obj = json.loads(blob)
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            return None
+
+    return None
+
+
+def _build_tmdb_queries_from_media_json(mj: Optional[dict]) -> list[str]:
+    """
+    Converts extracted media JSON into a list of short TMDb search candidates.
+    Expected keys (optional):
+      - title
+      - alt_titles / aka
+      - year
+      - sxxeyy / episode
+      - keywords
+      - cast
+    """
+    if not mj or not isinstance(mj, dict):
+        return []
+
+    out: list[str] = []
+
+    title = str(mj.get("title") or "").strip()
+    year = str(mj.get("year") or "").strip()
+    sxxeyy = str(mj.get("sxxeyy") or mj.get("episode") or "").strip()
+
+    def add(q: str):
+        q = (q or "").strip()
+        if q and q not in out:
+            out.append(q)
+
+    if title:
+        add(f"{title} {year}".strip() if year else title)
+        if sxxeyy:
+            add(f"{title} {sxxeyy}".strip())
+
+    alts = mj.get("alt_titles") or mj.get("aka") or []
+    if isinstance(alts, str):
+        alts = [alts]
+    if isinstance(alts, list):
+        for a in alts[:5]:
+            a = str(a).strip()
+            if not a:
+                continue
+            add(f"{a} {year}".strip() if year else a)
+            if sxxeyy:
+                add(f"{a} {sxxeyy}".strip())
+
+    kw = mj.get("keywords") or []
+    if isinstance(kw, str):
+        kw = [kw]
+    if isinstance(kw, list):
+        joined = " ".join(str(x).strip() for x in kw[:6] if str(x).strip())
+        if joined:
+            add(joined[:80])
+
+    cast = mj.get("cast") or []
+    if isinstance(cast, str):
+        cast = [cast]
+    if isinstance(cast, list) and title and cast:
+        add(f"{title} {' '.join(str(x).strip() for x in cast[:2])}".strip())
+
+    return out[:12]
+
+
 async def run_assistant_vision(
     user: Optional[User],
     image_bytes: bytes,
@@ -1201,22 +1312,33 @@ async def run_assistant_vision(
 
     # Vision → TMDb candidates (robust)
     caption_str = (caption or "").strip()
-
     # Prefer explicit SEARCH_QUERY from model, then title extracted from the explanation.
     search_q = _normalize_tmdb_query(_extract_search_query_from_text(out_text))
     title_from_text = _normalize_tmdb_query(_extract_title_like_from_model_text(out_text))
 
-# Build candidate list in priority order
+    # CAND_LIST_JSON_PRIORITY_V1
+    try:
+        mj = _extract_media_json_from_model_text(out_text)
+        json_queries = _build_tmdb_queries_from_media_json(mj)
+    except Exception:
+        json_queries = []
 
+    # Build candidate list in priority order (JSON -> model text)
     cand_list: list[str] = []
 
-    for c in (search_q, title_from_text):
-
-        c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
-
+    for c in (json_queries or []):
+        c = _clean_query_for_tmdb(_tmdb_sanitize_query(_normalize_tmdb_query(c)))
         if c and _good_tmdb_cand(c) and c not in cand_list:
-
             cand_list.append(c)
+
+    for c in (search_q, title_from_text):
+        c = _clean_query_for_tmdb(_tmdb_sanitize_query(_normalize_tmdb_query(c)))
+        if c and _good_tmdb_cand(c) and c not in cand_list:
+            cand_list.append(c)
+
+
+
+
 
     # Caption is used ONLY if it is not a generic phrase like "Откуда кадр?"
 
