@@ -13,6 +13,23 @@ from app.services.media_text import YEAR_RE as _YEAR_RE, SXXEYY_RE as _SXXEYY_RE
 
 # --- TMDB query sanitizer: TMDB hates long "scene description" queries ---
 
+def _clean_query_for_tmdb(q: str) -> str:
+    """
+    Clean noisy captions/hashtags/emojis before sending to TMDb.
+    Keeps letters/digits/basic punctuation, strips hashtags and weird symbols.
+    """
+    q = (q or "").strip()
+    if not q:
+        return ""
+    # remove hashtags like #anadearmas
+    q = re.sub(r"#\w+", " ", q, flags=re.UNICODE)
+    # remove excessive punctuation/emojis; keep words, spaces, dash and apostrophe
+    q = re.sub(r"[^\w\s\-']", " ", q, flags=re.UNICODE)
+    # collapse spaces
+    q = re.sub(r"\s+", " ", q, flags=re.UNICODE).strip()
+    # avoid too-short junk
+    return q
+
 def _looks_like_freeform_media_query(q: str) -> bool:
     ql = (q or "").lower().strip()
     if not ql:
@@ -1225,7 +1242,9 @@ async def run_assistant_vision(
             continue
 
         try:
+            q = _clean_query_for_tmdb(q)
             items = await _tmdb_best_effort(q, limit=5)
+            items = [i for i in items if not i.get('adult')]
         except Exception:
             items = []
         if items:
@@ -1243,9 +1262,11 @@ async def run_assistant_vision(
                 if _is_bad_media_query(c):
                     continue
                 c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
+                c = _clean_query_for_tmdb(c)
                 if not _good_tmdb_cand(c):
                     continue
                 items = await _tmdb_best_effort(c, limit=5)
+                items = [i for i in items if not i.get('adult')]
                 if items:
                     used_query = c
                     break
