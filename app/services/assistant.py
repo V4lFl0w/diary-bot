@@ -246,8 +246,9 @@ _EXPLICIT_OVERVIEW_WORDS = (
     # RU/UA (минимальный набор явных маркеров)
     "секс", "сексуал", "порно", "обнажен", "обнаж", "эрот", "трах", "член", "вагин",
     "грудь", "сиськ", "изнасил",
+    # ES/other
+    "tetas", "desnudo", "desnuda",
 )
-
 def _is_explicit_text(t: str) -> bool:
     tl = (t or "").lower()
     return any(w in tl for w in _EXPLICIT_OVERVIEW_WORDS)
@@ -264,13 +265,226 @@ def _scrub_media_item(it: dict) -> dict:
         it["overview"] = ""
     return it
 
+
+def _format_media_pick(item: dict) -> str:
+    """
+    Small, safe formatter for a picked TMDb item.
+    item keys may vary (movie/tv). We keep it short.
+    """
+    title = item.get("title") or item.get("name") or "Без названия"
+    year = ""
+    d = item.get("release_date") or item.get("first_air_date") or ""
+    if isinstance(d, str) and len(d) >= 4:
+        year = d[:4]
+    overview = (item.get("overview") or "").strip()
+    if overview and len(overview) > 500:
+        overview = overview[:500].rsplit(" ", 1)[0] + "…"
+    media_type = item.get("media_type") or ("tv" if item.get("name") else "movie")
+    tmdb_id = item.get("id")
+    url = ""
+    if tmdb_id:
+        url = f"https://www.themoviedb.org/{media_type}/{tmdb_id}"
+    lines = [f"🎬 {title}" + (f" ({year})" if year else "")]
+    if overview:
+        lines.append("")
+        lines.append(overview)
+    if url:
+        lines.append("")
+        lines.append(url)
+    return "\n".join(lines)
+
+
+
+def _lens_clean_candidate(s: str) -> str:
+    """
+    Clean Lens candidate line into something TMDb-friendly BEFORE normalize/sanitize.
+    Examples:
+      '✨ Film: Deep Water(2022) ...' -> 'Deep Water 2022'
+      'Ben Affleck in underwear in the new film Deep Water (2022)' -> 'Deep Water 2022 Ben Affleck'
+    """
+    s = (s or "").strip()
+    if not s:
+        return ""
+
+    # remove common prefixes
+    s = re.sub(r"(?i)^\s*(✨\s*)?(film|movie|фильм|кино)\s*:\s*", "", s).strip()
+
+    # remove platform-y suffixes
+    s = re.sub(r"(?i)\b(official)\b", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+
+    # Extract Title (YEAR) preference
+    m = re.search(r"(.+?)\s*\(\s*(19\d{2}|20\d{2})\s*\)", s)
+    if m:
+        title = (m.group(1) or "").strip(" -–—,:;")
+        year = m.group(2)
+        # keep short title + year only
+        if title:
+            return f"{title} {year}".strip()
+
+    # If YEAR is present elsewhere, keep it (but avoid giant strings)
+    m2 = re.search(r"\b(19\d{2}|20\d{2})\b", s)
+    year = m2.group(1) if m2 else ""
+
+    # If it contains "new film <Title>" pattern
+    m3 = re.search(r"(?i)\bfilm\b\s+([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+){0,5})", s)
+    title2 = (m3.group(1) or "").strip() if m3 else ""
+
+    # shorten aggressively
+    s2 = s
+    if len(s2) > 90:
+        s2 = s2[:90].rsplit(" ", 1)[0].strip()
+
+    # try to keep likely title-ish chunk: first 2–6 TitleCased words
+    tokens = re.findall(r"[A-Za-z0-9'’\-]+", s2)
+    # fallbacks
+    base = ""
+    if title2 and len(title2.split()) <= 6:
+        base = title2
+    elif 1 <= len(tokens) <= 10:
+        base = " ".join(tokens[:6])
+    else:
+        base = " ".join(tokens[:6])
+
+    base = base.strip(" -–—,:;")
+    if year and year not in base and len(base) <= 45:
+        base = f"{base} {year}".strip()
+
+    return base.strip()
+
+def _lens_bad_candidate(s: str) -> bool:
+    """
+    Lens часто возвращает:
+      - каналы/эдиты/муз клипы
+      - платформы (YouTube/TikTok/Instagram)
+      - CTA (subscribe/like/share)
+    Это не тайтлы.
+    """
+    sl = (s or "").lower()
+    if not sl:
+        return True
+
+    bad = (
+        "edits", "edit", "channel", "youtube", "tiktok", "instagram", "reels", "shorts",
+        "subscribe", "like", "share", "official", "music video", "mood music", "compilation",
+        "fanmade", "trailer", "clip", "status", "threads",
+    )
+    if any(b in sl for b in bad):
+        return True
+
+    # too generic single words
+    if sl.strip() in {"movie", "film", "series", "tv", "deep", "nothing"}:
+        return True
+
+    # looks like account/name rather than title (very short + non-title)
+    if len(sl.strip()) <= 3:
+        return True
+
+    return False
+
+def _lens_score_candidate(raw: str) -> int:
+    """
+    Higher is better.
+    Prefer:
+      - Title (YEAR) or Title YEAR
+      - 1–6 words, not generic
+      - contains some TitleCase / letters
+    Penalize:
+      - long sentences
+      - platform words / edits
+      - starts with movie/film
+    """
+    s = (raw or "").strip()
+    if not s:
+        return -999
+
+    if _lens_bad_candidate(s):
+        return -500
+
+    score = 0
+
+    # explicit (YEAR)
+    if re.search(r"\(\s*(19\d{2}|20\d{2})\s*\)", s):
+        score += 140
+    if re.search(r"\b(19\d{2}|20\d{2})\b", s):
+        score += 60
+
+    # word count preference
+    words = re.findall(r"[A-Za-zА-Яа-яЁёІіЇїЄє0-9'’\-]+", s)
+    wc = len(words)
+    if 1 <= wc <= 6:
+        score += 80
+    elif wc <= 10:
+        score += 35
+    else:
+        score -= 60
+
+    # starts with movie/film is suspicious
+    if re.match(r"(?i)^\s*(movie|film|фильм|кино)\b", s):
+        score -= 80
+
+    # length penalty
+    L = len(s)
+    if L <= 35:
+        score += 35
+    elif L <= 60:
+        score += 10
+    else:
+        score -= (L - 60)
+
+    # must contain letters
+    if not any(ch.isalpha() for ch in s):
+        score -= 120
+
+    return score
+
+def _pick_best_lens_candidates(lens_cands: list[str], *, limit: int = 12) -> list[str]:
+    """
+    Returns candidates ordered by best-first.
+    Includes cleaned variants; keeps uniqueness.
+    """
+    cands = [c for c in (lens_cands or []) if (c or "").strip()]
+    ranked = sorted(cands, key=_lens_score_candidate, reverse=True)
+
+    out: list[str] = []
+    seen = set()
+
+    for raw in ranked:
+        if len(out) >= limit:
+            break
+        # use raw first, then cleaned
+        for cand in (raw, _lens_clean_candidate(raw)):
+            cand = (cand or "").strip()
+            if not cand:
+                continue
+            key = cand.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(cand)
+
+    return out[:limit]
+
+
+
+def _is_explicit_title(item: dict) -> bool:
+    try:
+        title = str(item.get('title') or item.get('name') or '')
+    except Exception:
+        return False
+    return _is_explicit_text(title)
+
 def _scrub_media_items(items: list[dict]) -> list[dict]:
     out = []
     for it in (items or []):
-        if isinstance(it, dict) and it.get("adult"):
+        if isinstance(it, dict) and it.get('adult'):
             continue
-        out.append(_scrub_media_item(it))
+        if isinstance(it, dict) and _is_explicit_title(it):
+            continue
+        out.append(_scrub_media_item(it) if isinstance(it, dict) else it)
     return out
+
+
 
 
 def _media_confident(item: dict) -> bool:
@@ -342,9 +556,15 @@ BAD_MEDIA_QUERY_WORDS = {
     "news", "sport", "sports", "channel", "subscribe", "live", "official",
     "trailer", "shorts", "tiktok", "instagram", "reels",
     "главные", "новости", "канал", "подпишись", "подписаться",
-    "смотрите", "запись", "обзор", "интервью"
+    "смотрите", "запись", "обзор", "интервью",
+    "edit",
+    "edits",
+    "compilation",
+    "fanmade",
+    "youtube",
+    "music",
+    "video"
 }
-
 # --- media query cleaning: turn human phrasing into search-friendly query ---
 _MEDIA_LEADING_NOISE = (
     "название фильма", "название сериала", "название мультика",
@@ -918,26 +1138,35 @@ async def run_assistant(
             sticky_media_db = True
 
     # IMPORTANT: if we have in-memory session => treat as media follow-up
-    is_media = _is_media_query(text) or sticky_media_db or bool(st) or ((sticky_media_db or bool(st)) and _looks_like_year_or_hint(text))
+    is_media = (
+        _is_media_query(text)
+        or sticky_media_db
+        or bool(st)
+        or _looks_like_freeform_media_query(text)
+        or ((sticky_media_db or bool(st)) and _looks_like_year_or_hint(text))
+    )
 
     if is_media:
         _d("media.enter", is_media=is_media, sticky_media_db=sticky_media_db, has_st=bool(st), uid=uid)  # DBG_MEDIA_RUN_ASSISTANT_V1
-        # 1) User picked an option number
-        if st and _looks_like_choice(text):
-            idx = int(text.strip()) - 1
+        raw_text = (text or "").strip()
+
+        # 1) User picked an option number: "1", "2", ...
+        if st and _looks_like_choice(raw_text):
+            idx = int(raw_text) - 1
             opts = st.get("items") or []
             if 0 <= idx < len(opts):
-                return _format_one_media(opts[idx])
+                picked = opts[idx]
+                return _format_media_pick(picked) + "\n\nХочешь — напиши другое название/описание, я поищу ещё."
 
         # 1.5) "Как называется/какое название" — это не новый поиск, показываем варианты
-        if st and _is_asking_for_title(text):
+        if st and _is_asking_for_title(raw_text):
             opts = st.get("items") or []
             if not opts:
                 return MEDIA_NOT_FOUND_REPLY_RU
             return build_media_context(opts) + "\n\nВыбери номер варианта."
         # 2) Build query (new query vs follow-up hint)# 2) Merge уточнение with previous query
         # 2) Build query (new query vs follow-up hint)
-        raw = (text or "").strip()
+        raw = raw_text
         prev_q = ((st.get("query") if st else "") or "").strip()
 
         # не даём "ядовитым" фразам портить поисковую строку
@@ -945,6 +1174,8 @@ async def run_assistant(
             return MEDIA_NOT_FOUND_REPLY_RU
 
         # короткое уточнение (год/актёр/страна/язык/серия/эпизод) — добавляем к прошлому запросу
+        raw = _clean_query_for_tmdb(raw)
+
         if st and prev_q and _looks_like_year_or_hint(raw) and len(raw) <= 60:
             query = _tmdb_sanitize_query(_normalize_tmdb_query(f"{prev_q} {raw}"))
         else:
@@ -964,10 +1195,6 @@ async def run_assistant(
         # 4) Best-effort TMDb search (ru first, fallback en, year filter, dedupe, sort)
         cleaned = _clean_media_query(query)
         query = _tmdb_sanitize_query(_normalize_tmdb_query(cleaned or query))
-        try:
-            print(f"[media] prev_q={prev_q!r} raw={raw!r} -> query=_tmdb_sanitize_query({query!r}")
-        except Exception:
-            pass
 
         try:
             items = []
@@ -1415,27 +1642,41 @@ async def run_assistant_vision(
     except Exception:
         lens_cands, lens_tag = [], "lens_fail"
     _d("vision.lens", lens_tag=lens_tag, lens_cands=(lens_cands or [])[:8])  # DBG_VISION_LENS_V2
-
     if lens_cands:
         try:
             items = []
-            used_cand = lens_cands[0]
-            for cand in lens_cands[:12]:
-                cand = _clean_query_for_tmdb(cand)
-                if not cand or len(cand) < 3:
+            used_cand = ""
+
+            ordered = _pick_best_lens_candidates(lens_cands, limit=12)
+            _d("vision.lens.pick", ordered=ordered[:10])
+
+            for cand in ordered:
+                cand0 = cand
+
+                # hard drop obvious junk BEFORE touching TMDb
+                if _lens_bad_candidate(cand0):
                     continue
-                if _is_bad_media_query(cand):
+
+                cand0 = _clean_query_for_tmdb(cand0)
+                if not cand0 or len(cand0) < 3:
                     continue
-                cand = _tmdb_sanitize_query(_normalize_tmdb_query(cand))
-                if not _good_tmdb_cand(cand):
+                if _is_bad_media_query(cand0):
                     continue
-                items = await _tmdb_best_effort(cand, limit=5)
+
+                cand0 = _tmdb_sanitize_query(_normalize_tmdb_query(cand0))
+                if not _good_tmdb_cand(cand0):
+                    continue
+                if _reject_obvious_junk(cand0):
+                    continue
+
+                items = await _tmdb_best_effort(cand0, limit=5)
                 if items:
-                    used_cand = cand
+                    used_cand = cand0
                     break
+
         except Exception:
             items = []
-            used_cand = lens_cands[0] if lens_cands else ""
+            used_cand = ""
 
         if items:
             if user is not None:
@@ -1449,6 +1690,8 @@ async def run_assistant_vision(
                 _media_set(uid, used_cand, items)
 
             return build_media_context(items) + "\n\nВыбери номер варианта."
+
+    # Vision → TMDb candidates (robust)
 
     # Vision → TMDb candidates (robust)
     caption_str = (caption or "").strip()
