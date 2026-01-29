@@ -288,11 +288,13 @@ async def assistant_photo(
     caption = (m.caption or "").strip()
 
     # ✅ instant feedback + typing loop (refresh ~every 4s)
-    await m.answer("Окей, ищу по базе + картинке 👀")
+    await _ack_media_search_once(m, state)
     typing_task = asyncio.create_task(_typing_loop(m.chat.id, interval=4.0))
     try:
         reply = await run_assistant_vision(user, img_bytes, caption, lang, session=session)
     finally:
+
+        await _reset_media_ack(state)
         typing_task.cancel()
         try:
             await typing_task
@@ -300,6 +302,29 @@ async def assistant_photo(
             pass
 
     await m.answer(reply)
+
+
+async def _ack_media_search_once(m, state) -> None:
+    """
+    Prevent duplicate 'Окей...' when photo+text (or multiple handlers) fire.
+    Stores a small flag in FSM data; reset it after sending final reply.
+    """
+    try:
+        data = await state.get_data()
+        if data.get("_media_ack_sent"):
+            return
+        await state.update_data(_media_ack_sent=True)
+    except Exception:
+        # if FSM unavailable for some reason - still answer once
+        pass
+    await _ack_media_search_once(m, state)
+
+async def _reset_media_ack(state) -> None:
+    try:
+        await state.update_data(_media_ack_sent=False)
+    except Exception:
+        pass
+
 
 
 # =============== DIALOG (ВАЖНО: НЕ ЖРЁМ МЕНЮ) ===============
@@ -349,12 +374,14 @@ async def assistant_dialog(
 
     typing_task = None
     if is_media_like:
-        await m.answer("Окей, ищу по базе + картинке 👀")
+        await _ack_media_search_once(m, state)
         typing_task = asyncio.create_task(_typing_loop(m.chat.id, interval=4.0))
 
     try:
         reply = await run_assistant(user, text, lang, session=session)
     finally:
+
+        await _reset_media_ack(state)
         if typing_task:
             typing_task.cancel()
             try:

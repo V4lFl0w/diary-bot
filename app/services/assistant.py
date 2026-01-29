@@ -4,6 +4,26 @@ from __future__ import annotations
 import os
 import json
 import re
+
+import logging
+
+
+log = logging.getLogger("media")
+
+def _d(event: str, **kw) -> None:
+    """Structured debug logger for media/vision pipeline."""
+    safe = {}
+    for k, v in kw.items():
+        try:
+            import json as _json
+            _json.dumps(v, ensure_ascii=False, default=str)
+            safe[k] = v
+        except Exception:
+            safe[k] = str(v)
+    try:
+        log.info("[media] %s | %s", event, safe)
+    except Exception:
+        pass
 from datetime import datetime, timezone, timedelta, time as dtime
 from typing import Optional, Any
 
@@ -85,29 +105,49 @@ def _good_tmdb_cand(q: str) -> bool:
     q = (q or "").strip()
     if not q:
         return False
+
+    # hard caps
     if len(q) > 70:
         return False
 
     ql = q.lower()
 
-    # reject short adjective-only phrases (often model prose, not a title)
-    if (ql.startswith('легендарн') or ql.startswith('российск') or ql.startswith('советск')) and q.count(' ') <= 1:
-        return False
-
-    # reject obvious article/list headlines
-    bad = ("ведомост", "топ", "лучших", "подбор", "подборк", "список", "15 ", "10 ", "20 ")
-    if any(b in ql for b in bad):
+    # must contain letters
+    if not any(ch.isalpha() for ch in q):
         return False
 
     # too many words => not a title
     if q.count(" ") >= 7:
         return False
 
-    # must contain letters
-    if not any(ch.isalpha() for ch in q):
+    # reject short adjective-only phrases (often model prose, not a title)
+    if (ql.startswith("легендарн") or ql.startswith("российск") or ql.startswith("советск")) and q.count(" ") <= 1:
+        return False
+
+    # reject obvious list/headline queries
+    bad = ("ведомост", "топ", "лучших", "подбор", "подборк", "список", "15 ", "10 ", "20 ")
+    if any(b in ql for b in bad):
         return False
 
     return True
+
+
+def _reject_obvious_junk(q: str) -> bool:
+    ql = (q or "").strip().lower()
+    if not ql:
+        return True
+
+    # explicit junk
+    if ql in {"movie", "film", "series", "tv", "deep", "movie deep"}:
+        return True
+
+    # patterns like "movie X" with 1 extra token
+    if ql.startswith("movie ") and len(ql.split()) <= 2:
+        return True
+
+    return False
+
+
 try:
     from openai import AsyncOpenAI
 except ModuleNotFoundError:
@@ -306,7 +346,7 @@ def _media_clean_user_query(q: str) -> str:
 
     # normalize punctuation
     ql = re.sub(r"[“”\"'`]", " ", ql)
-    ql = re.sub(r"[,.;:!?()$begin:math:display$$end:math:display${}<>/\\\\|_+=~\-]+", " ", ql)
+    ql = re.sub(r"[,.;:!?()\{\}<>/\\\\|_+=~\-]+", " ", ql)
     ql = re.sub(r"\s{2,}", " ", ql).strip()
 
     # fallback to original if we over-cleaned
@@ -842,6 +882,7 @@ async def run_assistant(
     is_media = _is_media_query(text) or sticky_media_db or bool(st) or ((sticky_media_db or bool(st)) and _looks_like_year_or_hint(text))
 
     if is_media:
+        _d("media.enter", is_media=is_media, sticky_media_db=sticky_media_db, has_st=bool(st), uid=uid)  # DBG_MEDIA_RUN_ASSISTANT_V1
         # 1) User picked an option number
         if st and _looks_like_choice(text):
             idx = int(text.strip()) - 1
@@ -869,6 +910,7 @@ async def run_assistant(
             query = _tmdb_sanitize_query(_normalize_tmdb_query(f"{prev_q} {raw}"))
         else:
             query = _tmdb_sanitize_query(_normalize_tmdb_query(raw))
+        _d("media.built_query", prev_q=prev_q, raw=raw, query=query)
 
         # 3) Too generic → ask 1 detail
         if len(query) < 6 and ("фильм" in query.lower() or "что за" in query.lower()):
@@ -893,6 +935,7 @@ async def run_assistant(
 
             # 🔹 First try direct search by model/caption query
             items = await _tmdb_best_effort(query, limit=5)
+            _d("media.tmdb.primary", q=query, n=len(items or []), top=((items or [{}])[0].get('title') or (items or [{}])[0].get('name')) if items else None)
 
             # 🔹 If nothing found — use parsed hints
             hints = _parse_media_hints(query)
@@ -952,6 +995,7 @@ async def run_assistant(
                         items = []
                 # --- end guard ---
                 cands, tag = await web_to_tmdb_candidates(query, use_serpapi=False)
+                _d("media.web.cands", use_serpapi=False, tag=tag, n=len(cands or []), sample=(cands or [])[:5])
                 items = await _try_cands(cands)
             except Exception:
                 items = []
@@ -960,6 +1004,7 @@ async def run_assistant(
             if (not items) and (os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")):
                 try:
                     cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
+                    _d("media.web.cands_serp", use_serpapi=True, tag=tag, n=len(cands or []), sample=(cands or [])[:5])
                     items = await _try_cands(cands)
                 except Exception:
                     pass
@@ -1279,6 +1324,7 @@ async def run_assistant_vision(
         )
     except Exception:
         lens_cands, lens_tag = [], "lens_fail"
+    _d("vision.lens", lens_tag=lens_tag, lens_cands=(lens_cands or [])[:8])  # DBG_VISION_LENS_V2
 
     if lens_cands:
         try:
@@ -1312,15 +1358,19 @@ async def run_assistant_vision(
 
     # Vision → TMDb candidates (robust)
     caption_str = (caption or "").strip()
+    _d("vision.model_out", caption=caption_str[:120], out_text=(out_text or "")[:250], is_generic_caption=_is_generic_media_caption(caption_str))  # DBG_VISION_MODEL_OUT_V2
     # Prefer explicit SEARCH_QUERY from model, then title extracted from the explanation.
     search_q = _normalize_tmdb_query(_extract_search_query_from_text(out_text))
     title_from_text = _normalize_tmdb_query(_extract_title_like_from_model_text(out_text))
+    _d("vision.extract", search_q=search_q, title_from_text=title_from_text)  # DBG_VISION_EXTRACT_V2
 
     # CAND_LIST_JSON_PRIORITY_V1
     try:
         mj = _extract_media_json_from_model_text(out_text)
         json_queries = _build_tmdb_queries_from_media_json(mj)
-    except Exception:
+        _d("vision.json", json_queries=(json_queries or [])[:10])
+    except Exception as e:
+        _d("vision.json.fail", err=type(e).__name__, msg=str(e)[:200])
         json_queries = []
 
     # Build candidate list in priority order (JSON -> model text)
@@ -1352,6 +1402,8 @@ async def run_assistant_vision(
 
     # If we still have nothing -> ask for 1 detail (no TMDb spam)
 
+    _d("vision.cand_list", cand_list=cand_list[:15])  # DBG_VISION_CAND_LIST_V2
+
     if not cand_list:
         return MEDIA_NOT_FOUND_REPLY_RU
 
@@ -1362,6 +1414,10 @@ async def run_assistant_vision(
     for q in cand_list:
         if not _good_tmdb_cand(q):
             continue
+        if _reject_obvious_junk(q):
+            _d("vision.tmdb.reject_junk", q=q)
+            continue
+        _d("vision.tmdb.try", q=q)  # DBG_VISION_TMBD_TRY_V2
 
         try:
             q = _clean_query_for_tmdb(q)
@@ -1371,6 +1427,11 @@ async def run_assistant_vision(
             items = []
         if items:
             used_query = q
+            try:
+                top = items[0]
+                _d("vision.tmdb.hit", used_query=used_query, top_title=(top.get("title") or top.get("name")), top_year=top.get("year"), top_type=top.get("media_type"))
+            except Exception:
+                pass
             break
 
     # WEB fallback (only if still empty)
