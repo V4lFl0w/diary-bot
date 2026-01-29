@@ -6,6 +6,24 @@ from __future__ import annotations
 import os
 import json
 import re
+
+def _clean_tmdb_query(q: str) -> str:
+    t = (q or "").strip()
+
+    # убираем префиксы
+    t = re.sub(r"^(название\s+(фильма|сериала)\s*:\s*)", "", t, flags=re.I)
+    t = re.sub(r"^(title\s*:\s*)", "", t, flags=re.I)
+
+    # убираем кавычки-ёлочки и обычные
+    t = t.replace("«", "").replace("»", "").replace('"', "").replace("“", "").replace("”", "")
+
+    # убираем год в скобках
+    t = re.sub(r"\(\s*\d{4}\s*\)\s*$", "", t)
+
+    # финальная нормализация пробелов
+    t = " ".join(t.split())
+    return t
+
 import logging
 from time import time as _time_now
 from datetime import datetime, timezone, timedelta
@@ -197,7 +215,7 @@ async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
     """
     import asyncio
 
-    q = _normalize_tmdb_query(query)
+    q = _normalize_tmdb_query(_clean_tmdb_query(query))
     if not q:
         return []
 
@@ -1996,7 +2014,7 @@ async def run_assistant_vision(
                 if _lens_bad_candidate(cand0):
                     continue
 
-                cand0 = _normalize_tmdb_query(cand0)
+                cand0 = _normalize_tmdb_query(_clean_tmdb_query(cand0))
                 if not cand0 or len(cand0) < 3:
                     continue
                 if _is_bad_media_query(cand0):

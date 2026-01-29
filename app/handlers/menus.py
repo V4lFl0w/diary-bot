@@ -204,9 +204,17 @@ async def back_to_main(m: Message, session: AsyncSession, state: FSMContext) -> 
     )
 
 @router.message(F.text & ~F.text.startswith("/"))
-async def media_mode_text_router(message: Message, session: AsyncSession):
+async def media_mode_text_router(message: Message, session: AsyncSession, state: FSMContext):
+    # если уже внутри AssistantFSM — не дублируем ответ, пропускаем дальше
+    try:
+        if await state.get_state() == "AssistantFSM:waiting_question":
+            raise SkipHandler()
+    except Exception:
+        pass
+
+
     if not getattr(message, 'from_user', None):
-        raise SkipHandler
+        raise SkipHandler()
 
     """
     Если включен assistant_mode == 'media', то любой текст (включая ручное описание)
@@ -215,7 +223,7 @@ async def media_mode_text_router(message: Message, session: AsyncSession):
     """
     user = await session.scalar(select(User).where(User.tg_id == message.from_user.id))
     if not user or getattr(user, "assistant_mode", None) != "media":
-        raise SkipHandler
+        raise SkipHandler()
 
     try:
         now = datetime.now(timezone.utc)
@@ -224,13 +232,13 @@ async def media_mode_text_router(message: Message, session: AsyncSession):
 
     until = getattr(user, "assistant_mode_until", None)
     if until is not None and until <= now:
-        raise SkipHandler
+        raise SkipHandler()
 
     # язык берём так же, как у тебя по проекту (если есть поле lang)
     lang = getattr(user, "lang", None) or "ru"
     text = (message.text or "").strip()
     if not text:
-        raise SkipHandler
+        raise SkipHandler()
 
     reply = await run_assistant(user, text, lang, session=session)
     if reply:
