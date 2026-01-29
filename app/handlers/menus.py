@@ -6,7 +6,7 @@ from typing import Optional
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
-from aiogram.exceptions import SkipHandler
+from aiogram.dispatcher.event.bases import SkipHandler
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -25,6 +25,7 @@ from app.keyboards import (
     is_back_btn,
 )
 from app.services.analytics_helpers import log_ui
+from app.services.assistant import run_assistant
 
 router = Router(name="menus")
 
@@ -204,6 +205,9 @@ async def back_to_main(m: Message, session: AsyncSession, state: FSMContext) -> 
 
 @router.message(F.text & ~F.text.startswith("/"))
 async def media_mode_text_router(message: Message, session: AsyncSession):
+    if not getattr(message, 'from_user', None):
+        raise SkipHandler
+
     """
     Если включен assistant_mode == 'media', то любой текст (включая ручное описание)
     уходит в run_assistant и возвращает варианты/выбор.

@@ -315,9 +315,15 @@ async def _ack_media_search_once(m, state) -> None:
             return
         await state.update_data(_media_ack_sent=True)
     except Exception:
-        # if FSM unavailable for some reason - still answer once
+        # если FSM недоступен — всё равно просто ответим один раз
         pass
-    await _ack_media_search_once(m, state)
+
+    # ✅ одноразовый ack (без рекурсии)
+    try:
+        await m.answer("Окей, щас гляну и найду. ⏳")
+    except Exception:
+        pass
+
 
 async def _reset_media_ack(state) -> None:
     try:
