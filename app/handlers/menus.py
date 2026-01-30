@@ -5,7 +5,7 @@ from typing import Optional
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
-from aiogram.exceptions import SkipHandler
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.fsm.context import FSMContext
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
