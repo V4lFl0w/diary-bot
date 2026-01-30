@@ -593,6 +593,17 @@ async def run_assistant(
         )  # DBG_MEDIA_RUN_ASSISTANT_V1
         raw_text = (text or "").strip()
 
+        # стабилизация: если пользователь повторяет тот же запрос и у нас уже есть варианты — не пересчитываем
+        try:
+            if st and (st.get('items') or []) and raw_text:
+                raw_norm = _tmdb_sanitize_query(_normalize_tmdb_query(raw_text.strip()))
+                prev_norm = _tmdb_sanitize_query(_normalize_tmdb_query((st.get('query') or '').strip()))
+                if raw_norm and prev_norm and raw_norm == prev_norm:
+                    opts = st.get('items') or []
+                    return _format_media_ranked(prev_norm, opts, year_hint=_parse_media_hints(prev_norm).get('year'), lang=lang, source='cache')
+        except Exception:
+            pass
+
         # 1) User picked an option number: "1", "2", ...
         if st and _looks_like_choice(raw_text):
             idx = int(raw_text) - 1
@@ -615,6 +626,8 @@ async def run_assistant(
         raw = raw_text
         prev_q = ((st.get("query") if st else "") or "").strip()
 
+        
+
         # не даём "ядовитым" фразам портить поисковую строку
         if st and re.search(
             r"(?i)\b(не\s*то|не\s*подходит|ничего\s*не|такого\s*фильма|не\s*существует)\b",
@@ -624,8 +637,20 @@ async def run_assistant(
 
         # короткое уточнение (год/актёр/страна/язык/серия/эпизод) — добавляем к прошлому запросу
         raw = _normalize_tmdb_query(raw)
-        if st and prev_q and _looks_like_year_or_hint(raw) and len(raw) <= 60:
-            query = _tmdb_sanitize_query(_normalize_tmdb_query(f"{prev_q} {raw}"))
+
+        # если есть активная media-сессия и пользователь прислал уточнение — приклеиваем к прошлому запросу
+        # (не только год/актёр, но и короткое описание сцены)
+        if st and prev_q and raw and (len(raw) <= 140):
+            raw_l = raw.lower().strip()
+            prev_l = prev_q.lower().strip()
+            # если пользователь фактически повторил прошлый запрос — не дергаем новый поиск
+            if raw_l == prev_l:
+                query = _tmdb_sanitize_query(_normalize_tmdb_query(prev_q))
+            # если в уточнении уже есть прошлый запрос — используем уточнение как есть
+            elif prev_l and (prev_l in raw_l):
+                query = _tmdb_sanitize_query(_normalize_tmdb_query(raw))
+            else:
+                query = _tmdb_sanitize_query(_normalize_tmdb_query(f"{prev_q} {raw}"))
         else:
             query = _tmdb_sanitize_query(_clean_media_search_query(raw))
         _d("media.built_query", prev_q=prev_q, raw=raw, query=query)

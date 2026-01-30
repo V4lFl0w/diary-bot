@@ -70,7 +70,7 @@ async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMCon
     data = (cb.data or "").strip()
 
     # allow assistant's own callbacks to be handled by assistant handlers
-    if data.startswith(("assistant_", "assistant:", "assistant_pick:")):
+    if data.startswith(("assistant_", "assistant:", "assistant_pick:", "media:")):
         return
 
     # everything else (Menu/Journal/Settings/Media/etc) must pass through
