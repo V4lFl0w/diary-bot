@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import time
 # app/services/assistant.py
 import os
 import re
@@ -79,6 +79,31 @@ except ModuleNotFoundError:
 
 # --- restored helpers (from assistant.py.bak2) ---
 
+
+
+# --- vision cache (screenshot -> result) ---
+_VISION_IMG_CACHE: dict[str, tuple[float, str]] = {}
+_VISION_IMG_CACHE_TTL_SEC = 30 * 60  # 30 minutes
+
+def _vision_cache_get(key: str) -> str | None:
+    try:
+        v = _VISION_IMG_CACHE.get(key)
+        if not v:
+            return None
+        ts, reply = v
+        if (time.time() - ts) > _VISION_IMG_CACHE_TTL_SEC:
+            _VISION_IMG_CACHE.pop(key, None)
+            return None
+        return reply
+    except Exception:
+        return None
+
+def _vision_cache_set(key: str, reply: str) -> None:
+    try:
+        if key and reply:
+            _VISION_IMG_CACHE[key] = (time.time(), reply)
+    except Exception:
+        pass
 
 # --- safety: scrub explicit overviews (TMDb sometimes returns NSFW text even with include_adult=false) ---
 
@@ -262,6 +287,8 @@ def _assistant_plan(user: Optional[User]) -> str:
         return "free"
 
     now = datetime.now(timezone.utc)
+
+
     # если premium_until есть и он истёк → FREE
     pu = getattr(user, "premium_until", None)
     if pu is not None:
@@ -582,7 +609,7 @@ async def run_assistant(
             opts = st.get("items") or []
             if not opts:
                 return MEDIA_NOT_FOUND_REPLY_RU
-            return build_media_context(opts) + "\n\nВыбери номер варианта."
+            return build_media_context(opts) + "\n\n👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.\nЕсли кнопок нет — ответь цифрой."
         # 2) Build query (new query vs follow-up hint)# 2) Merge уточнение with previous query
         # 2) Build query (new query vs follow-up hint)
         raw = raw_text
@@ -866,6 +893,19 @@ async def run_assistant_vision(
 
     now = datetime.now(timezone.utc)
 
+    # --- cache by image bytes (avoid repeated Vision/Lens/TMDb on same screenshot) ---
+    img_key = ""
+    try:
+        import hashlib
+        img_key = hashlib.sha256(image_bytes).hexdigest()
+    except Exception:
+        img_key = ""
+    if img_key:
+        cached = _vision_cache_get(img_key)
+        if cached:
+            return cached
+
+
     instr = (
         ANTI_HALLUCINATION_PREFIX
         + _instructions(lang, plan)
@@ -922,6 +962,21 @@ async def run_assistant_vision(
     out_text = (getattr(resp, "output_text", None) or "").strip()
     out_text = str(out_text)
 
+
+    def _norm_lens_candidate(x: str) -> str:
+        try:
+            x = (x or "").strip()
+            if not x:
+                return ""
+            # drop common junk tokens
+            x = re.sub(r"\b(1080p|720p|2160p|4k|hdr|webrip|brrip|bluray|dvdrip|hdtv|x264|x265|hevc|aac|dts)\b", "", x, flags=re.I)
+            x = re.sub(r"\b(season\s*\d+|s\d{1,2}e\d{1,2}|episode\s*\d+)\b", "", x, flags=re.I)
+            x = re.sub(r"[\[\]\(\)\{\}]", " ", x)
+            x = re.sub(r"\s{2,}", " ", x).strip(" -:;,.\t\n\r")
+            # hard cap length
+            return x[:120]
+        except Exception:
+            return (x or "").strip()[:120]
     # trace.moe (anime) — только если модель явно сказала "аниме"
     if any(k in out_text.lower() for k in ("аниме", "anime")):
         try:
@@ -969,8 +1024,9 @@ async def run_assistant_vision(
             _d("vision.lens.pick", ordered=ordered[:10])
 
             for cand in ordered:
-                cand0 = cand
-
+                cand0 = _norm_lens_candidate(cand)
+                if not cand0:
+                    continue
                 # hard drop obvious junk BEFORE touching TMDb
                 if _lens_bad_candidate(cand0):
                     continue
@@ -1003,13 +1059,18 @@ async def run_assistant_vision(
             uid = _media_uid(user)
             if uid and used_cand:
                 _media_set(uid, used_cand, items)
+            reply = _format_media_ranked(used_cand, items, year_hint=_parse_media_hints(used_cand).get('year'), lang=lang, source='tmdb')
+            if img_key:
+                _vision_cache_set(img_key, reply)
+            return reply
 
-            return _format_media_ranked(used_cand, items, year_hint=_parse_media_hints(used_cand).get('year'), lang=lang, source='tmdb')
 
     # Vision → TMDb candidates (robust)
 
     # Vision → TMDb candidates (robust)
     caption_str = (caption or "").strip()
+
+
     _d(
         "vision.model_out",
         caption=caption_str[:120],
@@ -1134,9 +1195,10 @@ async def run_assistant_vision(
 
         # Default: return title directly if confident (or single result)
         top = items[0]
-
-        return _format_media_ranked(used_query or (cand_list[0] if cand_list else ''), items, year_hint=_parse_media_hints(used_query or (cand_list[0] if cand_list else '')).get('year'), lang=lang, source='tmdb')
-
+        reply = _format_media_ranked(used_query or (cand_list[0] if cand_list else ''), items, year_hint=_parse_media_hints(used_query or (cand_list[0] if cand_list else '')).get('year'), lang=lang, source='tmdb')
+        if img_key:
+            _vision_cache_set(img_key, reply)
+        return reply
     # --- Failsafe: Vision must always return text ---
     final_text = (out_text or "").strip()
     if final_text:

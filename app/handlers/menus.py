@@ -27,6 +27,8 @@ from app.keyboards import (
 from app.services.analytics_helpers import log_ui
 from app.services.assistant import run_assistant
 
+
+from app.handlers.assistant import _media_inline_kb
 router = Router(name="menus")
 
 
@@ -240,4 +242,5 @@ async def media_mode_text_router(message: Message, session: AsyncSession, state:
 
     reply = await run_assistant(user, text, lang, session=session)
     if reply:
-        await message.answer(reply)
+        clean = reply.replace("\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", "")
+        await message.answer(clean, reply_markup=_media_inline_kb(), parse_mode=None)

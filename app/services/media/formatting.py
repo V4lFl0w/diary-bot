@@ -123,53 +123,81 @@ def _tmdb_score_item(query: str, it: dict, *, year_hint: str | None = None, lang
     return score, (", ".join(why[:2]) if why else "похоже по общим признакам")
 
 def _format_media_ranked(query: str, items: list[dict], *, year_hint: str | None = None, lang: str = "ru", source: str = "tmdb") -> str:
-    """Best match + why + 2–3 alternatives. Threshold to avoid junk."""
+    """Best match + why + 2–3 alternatives. Buttons-first. Digits only as fallback."""
     if not items:
         return MEDIA_NOT_FOUND_REPLY_RU
 
-    scored = []
+    def _short_overview(it: dict, lim: int = 220) -> str:
+        ov = (it.get("overview") or "").strip()
+        if not ov:
+            return ""
+        if len(ov) <= lim:
+            return ov
+        cut = ov[:lim].rsplit(" ", 1)[0].strip()
+        return (cut + "…") if cut else (ov[:lim] + "…")
+
+    # score + reason
+    scored: list[tuple[float, str, dict]] = []
     for it in items:
-        sc, why = _tmdb_score_item(query, it, year_hint=year_hint, lang_hint=("ru" if lang == "ru" else None))
-        scored.append((sc, why, it))
+        try:
+            sc, why = _tmdb_score_item(query, it, year_hint=year_hint, lang_hint=("ru" if lang == "ru" else None))
+        except Exception:
+            sc, why = 0.0, "похоже по общим признакам"
+        scored.append((float(sc), str(why), it))
     scored.sort(key=lambda x: x[0], reverse=True)
 
     best_sc, best_why, best = scored[0]
     alts = scored[1:4]
 
-    TH = 0.58
-    if best_sc < TH:
-        lines = ["🎬 Похоже, но уверенности мало.", ""]
-        for i, (sc, why, it) in enumerate(scored[:2], start=1):
-            t = (it.get("title") or it.get("name") or "—")
-            y = (it.get("year") or "—")
-            r = (it.get("vote_average") or "—")
-            lines.append(f"{i}) {t} ({y}) — ⭐ {r} · {why}")
-        lines += ["", "🧩 Уточни 1 деталь: год / актёр / страна / что происходит в сцене — и я добью точно."]
-        return "\n".join(lines)
-
+    # fields
     t = (best.get("title") or best.get("name") or "—")
     y = (best.get("year") or "—")
     r = (best.get("vote_average") or "—")
-    lines = [
-        f"✅ Лучшее совпадение: {t} ({y}) — ⭐ {r}",
-        f"Почему: {best_why}.",
-    ]
+    kind = (best.get("media_type") or "").strip()
+    kind_ru = "сериал" if kind == "tv" else "фильм" if kind == "movie" else (kind or "медиа")
+
+    ov = _short_overview(best)
+
+    TH = 0.58
+    if best_sc < TH:
+        out: list[str] = []
+        out.append("🎬 Нашёл варианты, но уверенность низкая.")
+        out.append("")
+        for i, (sc, why, it) in enumerate(scored[:3], start=1):
+            tt = (it.get("title") or it.get("name") or "—")
+            yy = (it.get("year") or "—")
+            rr = (it.get("vote_average") or "—")
+            kk = (it.get("media_type") or "").strip()
+            kk_ru = "сериал" if kk == "tv" else "фильм" if kk == "movie" else (kk or "медиа")
+            out.append(f"{i}) {tt} ({yy}) — {kk_ru} · ⭐ {rr} · {why}")
+        out.append("")
+        out.append("🧩 Уточни 1 деталь: год / актёр / страна / серия-эпизод / что происходит в сцене.")
+        out.append("👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.")
+        out.append("Если кнопок нет — можешь ответить цифрой 1–3.")
+        return "\n".join(out)
+
+    out2: list[str] = []
+    out2.append(f"✅ Лучшее совпадение: {t} ({y}) — {kind_ru} · ⭐ {r}")
+    out2.append(f"Почему: {best_why}.")
+    if ov:
+        out2.append("")
+        out2.append(ov)
+
     if alts:
-        lines.append("")
-        lines.append("Альтернативы:")
+        out2.append("")
+        out2.append("Альтернативы (если не то):")
         for i, (sc, why, it) in enumerate(alts, start=1):
             tt = (it.get("title") or it.get("name") or "—")
             yy = (it.get("year") or "—")
             rr = (it.get("vote_average") or "—")
-            lines.append(f"{i}) {tt} ({yy}) — ⭐ {rr}")
-    lines += ["", "Кнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить"]
-    return "\n".join(lines)
+            kk = (it.get("media_type") or "").strip()
+            kk_ru = "сериал" if kk == "tv" else "фильм" if kk == "movie" else (kk or "медиа")
+            out2.append(f"{i}) {tt} ({yy}) — {kk_ru} · ⭐ {rr}")
 
-MEDIA_VIDEO_STUB_REPLY_RU = (
-    "Понял. По видео/кружку/голосу я скоро научусь находить фильмы/серии.\n"
-    "Пока так: пришли 1 кадр (скрин) или опиши сцену текстом (1–2 факта) + год/актёр, если знаешь."
-)
-
+    out2.append("")
+    out2.append("👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.")
+    out2.append("Если кнопок нет — можешь ответить цифрой 1–3.")
+    return "\n".join(out2)
 def _format_one_media(item: dict) -> str:
     # items come from tmdb_search_multi(): title/year/media_type/overview/vote_average
     title = (item.get("title") or item.get("name") or "Без названия").strip()
