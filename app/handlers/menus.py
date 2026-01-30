@@ -250,9 +250,9 @@ log = logging.getLogger(__name__)
 
 @router.message()
 async def fallback_text_handler(message, state=None, session=None):
+    """Catch-all: avoid 'Update is not handled' and route to assistant."""
     try:
         from app.handlers.assistant import assistant_dialog
-        return await assistant_dialog(message=message, state=state, session=session)
+        return await assistant_dialog(message, state, session)  # ← ВОТ ТАК
     except Exception:
-        log.exception("menus.fallback_text_handler failed")
         return
