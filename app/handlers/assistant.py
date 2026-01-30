@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from aiogram import Router, F
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
@@ -272,6 +273,8 @@ async def assistant_menu_exit(m: Message, state: FSMContext) -> None:
     await state.clear()
 
 
+
+    raise SkipHandler()
 # =============== PHOTO (PRO) ===============
 
 @router.message(AssistantFSM.waiting_question, F.photo)
@@ -338,13 +341,6 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
     else:
         await m.answer(str(reply))
 
-@router.message(
-    AssistantFSM.waiting_question,
-    F.text
-    & ~F.photo
-    & ~F.text.func(_is_menu_click)
-    & ~F.text.startswith("/")
-)
 @router.message(
     AssistantFSM.waiting_question,
     F.text

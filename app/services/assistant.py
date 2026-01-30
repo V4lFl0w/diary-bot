@@ -1196,6 +1196,10 @@ async def run_assistant_vision(
         # Default: return title directly if confident (or single result)
         top = items[0]
         reply = _format_media_ranked(used_query or (cand_list[0] if cand_list else ''), items, year_hint=_parse_media_hints(used_query or (cand_list[0] if cand_list else '')).get('year'), lang=lang, source='tmdb')
+    # --- guard: stop after first successful items build
+    if items:
+        return reply
+
         if img_key:
             _vision_cache_set(img_key, reply)
         return reply
