@@ -216,11 +216,11 @@ async def assistant_entry(
             "• 🌊 снижает шум в голове и помогает дойти до действий\n\n"
             "• написать лёгкий код, помочь найти фильм, который ты долго ищешь и многое другое\n\n"
             "Чтобы выйти — напиши «стоп» или /cancel."
-            "💎 Доступен в Premium. Нажми **Премиум** в меню ниже — и включим.",
+            "💎 Доступен в Premium. Нажми **Премиум** в меню ниже — и включим."
+            "Привет! Как могу помочь?",
             reply_markup=get_main_kb(lang, is_premium=False, is_admin=is_admin),
             parse_mode="Markdown",
         )
-        await m.answer("Привет! Как могу помочь?")
         return
 
 
@@ -280,6 +280,11 @@ async def assistant_photo(
         )
         return
 
+    # ✅ enter assistant FSM (so photo/text handlers match)
+    await state.set_state(AssistantFSM.waiting_question)
+
+    # ✅ static greeting (no duplicates)
+    await m.answer("Привет! Как могу помочь?")
     from app.services.assistant import _assistant_plan, run_assistant_vision
     plan = _assistant_plan(user)
     if plan != "pro":

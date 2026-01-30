@@ -468,3 +468,12 @@ def _is_bad_media_query(q: str) -> bool:
         return True
 
     return False
+
+
+# === SOCIAL FILTER ===
+_BAD_WORDS = ("instagram", "tiktok", "facebook", "vk.com", "@", "profile")
+
+def _is_social_garbage(title: str) -> bool:
+    tl = title.lower()
+    return any(w in tl for w in _BAD_WORDS)
+# === END FILTER ===
