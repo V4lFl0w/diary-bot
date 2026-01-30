@@ -34,6 +34,7 @@ from typing import Any, Awaitable, Callable, Dict
 
 from app.logging_setup import setup_logging
 from aiogram import BaseMiddleware, Dispatcher
+from app.middlewares.trace import TraceUpdateMiddleware
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
@@ -129,6 +130,8 @@ except Exception:
 
 
 # ---------- команды ----------
+logger = logging.getLogger(__name__)
+
 
 def _has_calories_feature() -> bool:
     try:
@@ -297,6 +300,7 @@ async def _safe_start_scheduler() -> None:
 
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=MemoryStorage())
+    dp.update.outer_middleware(TraceUpdateMiddleware(logger))
 
     # 1) Сначала сессия БД (чтобы policy_gate мог читать acceptance)
     dp.update.outer_middleware(DBSessionMiddleware())

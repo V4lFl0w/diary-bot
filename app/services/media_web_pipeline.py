@@ -1,5 +1,6 @@
 # app/services/media_web_pipeline.py
 from __future__ import annotations
+from app.services.assistant import _ASpan, _atrace
 
 import os
 import logging

@@ -1,5 +1,72 @@
 from __future__ import annotations
+
+import os as _os
+import time as _time
+import contextvars as _contextvars
+import uuid as _uuid
+
+async def _send_dbg(logger, kind: str, fn, *args, **kwargs):
+    """Обертка для отправки сообщений: логирует наличие клавиатуры/markup и текст (коротко)."""
+    if _TRACE_ON:
+        txt = None
+        try:
+            if 'text' in kwargs and isinstance(kwargs.get('text'), str):
+                txt = kwargs.get('text')[:180]
+        except Exception:
+            pass
+        _atrace(logger, f'tg.{kind}.send', has_markup=bool(kwargs.get('reply_markup') or kwargs.get('markup')), text=txt)
+    return await fn(*args, **kwargs)
+
+
+_TRACE_ON = _os.getenv("TRACE_ASSISTANT", "0") == "1"
+_trace_id_var: _contextvars.ContextVar[str] = _contextvars.ContextVar("atrace_id", default="")
+
+def _atrace_id() -> str:
+    return _trace_id_var.get() or "-"
+
+def _atrace_new(prefix: str = "a") -> str:
+    return f"{prefix}{_uuid.uuid4().hex[:10]}"
+
+def _atrace(logger, stage: str, **kv):
+    if not _TRACE_ON:
+        return
+    try:
+        logger.info("[trace] %s | %s | %s", _atrace_id(), stage, kv)
+    except Exception:
+        pass
+
+class _ASpan:
+    def __init__(self, logger, stage: str, **kv):
+        self.logger = logger
+        self.stage = stage
+        self.kv = kv
+        self.t0 = None
+    def __enter__(self):
+        self.t0 = _time.time()
+        _atrace(self.logger, self.stage + ".in", **self.kv)
+        return self
+    def __exit__(self, exc_type, exc, tb):
+        dt = int((_time.time() - (self.t0 or _time.time())) * 1000)
+        if exc is not None:
+            _atrace(self.logger, self.stage + ".err", ms=dt, err=str(exc))
+            return False
+        _atrace(self.logger, self.stage + ".out", ms=dt)
+        return False
+
+def _atrace_set(tid: str):
+    try:
+        _trace_id_var.set(tid)
+    except Exception:
+        pass
 import time
+
+def _dbg_media(logger, tag: str, **kv):
+    _dbg_media(logger, 'enter_safe', is_media=locals().get('is_media'), sticky_media_db=locals().get('sticky_media_db'), has_st=locals().get('has_st'), uid=str(locals().get('uid')))
+    try:
+        logger.info('[media][dbg] %s | %s', tag, kv)
+    except Exception:
+        pass
+
 # app/services/assistant.py
 import os
 import re
