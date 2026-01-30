@@ -1059,10 +1059,11 @@ async def run_assistant_vision(
             uid = _media_uid(user)
             if uid and used_cand:
                 _media_set(uid, used_cand, items)
-            reply = _format_media_ranked(used_cand, items, year_hint=_parse_media_hints(used_cand).get('year'), lang=lang, source='tmdb')
-            if img_key:
-                _vision_cache_set(img_key, reply)
-            return reply
+            if items:
+                reply = _format_media_ranked(used_cand, items, year_hint=_parse_media_hints(used_cand).get('year'), lang=lang, source='tmdb')
+                if img_key:
+                    _vision_cache_set(img_key, reply)
+                return reply
 
 
     # Vision → TMDb candidates (robust)
@@ -1196,10 +1197,6 @@ async def run_assistant_vision(
         # Default: return title directly if confident (or single result)
         top = items[0]
         reply = _format_media_ranked(used_query or (cand_list[0] if cand_list else ''), items, year_hint=_parse_media_hints(used_query or (cand_list[0] if cand_list else '')).get('year'), lang=lang, source='tmdb')
-    # --- guard: stop after first successful items build
-    if items:
-        return reply
-
         if img_key:
             _vision_cache_set(img_key, reply)
         return reply
@@ -1208,3 +1205,4 @@ async def run_assistant_vision(
     if final_text:
         return final_text
     return MEDIA_NOT_FOUND_REPLY_RU
+
