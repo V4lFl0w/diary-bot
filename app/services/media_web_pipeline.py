@@ -8,6 +8,7 @@ import json
 import urllib.parse
 import urllib.request
 from typing import List, Tuple
+from app.services.media_text import YEAR_RE as _YEAR_RE, SXXEYY_RE as _SXXEYY_RE
 
 # --- candidate cleanup: drop SEO/stock-image junk that often comes from web search ---
 _SEO_TRASH_TOKENS = (
@@ -36,8 +37,6 @@ def _clean_title_cands(cands: list[str]) -> list[str]:
         seen.add(key)
         out.append(c2)
     return out
-from app.services.media_text import YEAR_RE as _YEAR_RE, SXXEYY_RE as _SXXEYY_RE
-
 _LOG = logging.getLogger(__name__)
 _DEBUG = os.getenv('MEDIA_WEB_DEBUG', '').lower() in ('1','true','yes','on')
 def _norm(q: str) -> str:
@@ -139,13 +138,7 @@ def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
         t = _norm(t)
         if not t:
             return
-        tl = t.lower()
-        bad = ("watch", "online", "stream", "full movie", "hd", "netflix", "torrent")
-        if any(x in tl for x in bad):
-            return
-        if len(t) > 85:
-            return
-        if t.count(" ") >= 12:
+        if _is_bad_lens_title(t):
             return
         out.append(t)
 
@@ -177,6 +170,41 @@ def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     return _dedupe(out)[:limit]
 
 # --- Lens post-processing (cleanup titles -> TMDB-friendly short candidates) ---
+
+
+def _is_bad_lens_title(t: str) -> bool:
+    if not isinstance(t, str):
+        return True
+    t = _norm(t)
+    if not t:
+        return True
+
+    tl = t.lower()
+
+    bad_words = (
+        "watch", "online", "stream", "full movie", "full hd", "hd", "1080", "720",
+        "torrent", "netflix", "youtube", "youtu.be", "vk.com", "tiktok", "rutube", "ok.ru",
+        "смотреть онлайн", "бесплатно", "фильм онлайн", "сериал онлайн",
+        "биография", "интервью", "совместные работы", "премьера", "новости", "обзор", "рецензия",
+        "википедия", "wiki", "кинопоиск",
+        "актёр", "актер", "актриса", "режиссёр", "режиссер",
+    )
+
+    if any(x in tl for x in bad_words):
+        return True
+
+    # too long / too many words => likely article title
+    if len(t) > 85:
+        return True
+    if t.count(" ") >= 12:
+        return True
+
+    # many Capitalized words often means news/article headline
+    caps = sum(1 for w in t.split() if w[:1].isupper())
+    if caps >= 4:
+        return True
+
+    return False
 
 _LENS_SITE_TOKENS = {
     "imdb", "youtube", "netflix", "wikipedia", "reddit", "tiktok", "instagram", "facebook",

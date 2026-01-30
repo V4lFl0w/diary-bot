@@ -1,68 +1,65 @@
 from __future__ import annotations
+
 # app/services/assistant.py
-
-
-
 import os
-import json
 import re
-import logging
-from time import time as _time_now
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Any, cast
-
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
-from sqlalchemy import select, desc
-from app.services.media_text import YEAR_RE as _YEAR_RE, SXXEYY_RE as _SXXEYY_RE
-from app.services.intent_router import detect_intent, Intent
 
-from app.models.user import User
+from sqlalchemy import desc, select
+
 from app.models.journal import JournalEntry
-
-
-
-def _media_ctx_should_stick(intent: Intent) -> bool:
-    return intent in (Intent.MEDIA_IMAGE, Intent.MEDIA_TEXT)
-
-async def _clear_sticky_media_if_any(state) -> None:
-    # Best-effort: supports aiogram FSMContext (state.get_data / update_data)
-    if state is None:
-        return
-    try:
-        data = await state.get_data()
-    except Exception:
-        return
-    # common keys we might have used for sticky media
-    keys = ["sticky_media", "sticky", "st", "last_media", "media_ctx", "prev_q", "media_prev_q"]
-    if not any(k in data for k in keys):
-        return
-    patch = {k: None for k in keys if k in data}
-    try:
-        await state.update_data(**patch)
-    except Exception:
-        return
-
-def _clean_tmdb_query(q: str) -> str:
-    t = (q or "").strip()
-
-    # убираем префиксы
-    t = re.sub(r"^(название\s+(фильма|сериала)\s*:\s*)", "", t, flags=re.I)
-    t = re.sub(r"^(title\s*:\s*)", "", t, flags=re.I)
-
-    # убираем кавычки-ёлочки и обычные
-    t = t.replace("«", "").replace("»", "").replace('"', "").replace("“", "").replace("”", "")
-
-    # убираем год в скобках
-    t = re.sub(r"\(\s*\d{4}\s*\)\s*$", "", t)
-
-    # финальная нормализация пробелов
-    t = " ".join(t.split())
-    return t
-
+from app.models.user import User
+from app.services.intent_router import Intent, detect_intent
+from app.services.media.formatting import (
+    MEDIA_NOT_FOUND_REPLY_RU,
+    MEDIA_VIDEO_STUB_REPLY_RU,
+    _format_media_pick,
+    _format_media_ranked,
+    build_media_context,
+)
+from app.services.media.lens import (
+    _lens_bad_candidate,
+    _pick_best_lens_candidates,
+)
 
 # --- Optional OpenAI import (server may not have it) ---
-
 # --- Anti-hallucination prefix (local-only; do not import) ---
+# --- media helpers split (auto) ---
+from app.services.media.logging import _d
+from app.services.media.pipeline_tmdb import _tmdb_best_effort
+from app.services.media.query import (
+    _clean_media_search_query,
+    _clean_tmdb_query,
+    _extract_media_kind_marker,
+    _good_tmdb_cand,
+    _is_asking_for_title,
+    _is_bad_media_query,
+    _is_generic_media_caption,
+    _looks_like_freeform_media_query,
+    _normalize_tmdb_query,
+    _parse_media_hints,
+    _tmdb_sanitize_query,
+)
+from app.services.media.safety import (
+    _scrub_media_items,
+)
+from app.services.media.session import (
+    _MEDIA_SESSIONS,
+    _looks_like_choice,
+    _looks_like_year_or_hint,
+    _media_get,
+    _media_set,
+    _media_uid,
+)
+from app.services.media.vision_parse import (
+    _build_tmdb_queries_from_media_json,
+    _extract_media_json_from_model_text,
+    _extract_search_query_from_text,
+    _extract_title_like_from_model_text,
+)
+
 ANTI_HALLUCINATION_PREFIX: str = ""
 
 try:
@@ -74,220 +71,23 @@ except ModuleNotFoundError:
 
 # --- Project-level constants (fallbacks) ---
 # Used by _is_generic_media_caption
-_GENERIC_MEDIA_CAPTIONS: set[str] = {
-    "откуда кадр",
-    "откуда кадр?",
-    "что за фильм",
-    "что за фильм?",
-    "что за сериал",
-    "что за сериал?",
-    "что за мультик",
-    "что за мультик?",
-    "как называется",
-    "как называется?",
-}
-
-MEDIA_NOT_FOUND_REPLY_RU = (
-    "Не могу уверенно найти по этому запросу.\n"
-    "Дай 1–2 факта: актёр/актриса, примерный год, страна или что происходит в сцене."
-)
-
-
+# _GENERIC_MEDIA_CAPTIONS moved to app/services/media/query.py
 # --- restored media helpers (from assistant.py.bak2) ---
-def _dedupe_media(items: list[dict]) -> list[dict]:
-    seen = set()
-    out: list[dict] = []
-    for it in items or []:
-        key = (
-            it.get("media_type"),
-            it.get("id"),
-            ((it.get("title") or "") + "|" + (it.get("name") or "")).lower(),
-            it.get("year"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(it)
-    return out
 
-def _sort_media(items: list[dict]) -> list[dict]:
-    def score(it: dict) -> float:
-        try:
-            return (
-                float(it.get("popularity") or 0) * 0.8
-                + float(it.get("vote_average") or 0) * 2.0
-            )
-        except Exception:
-            return 0.0
-
-    return sorted(items or [], key=score, reverse=True)
 
 
 
 # --- restored helpers (from assistant.py.bak2) ---
-def _extract_title_like_from_model_text(text: str) -> str:
-    """Try to extract a title from model explanation."""
-    t = (text or "").strip()
-    if not t:
-        return ""
-
-    # RU quotes: «...»
-    m = re.search(r"[«](.+?)[»]", t)
-    if m:
-        cand = (m.group(1) or "").strip()
-        if 2 <= len(cand) <= 80:
-            return cand
-
-    # EN quotes "..."
-    m = re.search(r"\"(.+?)\"", t)
-    if m:
-        cand = (m.group(1) or "").strip()
-        if 2 <= len(cand) <= 80:
-            return cand
-
-    # Title: / Название:
-    m = re.search(r"(?im)^\s*(title|название)\s*:\s*(.+?)\s*$", t)
-    if m:
-        cand = (m.group(2) or "").strip()
-        cand = re.sub(r"\s+", " ", cand)
-        if 2 <= len(cand) <= 80:
-            return cand
-
-    return ""
 
 
 # --- safety: scrub explicit overviews (TMDb sometimes returns NSFW text even with include_adult=false) ---
-_EXPLICIT_OVERVIEW_WORDS = (
-    # EN
-    "sex",
-    "sexual",
-    "porn",
-    "nude",
-    "nudity",
-    "tits",
-    "boobs",
-    "penis",
-    "vagina",
-    "rape",
-    "incest",
-    "blowjob",
-    "handjob",
-    # RU/UA (минимальный набор явных маркеров)
-    "секс",
-    "сексуал",
-    "порно",
-    "обнажен",
-    "обнаж",
-    "эрот",
-    "трах",
-    "член",
-    "вагин",
-    "грудь",
-    "сиськ",
-    "изнасил",
-    # ES/other
-    "tetas",
-    "desnudo",
-    "desnuda",
-)
-
-def _is_explicit_text(t: str) -> bool:
-    tl = (t or "").lower()
-    return any(w in tl for w in _EXPLICIT_OVERVIEW_WORDS)
-
-def _scrub_media_item(it: dict) -> dict:
-    # do not mutate original dict aggressively
-    if not isinstance(it, dict):
-        return it
-    if it.get("adult"):
-        return it
-    ov = it.get("overview") or ""
-    if ov and _is_explicit_text(str(ov)):
-        it = dict(it)
-        it["overview"] = ""
-    return it
-
-def _parse_media_hints(text: str) -> dict:
-    t_raw = (text or "").strip()
-    t = t_raw.lower()
-
-    year = None
-    m = re.search(r"\b(19\d{2}|20\d{2})\b", t)
-    if m:
-        year = m.group(1)
-
-    kind = None
-    if "сериал" in t:
-        kind = "tv"
-    elif "фильм" in t or "кино" in t:
-        kind = "movie"
-
-    # актёры: поддержка кириллицы + латиницы
-    cast_ru = re.findall(r"\b[А-ЯЁІЇЄ][а-яёіїє]+ [А-ЯЁІЇЄ][а-яёіїє]+\b", t_raw)
-    cast_en = re.findall(r"\b[A-Z][a-z]+ [A-Z][a-z]+\b", t_raw)
-    cast = (cast_ru + cast_en)[:2]
-
-    keywords = re.sub(r"[^a-zA-Zа-яА-ЯёЁІіЇїЄє0-9 ]", " ", t_raw)
-    keywords = " ".join(w for w in keywords.split() if len(w) > 3)[:80]
-
-    return {"year": year, "kind": kind, "cast": cast, "keywords": keywords.strip()}
-
-async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
-    """
-    Best-effort TMDb retrieval (faster):
-    - run ru-RU and en-US in parallel
-    - dedupe + soft year filter + sort
-    """
-    import asyncio
-
-    q = _normalize_tmdb_query(_clean_tmdb_query(query))
-    if not q:
-        return []
-
-    year = _extract_year(q)
-
-    async def _safe(lang: str) -> list[dict]:
-        try:
-            items = await tmdb_search_multi(q, lang=lang, limit=limit)
-        except Exception:
-            return []
-        if items and isinstance(items[0], dict) and items[0].get("_error"):
-            return []
-        return items or []
-
-    items_ru, items_en = await asyncio.gather(
-        _safe("ru-RU"),
-        _safe("en-US"),
-        return_exceptions=False,
-    )
-
-    items = _dedupe_media((items_ru or []) + (items_en or []))
-
-    # safety: drop adult + scrub explicit overview
-    items = _scrub_media_items(items)
-
-    if year:
-        filtered = [it for it in items if str(it.get("year") or "") == year]
-        if filtered:
-            items = filtered
-
-    return _sort_media(items)[:limit]
 
 
 
-def build_media_context(items: list[dict]) -> str:
-    """Numbered list for TMDb search results."""
-    if not items:
-        return MEDIA_NOT_FOUND_REPLY_RU
-    lines: list[str] = ["Нашёл варианты:"]
-    for i, it in enumerate(items[:10], 1):
-        try:
-            lines.append(f"\n{i}) {_format_one_media(it)}")
-        except Exception:
-            title = it.get("title") or it.get("name") or "Без названия"
-            year = it.get("year") or ""
-            lines.append(f"\n{i}) {title} {f'({year})' if year else ''}".strip())
-    return "\n".join(lines)
+
+
+
+
 
 
 # --- Services imports (try real, otherwise safe stubs) ---
@@ -300,7 +100,9 @@ except Exception:  # pragma: no cover
 
 
 try:
-    from app.services.media_web_pipeline import web_to_tmdb_candidates  # expected existing
+    from app.services.media_web_pipeline import (
+        web_to_tmdb_candidates,  # expected existing
+    )
 except Exception:  # pragma: no cover
 
     async def web_to_tmdb_candidates(
@@ -342,535 +144,32 @@ except Exception:  # pragma: no cover
 # --- TMDB query sanitizer: TMDB hates long "scene description" queries ---
 
 
-def _clean_query_for_tmdb(q: str) -> str:
-    """
-    Clean noisy captions/hashtags/emojis before sending to TMDb.
-    Keeps letters/digits/basic punctuation, strips hashtags and weird symbols.
-    """
-    q = (q or "").strip()
-    if not q:
-        return ""
-    # remove hashtags like #anadearmas
-    q = re.sub(r"#\w+", " ", q, flags=re.UNICODE)
-    # remove excessive punctuation/emojis; keep words, spaces, dash and apostrophe
-    q = re.sub(r"[^\w\s\-']", " ", q, flags=re.UNICODE)
-    # collapse spaces
-    q = re.sub(r"\s+", " ", q, flags=re.UNICODE).strip()
-    # avoid too-short junk
-    return q
 
 
-def _looks_like_freeform_media_query(q: str) -> bool:
-    ql = (q or "").lower().strip()
-    if not ql:
-        return False
-    bad_words = (
-        "сцена",
-        "момент",
-        "в конце",
-        "в начале",
-        "актёр",
-        "актер",
-        "в очках",
-        "в костюмах",
-        "про",
-        "где",
-        "когда",
-        "как называется",
-        "помогите найти",
-        "полиция",
-        "женщина",
-        "мужчина",
-        "сериал",
-        "фильм",
-        "серия",
-        "эпизод",
-    )
-    if any(w in ql for w in bad_words):
-        return True
-    if len(ql) >= 45 or ql.count(" ") >= 6:
-        return True
-    return False
 
 
-def _tmdb_sanitize_query(q: str) -> str:
-    q = (q or "").strip()
-    q = re.sub(r"\s+", " ", q)
 
-    # remove common RU "scene" words and punctuation clutter
-    q = re.sub(
-        r"(?i)\b(сцена|что происходит|что происходит в сцене|факт|факта|актер|актёр|страна|язык|мем|meme)\b.*$",
-        "",
-        q,
-    ).strip()
-    q = re.sub(r"[\"“”‘’]+", "", q).strip()
 
-    # Keep only: title-ish part + optional year
-    year = None
-    m = _YEAR_RE.search(q)
-    if m:
-        year = m.group(1)
 
-    # If query has SxxEyy, transform into short canonical form
-    m2 = _SXXEYY_RE.search(q)
-    if m2:
-        s = int(m2.group(1))
-        e = int(m2.group(2))
-        # remove SxxEyy tokens from base title
-        base = _SXXEYY_RE.sub("", q).strip()
-        base = re.sub(r"\s+", " ", base).strip(" -–—,:;")
-        if base:
-            return f"{base} S{s}E{e}"
 
-    # Hard length cap (TMDB works best with short queries)
-    q = q.strip(" -–—,:;")
-    if year and year not in q:
-        # don't append year blindly if it bloats; only if short
-        if len(q) <= 40:
-            q = f"{q} {year}"
 
-    if len(q) > 60:
-        q = q[:60].rsplit(" ", 1)[0].strip()
 
-    return q
 
 
-def _good_tmdb_cand(q: str) -> bool:
-    q = (q or "").strip()
-    if not q:
-        return False
 
-    # hard caps
-    if len(q) > 70:
-        return False
 
-    ql = q.lower()
 
-    # must contain letters
-    if not any(ch.isalpha() for ch in q):
-        return False
 
-    # too many words => not a title
-    if q.count(" ") >= 7:
-        return False
 
-    # reject short adjective-only phrases (often model prose, not a title)
-    if (
-        ql.startswith("легендарн")
-        or ql.startswith("российск")
-        or ql.startswith("советск")
-    ) and q.count(" ") <= 1:
-        return False
 
-    # reject obvious list/headline queries
-    bad = (
-        "ведомост",
-        "топ",
-        "лучших",
-        "подбор",
-        "подборк",
-        "список",
-        "15 ",
-        "10 ",
-        "20 ",
-    )
-    if any(b in ql for b in bad):
-        return False
 
-    return True
 
 
-def _is_generic_media_caption(text: str) -> bool:
-    t = (text or "").strip().lower()
-    if not t:
-        return True
-    t = re.sub(r"\s+", " ", t).strip()
 
-    if t in _GENERIC_MEDIA_CAPTIONS:
-        return True
 
-    # legacy/common phrases (keep behavior, avoid unreachable)
-    if t in {
-        "откуда кадр",
-        "откуда кадр?",
-        "что за фильм",
-        "что за фильм?",
-        "что за сериал",
-        "что за сериал?",
-        "что за мультик",
-        "что за мультик?",
-        "как называется",
-        "как называется?",
-        "как называется фильм",
-        "как называется сериал",
-    }:
-        return True
 
-    return False
 
 
-def _format_media_pick(item: dict) -> str:
-    """
-    Small, safe formatter for a picked TMDb item.
-    item keys may vary (movie/tv). We keep it short.
-    """
-    title = item.get("title") or item.get("name") or "Без названия"
-    year = ""
-    d = item.get("release_date") or item.get("first_air_date") or ""
-    if isinstance(d, str) and len(d) >= 4:
-        year = d[:4]
-    overview = (item.get("overview") or "").strip()
-    if overview and len(overview) > 500:
-        overview = overview[:500].rsplit(" ", 1)[0] + "…"
-    media_type = item.get("media_type") or ("tv" if item.get("name") else "movie")
-    tmdb_id = item.get("id")
-    url = ""
-    if tmdb_id:
-        url = f"https://www.themoviedb.org/{media_type}/{tmdb_id}"
-    lines = [f"🎬 {title}" + (f" ({year})" if year else "")]
-    if overview:
-        lines.append("")
-        lines.append(overview)
-    if url:
-        lines.append("")
-        lines.append(url)
-    return "\n".join(lines)
-
-
-def _lens_clean_candidate(s: str) -> str:
-    """
-    Clean Lens candidate line into something TMDb-friendly BEFORE normalize/sanitize.
-    Examples:
-      '✨ Film: Deep Water(2022) ...' -> 'Deep Water 2022'
-      'Ben Affleck in underwear in the new film Deep Water (2022)' -> 'Deep Water 2022 Ben Affleck'
-    """
-    s = (s or "").strip()
-    if not s:
-        return ""
-
-    # remove common prefixes
-    s = re.sub(r"(?i)^\s*(✨\s*)?(film|movie|фильм|кино)\s*:\s*", "", s).strip()
-
-    # remove platform-y suffixes
-    s = re.sub(r"(?i)\b(official)\b", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-
-    # Extract Title (YEAR) preference
-    m = re.search(r"(.+?)\s*\(\s*(19\d{2}|20\d{2})\s*\)", s)
-    if m:
-        title = (m.group(1) or "").strip(" -–—,:;")
-        year = m.group(2)
-        # keep short title + year only
-        if title:
-            return f"{title} {year}".strip()
-
-    # If YEAR is present elsewhere, keep it (but avoid giant strings)
-    m2 = re.search(r"\b(19\d{2}|20\d{2})\b", s)
-    year = m2.group(1) if m2 else ""
-
-    # If it contains "new film <Title>" pattern
-    m3 = re.search(r"(?i)\bfilm\b\s+([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+){0,5})", s)
-    title2 = (m3.group(1) or "").strip() if m3 else ""
-
-    # shorten aggressively
-    s2 = s
-    if len(s2) > 90:
-        s2 = s2[:90].rsplit(" ", 1)[0].strip()
-
-    # try to keep likely title-ish chunk: first 2–6 TitleCased words
-    tokens = re.findall(r"[A-Za-z0-9'’\-]+", s2)
-    # fallbacks
-    base = ""
-    if title2 and len(title2.split()) <= 6:
-        base = title2
-    elif 1 <= len(tokens) <= 10:
-        base = " ".join(tokens[:6])
-    else:
-        base = " ".join(tokens[:6])
-
-    base = base.strip(" -–—,:;")
-    if year and year not in base and len(base) <= 45:
-        base = f"{base} {year}".strip()
-
-    return base.strip()
-
-
-def _lens_bad_candidate(s: str) -> bool:
-    """
-    Lens часто возвращает:
-      - каналы/эдиты/муз клипы
-      - платформы (YouTube/TikTok/Instagram)
-      - CTA (subscribe/like/share)
-    Это не тайтлы.
-    """
-    sl = (s or "").lower()
-    if not sl:
-        return True
-
-    bad = (
-        "edits",
-        "edit",
-        "channel",
-        "youtube",
-        "tiktok",
-        "instagram",
-        "reels",
-        "shorts",
-        "subscribe",
-        "like",
-        "share",
-        "official",
-        "music video",
-        "mood music",
-        "compilation",
-        "fanmade",
-        "trailer",
-        "clip",
-        "status",
-        "threads",
-        "funny",
-        "moments",
-        "best",
-        "scenes",
-        "scene",
-        "memes",
-        "meme",
-        "interview",
-        "actor",
-        "cast",
-        "behind the scenes",
-        "bts",
-        "short",
-    )
-    if any(b in sl for b in bad):
-        return True
-
-    # too generic single words
-    if sl.strip() in {"movie", "film", "series", "tv", "deep", "nothing"}:
-        return True
-
-    # looks like account/name rather than title (very short + non-title)
-    if len(sl.strip()) <= 3:
-        return True
-
-    return False
-
-
-def _lens_score_candidate(raw: str) -> int:
-    """
-    Higher is better.
-    Prefer:
-      - Title (YEAR) or Title YEAR
-      - 1–6 words, not generic
-      - contains some TitleCase / letters
-    Penalize:
-      - long sentences
-      - platform words / edits
-      - starts with movie/film
-    """
-    s = (raw or "").strip()
-    if not s:
-        return -999
-
-    if _lens_bad_candidate(s):
-        return -500
-
-    score = 0
-
-    # explicit (YEAR)
-    if re.search(r"\(\s*(19\d{2}|20\d{2})\s*\)", s):
-            score += 40
-    if re.search(r"\b(19\d{2}|20\d{2})\b", s):
-            score += 25
-
-    # word count preference
-    words = re.findall(r"[A-Za-zА-Яа-яЁёІіЇїЄє0-9'’\-]+", s)
-    wc = len(words)
-    if 1 <= wc <= 6:
-        score += 80
-    elif wc <= 10:
-        score += 35
-    else:
-        score -= 60
-
-    # starts with movie/film is suspicious
-    if re.match(r"(?i)^\s*(movie|film|фильм|кино)\b", s):
-        score -= 80
-
-    # length penalty
-    L = len(s)
-    if L <= 35:
-        score += 35
-    elif L <= 60:
-        score += 10
-    else:
-        score -= L - 60
-
-    # must contain letters
-    if not any(ch.isalpha() for ch in s):
-        score -= 120
-
-    return score
-
-
-def _pick_best_lens_candidates(lens_cands: list[str], *, limit: int = 12) -> list[str]:
-    """
-    Returns candidates ordered by best-first.
-    Includes cleaned variants; keeps uniqueness.
-    """
-    cands = [c for c in (lens_cands or []) if (c or "").strip()]
-    ranked = sorted(cands, key=_lens_score_candidate, reverse=True)
-
-    out: list[str] = []
-    seen = set()
-
-    for raw in ranked:
-        if len(out) >= limit:
-            break
-        # use raw first, then cleaned
-        for cand in (raw, _lens_clean_candidate(raw)):
-            cand = (cand or "").strip()
-            if not cand:
-                continue
-            key = cand.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(cand)
-
-    return out[:limit]
-
-
-def _is_explicit_title(item: dict) -> bool:
-    try:
-        title = str(item.get("title") or item.get("name") or "")
-    except Exception:
-        return False
-    return _is_explicit_text(title)
-
-
-def _scrub_media_items(items: list[dict]) -> list[dict]:
-    out = []
-    for it in items or []:
-        if isinstance(it, dict) and it.get("adult"):
-            continue
-        if isinstance(it, dict) and _is_explicit_title(it):
-            continue
-        out.append(_scrub_media_item(it) if isinstance(it, dict) else it)
-    return out
-
-
-def _title_tokens(x: str) -> set[str]:
-    x = (x or "").lower()
-    x = x.replace("ё", "е")
-    out = []
-    w = []
-    for ch in x:
-        if ch.isalnum() or ch in ("-", " "):
-            w.append(ch)
-        else:
-            w.append(" ")
-    x = "".join(w)
-    x = " ".join(x.split())
-    for t in x.split():
-        if len(t) > 1:
-            out.append(t)
-    return set(out)
-
-def _tmdb_score_item(query: str, it: dict, *, year_hint: str | None = None, lang_hint: str | None = None) -> tuple[float, str]:
-    """Return (score 0..1, why_short)."""
-    q = (query or "").strip()
-    title = (it.get("title") or it.get("name") or "").strip()
-    orig_lang = (it.get("original_language") or "").strip().lower()
-    year = str(it.get("year") or "")[:4]
-
-    ql = q.lower()
-    tl = title.lower()
-
-    score = 0.0
-    why = []
-
-    # title match
-    if title and q:
-        if tl == ql:
-            score += 0.55
-            why.append("точное совпадение названия")
-        elif ql and (ql in tl or tl in ql):
-            score += 0.40
-            why.append("совпали ключевые слова в названии")
-        else:
-            qt = _title_tokens(q)
-            tt = _title_tokens(title)
-            if qt and tt:
-                inter = len(qt & tt)
-                uni = len(qt | tt)
-                j = inter / max(1, uni)
-                score += 0.35 * min(1.0, j * 1.8)
-                if inter:
-                    why.append("частичное совпадение слов")
-
-    # year match
-    if year_hint and year and year_hint == year:
-        score += 0.18
-        why.append("совпадает год")
-
-    # stabilizers
-    pop = float(it.get("popularity") or 0.0)
-    vc = float(it.get("vote_count") or 0.0)
-    score += min(0.12, (pop / 200.0) * 0.12)
-    score += min(0.10, (vc / 5000.0) * 0.10)
-
-    # language hint
-    if lang_hint:
-        lh = (lang_hint or "").lower().strip()
-        if lh and orig_lang and lh == orig_lang:
-            score += 0.05
-
-    score = max(0.0, min(1.0, score))
-    return score, (", ".join(why[:2]) if why else "похоже по общим признакам")
-
-def _format_media_ranked(query: str, items: list[dict], *, year_hint: str | None = None, lang: str = "ru", source: str = "tmdb") -> str:
-    """Best match + why + 2–3 alternatives. Threshold to avoid junk."""
-    if not items:
-        return MEDIA_NOT_FOUND_REPLY_RU
-
-    scored = []
-    for it in items:
-        sc, why = _tmdb_score_item(query, it, year_hint=year_hint, lang_hint=("ru" if lang == "ru" else None))
-        scored.append((sc, why, it))
-    scored.sort(key=lambda x: x[0], reverse=True)
-
-    best_sc, best_why, best = scored[0]
-    alts = scored[1:4]
-
-    TH = 0.58
-    if best_sc < TH:
-        lines = ["🎬 Похоже, но уверенности мало.", ""]
-        for i, (sc, why, it) in enumerate(scored[:2], start=1):
-            t = (it.get("title") or it.get("name") or "—")
-            y = (it.get("year") or "—")
-            r = (it.get("vote_average") or "—")
-            lines.append(f"{i}) {t} ({y}) — ⭐ {r} · {why}")
-        lines += ["", "🧩 Уточни 1 деталь: год / актёр / страна / что происходит в сцене — и я добью точно."]
-        return "\n".join(lines)
-
-    t = (best.get("title") or best.get("name") or "—")
-    y = (best.get("year") or "—")
-    r = (best.get("vote_average") or "—")
-    lines = [
-        f"✅ Лучшее совпадение: {t} ({y}) — ⭐ {r}",
-        f"Почему: {best_why}.",
-    ]
-    if alts:
-        lines.append("")
-        lines.append("Альтернативы:")
-        for i, (sc, why, it) in enumerate(alts, start=1):
-            tt = (it.get("title") or it.get("name") or "—")
-            yy = (it.get("year") or "—")
-            rr = (it.get("vote_average") or "—")
-            lines.append(f"{i}) {tt} ({yy}) — ⭐ {rr}")
-    lines += ["", "Кнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить"]
-    return "\n".join(lines)
 
 
 def _media_confident(item: dict) -> bool:
@@ -883,387 +182,54 @@ def _media_confident(item: dict) -> bool:
     return (pop >= 25 and va >= 6.8) or (pop >= 60) or (va >= 7.6)
 
 
-def _extract_media_kind_marker(text: str) -> str:
-    t = (text or "").strip()
-    m = re.match(r"^__MEDIA_KIND__:(voice|video|video_note)\b", t)
-    return m.group(1) if m else ""
 
 
-MEDIA_VIDEO_STUB_REPLY_RU = (
-    "Понял. По видео/кружку/голосу я скоро научусь находить фильмы/серии.\n"
-    "Пока так: пришли 1 кадр (скрин) или опиши сцену текстом (1–2 факта) + год/актёр, если знаешь."
-)
 
 
-def _is_asking_for_title(text: str) -> bool:
-    t = (text or "").strip().lower()
-    pats = (
-        "какое название",
-        "как называется",
-        "название фильма",
-        "название у фильма",
-        "как называется фильм",
-        "как называется этот фильм",
-        "что за название",
-    )
-    return any(x in t for x in pats)
 
 
-def _is_affirmation(text: str) -> bool:
-    t = (text or "").strip().lower()
-    return (
-        bool(re.match(r"^(да|ага|угу)\b", t))
-        or t.startswith("это ")
-        or t.startswith("да,")
-        or t.startswith("да ")
-    )
 
 
-def _extract_search_query_from_text(s: str) -> str:
-    s = s or ""
-    m = re.search(r"(?im)^\s*SEARCH_QUERY:\s*(.*)\s*$", s)
-    if m:
-        return (m.group(1) or "").strip()
-    return ""
 
 
-def _normalize_tmdb_query(q: str, *, max_len: int = 140) -> str:
-    """
-    TMDb search query must be short and clean.
-    - collapse whitespace/newlines
-    - strip quotes/markdown-ish noise
-    - hard truncate
-    """
-    q = (q or "").strip()
-    if not q:
-        return ""
 
-    # remove "SEARCH_QUERY:" if user pasted it
-    q = re.sub(r"(?im)^\s*SEARCH_QUERY:\s*", "", q).strip()
 
-    # collapse whitespace/newlines
-    q = re.sub(r"\s+", " ", q).strip()
 
-    # avoid super-long paragraphs (TMDb can return 400)
-    if len(q) > max_len:
-        q = q[:max_len].rsplit(" ", 1)[0].strip()
-
-    # remove leading generic junk
-    q = re.sub(r"^(что за|как называется)\s+", "", q, flags=re.I).strip()
-    q = re.sub(r"^(фильм|сериал|мульт(ик)?|кино)\s+", "", q, flags=re.I).strip()
-    return q
 
 
 # --- BAD OCR / GENERIC QUERY FILTER FOR MEDIA SEARCH ---
-BAD_MEDIA_QUERY_WORDS = {
-    "news",
-    "sport",
-    "sports",
-    "channel",
-    "subscribe",
-    "live",
-    "official",
-    "trailer",
-    "shorts",
-    "tiktok",
-    "instagram",
-    "reels",
-    "главные",
-    "новости",
-    "канал",
-    "подпишись",
-    "подписаться",
-    "смотрите",
-    "запись",
-    "обзор",
-    "интервью",
-    "edit",
-    "edits",
-    "compilation",
-    "fanmade",
-    "youtube",
-    "music",
-    "video",
-}
 
 
-GENERIC_TITLE_WORDS = {
-    # EN
-    "man",
-    "men",
-    "woman",
-    "women",
-    "boy",
-    "girl",
-    "guy",
-    "people",
-    "person",
-    "kid",
-    "kids",
-    "movie",
-    "film",
-    "series",
-    "tv",
-    "show",
-    "clip",
-    "scene",
-    "video",
-    "shorts",
-    "trailer",
-    # RU/UA
-    "мужчина",
-    "мужчины",
-    "женщина",
-    "женщины",
-    "парень",
-    "девушка",
-    "люди",
-    "человек",
-    "ребенок",
-    "ребёнок",
-    "фильм",
-    "кино",
-    "сериал",
-    "мульт",
-    "мультик",
-    "кадр",
-    "сцена",
-    "момент",
-    "видео",
-    "шортс",
-    "трейлер",
-}
 # --- media query cleaning: turn human phrasing into search-friendly query ---
-_MEDIA_LEADING_NOISE = (
-    "название фильма",
-    "название сериала",
-    "название мультика",
-    "как называется",
-    "что за фильм",
-    "что за сериал",
-    "что за мультик",
-    "какой фильм",
-    "какой сериал",
-    "какой мультик",
-    "какой кинчик",
-    "какой кенчик",
-    "откуда этот отрывок",
-    "что за хуйня",
-    "че за хуйня",
-    "шо за хуйня",
-)
-
-_MEDIA_NOISE_REGEX = [
-    r"\bв главной роли\b",
-    r"\bглавная роль\b",
-    r"\bактер(ы|а)?\b",
-    r"\bактриса\b",
-    r"\bкто играет\b",
-    r"\bнужно название\b",
-    r"\bподскажи\b",
-    r"\bпожалуйста\b",
-]
 
 
-def _media_clean_user_query(q: str) -> str:
-    q0 = (q or "").strip()
-    if not q0:
-        return ""
-
-    ql = q0.lower().strip()
-
-    # remove leading canned phrases
-    for p in _MEDIA_LEADING_NOISE:
-        ql = ql.replace(p, " ")
-
-    # remove other noise patterns
-    for pat in _MEDIA_NOISE_REGEX:
-        ql = re.sub(pat, " ", ql, flags=re.IGNORECASE)
-
-    # normalize punctuation
-    ql = re.sub(r"[“”\"'`]", " ", ql)
-    ql = re.sub(r"[,.;:!?()\{\}<>/\\\\|_+=~\-]+", " ", ql)
-    ql = re.sub(r"\s{2,}", " ", ql).strip()
-
-    # fallback to original if we over-cleaned
-    return ql if ql else q0
 
 
-def _is_bad_media_query(q: str) -> bool:
-    ql = (q or "").lower().strip()
-    if not ql:
-        return True
 
-    # слишком короткий мусор
-    if len(ql) < 3:
-        return True
-
-    words = ql.split()
-
-    # ✅ одно слово — НЕ всегда мусор: допускаем короткие/брендовые тайтлы
-    # но режем "news", "sport", "trailer", "subscribe" и т.п.
-    if len(words) == 1:
-        w = words[0]
-        if w in GENERIC_TITLE_WORDS:
-            return True
-        # цифро-мусор / слишком мало букв
-        letters = sum(ch.isalpha() for ch in w)
-        digits = sum(ch.isdigit() for ch in w)
-        if letters < 3:
-            return True
-        if digits > 0 and letters < 4:
-            return True
-        # стоп-слова
-        for sw in BAD_MEDIA_QUERY_WORDS:
-            if sw in w:
-                return True
-        return False
-
-    # содержит стоп-слова
-    for sw in BAD_MEDIA_QUERY_WORDS:
-        if sw in ql:
-            return True
-
-    # слишком много цифр
-    if sum(c.isdigit() for c in ql) > len(ql) * 0.4:
-        return True
-
-    return False
 
 
 # --- media session cache (in-memory, no DB migrations) ---
-MEDIA_CTX_TTL_SEC = 20 * 60  # 20 minutes
 
 
 
-log = logging.getLogger("media")
 
 
-def _d(event: str, **kw) -> None:
-    """Structured debug logger for media/vision pipeline."""
-    safe = {}
-    for k, v in kw.items():
-        try:
-            import json as _json
-
-            _json.dumps(v, ensure_ascii=False, default=str)
-            safe[k] = v
-        except Exception:
-            safe[k] = str(v)
-    try:
-        log.info("[media] %s | %s", event, safe)
-    except Exception:
-        pass
 
 
-_MEDIA_TTL_SEC = 10 * 60
-_MEDIA_SESSIONS: dict[str, dict] = {}
 
 
-def _media_uid(user: Any) -> str:
-    # prefer tg_id, fallback to db id
-    if not user:
-        return ""
-    v = getattr(user, "tg_id", None) or getattr(user, "id", None)
-    return str(v) if v is not None else ""
 
 
-def _media_get(uid: str) -> Optional[dict]:
-    if not uid:
-        return None
-    s = _MEDIA_SESSIONS.get(uid)
-    if not s:
-        return None
-    if (_time_now() - float(s.get("ts", 0))) > _MEDIA_TTL_SEC:
-        _MEDIA_SESSIONS.pop(uid, None)
-        return None
-    return s
 
 
-def _media_set(uid: str, query: str, items: list[dict]) -> None:
-    if not uid:
-        return
-    q = _normalize_tmdb_query(query)
-    _MEDIA_SESSIONS[uid] = {
-        "query": _tmdb_sanitize_query(q),
-        "items": items or [],
-        "ts": _time_now(),
-    }
 
 
-def _looks_like_choice(text: str) -> bool:
-    t = (text or "").strip()
-    return bool(re.fullmatch(r"\d{1,2}", t))
 
 
-def _looks_like_year_or_hint(text: str) -> bool:
-    t = (text or "").strip().lower()
-    if not t:
-        return False
-
-    # год
-    if re.search(r"\b(19\d{2}|20\d{2})\b", t):
-        return True
-
-    # 1–2 слова (часто это уточнение: "Америка", "США", "комедия", "Netflix")
-    parts = t.split()
-    if 1 <= len(parts) <= 2 and len(t) <= 18:
-        return True
-
-    # короткие уточнения: актёр/страна/язык/год/серия/эпизод + страны/аббревиатуры
-    hint_words = (
-        "год",
-        "акт",
-        "актер",
-        "актёр",
-        "страна",
-        "язык",
-        "серия",
-        "эпизод",
-        "сезон",
-        "сша",
-        "америка",
-        "usa",
-        "us",
-        "uk",
-        "нетфликс",
-        "netflix",
-        "hbo",
-        "amazon",
-    )
-    return any(w in t for w in hint_words)
 
 
-def _extract_year(text: str) -> Optional[str]:
-    m = re.search(r"\b(19\d{2}|20\d{2})\b", (text or ""))
-    return m.group(1) if m else None
 
 
-def _format_one_media(item: dict) -> str:
-    # items come from tmdb_search_multi(): title/year/media_type/overview/vote_average
-    title = (item.get("title") or item.get("name") or "Без названия").strip()
-    year = (item.get("year") or "").strip()
-    overview = (item.get("overview") or "").strip()
-    rating = item.get("vote_average", None)
-    kind = (item.get("media_type") or "").strip()
-    kind_ru = (
-        "сериал" if kind == "tv" else "фильм" if kind == "movie" else kind or "медиа"
-    )
-
-    line = f"🎬 {title}"
-    if year:
-        line += f" ({year})"
-    line += f" — {kind_ru}"
-
-    if rating is not None:
-        try:
-            line += f" • ⭐ {float(rating):.1f}"
-        except Exception:
-            pass
-
-    if overview:
-        line += f"\n\n{overview[:700]}"
-    return line
 
 
 def _env(name: str, default: str = "") -> str:
@@ -1634,7 +600,7 @@ async def run_assistant(
         if st and prev_q and _looks_like_year_or_hint(raw) and len(raw) <= 60:
             query = _tmdb_sanitize_query(_normalize_tmdb_query(f"{prev_q} {raw}"))
         else:
-            query = _tmdb_sanitize_query(_normalize_tmdb_query(raw))
+            query = _tmdb_sanitize_query(_clean_media_search_query(raw))
         _d("media.built_query", prev_q=prev_q, raw=raw, query=query)
 
         # 3) Too generic → ask 1 detail
@@ -1673,8 +639,8 @@ async def run_assistant(
 
             if not items and hints.get("cast"):
                 from app.services.media_search import (
-                    tmdb_search_person,
                     tmdb_discover_with_people,
+                    tmdb_search_person,
                 )
 
                 for actor in hints["cast"]:
@@ -1827,172 +793,8 @@ async def run_assistant(
         return "⚠️ Не смог прочитать ответ модели."
 
 
-def _extract_media_json_from_model_text(text: str) -> Optional[dict]:
-    """
-    Extract JSON object from model output.
-    Supports:
-      - strict first-line JSON (the very first line is {...})
-      - fenced ```json ... ```
-      - fenced ``` ... ```
-      - marker MEDIA_JSON: { ... }
-      - last-resort {...} block
-    Returns dict or None.
-    """
-    t = (text or "").strip()
-    if not t:
-        return None
-
-    # strict first-line JSON
-    if t.startswith("{"):
-        first = t.splitlines()[0].strip()
-        if first.endswith("}"):
-            try:
-                obj = json.loads(first)
-                return obj if isinstance(obj, dict) else None
-            except Exception:
-                pass
-
-    # fenced ```json ... ```
-    m = re.search(r"```json\s*(\{.*?\})\s*```", t, flags=re.S)
-    if not m:
-        m = re.search(r"```(?:\w+)?\s*(\{.*?\})\s*```", t, flags=re.S)
-    if m:
-        try:
-            obj = json.loads(m.group(1))
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            return None
-
-    # marker MEDIA_JSON:
-    m = re.search(r"(?im)^\s*MEDIA_JSON\s*:\s*(\{.*\})\s*$", t, flags=re.S)
-    if m:
-        try:
-            obj = json.loads(m.group(1))
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            return None
-
-    # last resort: first {...}
-    m = re.search(r"(\{.*\})", t, flags=re.S)
-    if m:
-        blob = m.group(1).strip()
-        if len(blob) > 8000:
-            blob = blob[:8000]
-            blob = blob.rsplit("}", 1)[0] + "}"
-        try:
-            obj = json.loads(blob)
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            return None
-
-    return None
 
 
-def _build_tmdb_queries_from_media_json(mj: Optional[dict]) -> list[str]:
-    """
-    Converts extracted media JSON into a prioritized list of short TMDb queries.
-    Supports BOTH schemas:
-      A) New vision schema:
-         {"actors":[...],"title_hints":[...],"keywords":[...]}
-      B) Legacy schema:
-         {"title":..., "year":..., "alt_titles"/"aka":..., "cast":..., "keywords":...}
-    """
-    if not mj or not isinstance(mj, dict):
-        return []
-
-    out: list[str] = []
-
-    def add(q: str) -> None:
-        q = _tmdb_sanitize_query(_normalize_tmdb_query(q))
-        if q and q not in out and _good_tmdb_cand(q):
-            out.append(q)
-
-    def norm_list(x: Any) -> list[str]:
-        if not x:
-            return []
-        if isinstance(x, str):
-            x = [x]
-        if not isinstance(x, list):
-            return []
-        res: list[str] = []
-        for it in x:
-            s = (str(it) if it is not None else "").strip()
-            if not s:
-                continue
-            s2 = _tmdb_sanitize_query(_normalize_tmdb_query(s))
-            if s2 and s2 not in res:
-                res.append(s2)
-        return res
-
-    # A) new schema
-    actors = norm_list(mj.get("actors"))
-    title_hints = norm_list(mj.get("title_hints"))
-    keywords_new = norm_list(mj.get("keywords"))
-
-    # B) legacy schema
-    title = str(mj.get("title") or "").strip()
-    year = str(mj.get("year") or "").strip()
-    sxxeyy = str(mj.get("sxxeyy") or mj.get("episode") or "").strip()
-
-    alts = mj.get("alt_titles") or mj.get("aka") or []
-    if isinstance(alts, str):
-        alts = [alts]
-
-    cast_legacy = norm_list(mj.get("cast"))
-    keywords_legacy = norm_list(mj.get("keywords"))
-
-    # Priority 1: title hints / title
-    for t in (title_hints or [])[:6]:
-        add(t)
-
-    if title:
-        add(f"{title} {year}".strip() if year else title)
-        if sxxeyy:
-            add(f"{title} {sxxeyy}".strip())
-
-    # alt titles
-    if isinstance(alts, list):
-        for a in alts[:5]:
-            a = str(a).strip()
-            if not a:
-                continue
-            add(f"{a} {year}".strip() if year else a)
-            if sxxeyy:
-                add(f"{a} {sxxeyy}".strip())
-
-    # Priority 2: actors combo (2 names)
-    if len(actors) >= 2:
-        add(f"{actors[0]} {actors[1]}")
-    elif len(actors) == 1:
-        add(actors[0])
-
-    # Priority 2b: legacy cast with title
-    if title and cast_legacy:
-        add(f"{title} {' '.join(cast_legacy[:2])}".strip())
-
-    # Priority 3: keywords
-    for k in (keywords_new or [])[:6]:
-        k = (k or "").strip()
-        if not k:
-            continue
-        kl = k.lower()
-        # не даём общим словам попадать в TMDb
-        if (" " not in kl) and (kl in GENERIC_TITLE_WORDS):
-            continue
-        if len(k) < 4:
-            continue
-        add(k)
-
-    if not keywords_new:
-        joined = " ".join((keywords_legacy or [])[:6]).strip()
-        if joined:
-            jl = joined.lower().strip()
-            if jl in GENERIC_TITLE_WORDS:
-                joined = ""
-        if joined:
-            add(joined[:80])
-
-    return out[:12]
 
 
 async def run_assistant_vision(
