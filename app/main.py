@@ -29,7 +29,6 @@ import inspect
 import logging
 import re
 from sqlalchemy import text
-import os
 import pkgutil
 from typing import Any, Awaitable, Callable, Dict
 
@@ -339,6 +338,9 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(data_privacy.router)
     dp.include_router(start.router)
 
+    if assistant_router is not None:
+        dp.include_router(assistant_router)
+
     if menus_router is not None:
         dp.include_router(menus_router)
 
@@ -350,9 +352,6 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(proactive_checkin_router)
 
     dp.include_router(motivation.router)
-
-    if assistant_router is not None:
-        dp.include_router(assistant_router)
 
     if meditation_router is not None:
         dp.include_router(meditation_router)
