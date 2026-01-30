@@ -5,8 +5,8 @@ from typing import Optional
 
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
+from aiogram.exceptions import SkipHandler
 from aiogram.fsm.context import FSMContext
-from aiogram.dispatcher.event.bases import SkipHandler
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -205,22 +205,21 @@ async def back_to_main(m: Message, session: AsyncSession, state: FSMContext) -> 
 
 @router.message(F.text & ~F.text.startswith("/"))
 async def media_mode_text_router(message: Message, session: AsyncSession, state: FSMContext):
-    # если уже внутри AssistantFSM — не дублируем ответ, пропускаем дальше
+    # ✅ если в любом FSM (журнал/калории/ассистент/и т.д.) — НЕ перехватываем, пропускаем дальше
+    st = None
     try:
-        if await state.get_state() == "AssistantFSM:waiting_question":
-            raise SkipHandler()
+        st = await state.get_state()
     except Exception:
-        pass
+        st = None
 
-
-    if not getattr(message, 'from_user', None):
+    if st:
         raise SkipHandler()
 
-    """
-    Если включен assistant_mode == 'media', то любой текст (включая ручное описание)
-    уходит в run_assistant и возвращает варианты/выбор.
-    Если media mode не активен — пропускаем дальше (не ломаем остальные фичи).
-    """
+    if not getattr(message, "from_user", None):
+        raise SkipHandler()
+
+    # Если включен assistant_mode == 'media', то любой текст уходит в run_assistant.
+    # Если media mode не активен — пропускаем дальше.
     user = await session.scalar(select(User).where(User.tg_id == message.from_user.id))
     if not user or getattr(user, "assistant_mode", None) != "media":
         raise SkipHandler()
@@ -234,7 +233,6 @@ async def media_mode_text_router(message: Message, session: AsyncSession, state:
     if until is not None and until <= now:
         raise SkipHandler()
 
-    # язык берём так же, как у тебя по проекту (если есть поле lang)
     lang = getattr(user, "lang", None) or "ru"
     text = (message.text or "").strip()
     if not text:
@@ -243,16 +241,3 @@ async def media_mode_text_router(message: Message, session: AsyncSession, state:
     reply = await run_assistant(user, text, lang, session=session)
     if reply:
         await message.answer(reply)
-
-
-import logging
-log = logging.getLogger(__name__)
-
-@router.message()
-async def fallback_text_handler(message, state=None, session=None):
-    """Catch-all: avoid 'Update is not handled' and route to assistant."""
-    try:
-        from app.handlers.assistant import assistant_dialog
-        return await assistant_dialog(message, state, session)  # ← ВОТ ТАК
-    except Exception:
-        return
