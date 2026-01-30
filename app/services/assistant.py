@@ -1183,6 +1183,7 @@ async def run_assistant_vision(
         except Exception:
             items = []
 
+
     if items:
         if user is not None:
             setattr(user, "assistant_mode", "media")
@@ -1194,12 +1195,18 @@ async def run_assistant_vision(
         if uid:
             _media_set(uid, used_query or (cand_list[0] if cand_list else ""), items)
 
-        # Default: return title directly if confident (or single result)
-        top = items[0]
-        reply = _format_media_ranked(used_query or (cand_list[0] if cand_list else ''), items, year_hint=_parse_media_hints(used_query or (cand_list[0] if cand_list else '')).get('year'), lang=lang, source='tmdb')
+        reply = _format_media_ranked(
+            used_query or (cand_list[0] if cand_list else ""),
+            items,
+            year_hint=_parse_media_hints(used_query or (cand_list[0] if cand_list else "")).get("year"),
+            lang=lang,
+            source="tmdb",
+        )
+
         if img_key:
             _vision_cache_set(img_key, reply)
         return reply
+
     # --- Failsafe: Vision must always return text ---
     final_text = (out_text or "").strip()
     if final_text:

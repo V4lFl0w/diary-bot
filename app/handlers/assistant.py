@@ -57,6 +57,26 @@ except Exception:  # pragma: no cover
 router = Router(name="assistant")
 
 
+
+@router.callback_query()
+async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMContext):
+    st = await state.get_state()
+    if not st:
+        return
+    # only when we're inside assistant FSM
+    if not st.startswith("AssistantFSM"):
+        return
+
+    data = (cb.data or "").strip()
+
+    # allow assistant's own callbacks to be handled by assistant handlers
+    if data.startswith(("assistant_", "assistant:", "assistant_pick:")):
+        return
+
+    # everything else (Menu/Journal/Settings/Media/etc) must pass through
+    await state.clear()
+    raise SkipHandler
+
 # ===== media poster extraction (optional) =====
 
 _POSTER_RE = re.compile(r"(?m)^\s*🖼\s+(https?://\S+)\s*$")
@@ -216,6 +236,12 @@ async def _reset_media_ack(state: FSMContext) -> None:
 
 
 # =============== ENTRY ===============
+
+@router.message(AssistantFSM.waiting_question, F.text)
+async def _assistant_text_in_waiting_question(m: Message, state: FSMContext, session: AsyncSession):
+    # critical: text уточнение/описание должно обрабатываться всегда
+    return await assistant_dialog(m, state, session)
+
 
 @router.message(F.text.func(is_root_assistant_btn))
 async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) -> None:
@@ -412,6 +438,23 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
             except Exception:
                 pass
 
+
+    # --- FORCE INLINE BUTTONS IN STICKY MEDIA MODE (robust) ---
+    try:
+        now_utc = datetime.now(timezone.utc)
+        mode = getattr(user, "assistant_mode", None) if user else None
+        until = getattr(user, "assistant_mode_until", None) if user else None
+        sticky_media = bool(mode == "media" and until and until > now_utc)
+    except Exception:
+        sticky_media = False
+
+    if sticky_media and isinstance(reply, str):
+        poster_url, clean2 = _extract_poster_url(reply)
+        if poster_url:
+            await m.answer_photo(poster_url, caption=clean2, reply_markup=_media_inline_kb(), parse_mode=None)
+        else:
+            await m.answer(reply, reply_markup=_media_inline_kb(), parse_mode=None)
+        return
     if isinstance(reply, str) and "Кнопки:" in reply:
         clean = reply.replace(_MEDIA_KNOBS_LINE, "")
         poster_url, clean2 = _extract_poster_url(clean)
