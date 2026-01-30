@@ -205,23 +205,29 @@ async def assistant_entry(
     lang = _detect_lang(user, m)
     is_admin = is_admin_tg(m.from_user.id)
 
-    # Free -> апсейл (и показываем меню как есть)
+    # FREE → апсейл
     if not _has_premium(user):
         await state.clear()
         await m.answer(
             "🤖 Помощник — это твой **умный режим** в дневнике.\n\n"
             "Что он делает:\n"
-            "• 🧠 быстро раскладывает мысли по полочкам\n"
-            "• 🎯 поможет с идеей на подарок\n"
-            "• 🌊 снижает шум в голове и помогает дойти до действий\n\n"
-            "• написать лёгкий код, помочь найти фильм, который ты долго ищешь и многое другое\n\n"
-            "Чтобы выйти — напиши «стоп» или /cancel."
-            "💎 Доступен в Premium. Нажми **Премиум** в меню ниже — и включим."
-            "Привет! Как могу помочь?",
+            "• 🧠 раскладывает мысли по полочкам\n"
+            "• 🎯 помогает найти фильм, идею, решение\n"
+            "• 🌊 снижает шум в голове и многое другое\n\n"
+            "💎 Доступен в Premium. Нажми **Премиум** в меню ниже.",
             reply_markup=get_main_kb(lang, is_premium=False, is_admin=is_admin),
             parse_mode="Markdown",
         )
         return
+
+    # ✅ ВХОД В РЕЖИМ АССИСТЕНТА
+    await state.set_state(AssistantFSM.waiting_question)
+    await m.answer(
+        "🤖 Режим помощника включён.\n"
+        "Можешь писать текст или отправить фото.\n\n"
+        "Чтобы выйти — напиши «стоп» или /cancel.",
+        reply_markup=get_main_kb(lang, is_premium=True, is_admin=is_admin),
+    )
 
 
 # =============== EXIT ===============
@@ -280,11 +286,8 @@ async def assistant_photo(
         )
         return
 
-    # ✅ enter assistant FSM (so photo/text handlers match)
-    await state.set_state(AssistantFSM.waiting_question)
 
     # ✅ static greeting (no duplicates)
-    await m.answer("Привет! Как могу помочь?")
     from app.services.assistant import _assistant_plan, run_assistant_vision
     plan = _assistant_plan(user)
     if plan != "pro":
@@ -424,3 +427,11 @@ async def assistant_dialog(
         await m.answer(clean, reply_markup=_media_inline_kb())
     else:
         await m.answer(reply)
+# --- FALLBACK PHOTO HANDLER (если FSM по какой-то причине не активен) ---
+@router.message(F.photo)
+async def assistant_photo_fallback(m: Message, state: FSMContext, session: AsyncSession):
+    data = await state.get_state()
+    if data != AssistantFSM.waiting_question.state:
+        return  # не в режиме ассистента
+
+    await assistant_photo(m, state, session)
