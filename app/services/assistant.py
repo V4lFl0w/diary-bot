@@ -6,6 +6,41 @@ from __future__ import annotations
 import os
 import json
 import re
+import logging
+from time import time as _time_now
+from datetime import datetime, timezone, timedelta
+from typing import Optional, Any, cast
+
+from zoneinfo import ZoneInfo
+from sqlalchemy import select, desc
+from app.services.media_text import YEAR_RE as _YEAR_RE, SXXEYY_RE as _SXXEYY_RE
+from app.services.intent_router import detect_intent, Intent
+
+from app.models.user import User
+from app.models.journal import JournalEntry
+
+
+
+def _media_ctx_should_stick(intent: Intent) -> bool:
+    return intent in (Intent.MEDIA_IMAGE, Intent.MEDIA_TEXT)
+
+async def _clear_sticky_media_if_any(state) -> None:
+    # Best-effort: supports aiogram FSMContext (state.get_data / update_data)
+    if state is None:
+        return
+    try:
+        data = await state.get_data()
+    except Exception:
+        return
+    # common keys we might have used for sticky media
+    keys = ["sticky_media", "sticky", "st", "last_media", "media_ctx", "prev_q", "media_prev_q"]
+    if not any(k in data for k in keys):
+        return
+    patch = {k: None for k in keys if k in data}
+    try:
+        await state.update_data(**patch)
+    except Exception:
+        return
 
 def _clean_tmdb_query(q: str) -> str:
     t = (q or "").strip()
@@ -24,14 +59,6 @@ def _clean_tmdb_query(q: str) -> str:
     t = " ".join(t.split())
     return t
 
-import logging
-from time import time as _time_now
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Any, TYPE_CHECKING, cast
-
-from zoneinfo import ZoneInfo
-from sqlalchemy import select, desc
-from app.services.media_text import YEAR_RE as _YEAR_RE, SXXEYY_RE as _SXXEYY_RE
 
 # --- Optional OpenAI import (server may not have it) ---
 
@@ -43,9 +70,7 @@ try:
 except ModuleNotFoundError:
     AsyncOpenAI = None  # type: ignore
 
-# --- Models (real import for runtime; clean types for pyright) ---
-from app.models.user import User
-from app.models.journal import JournalEntry
+# --- Models (imported at top) ---
 
 # --- Project-level constants (fallbacks) ---
 # Used by _is_generic_media_caption
@@ -735,6 +760,119 @@ def _scrub_media_items(items: list[dict]) -> list[dict]:
     return out
 
 
+def _title_tokens(x: str) -> set[str]:
+    x = (x or "").lower()
+    x = x.replace("ё", "е")
+    out = []
+    w = []
+    for ch in x:
+        if ch.isalnum() or ch in ("-", " "):
+            w.append(ch)
+        else:
+            w.append(" ")
+    x = "".join(w)
+    x = " ".join(x.split())
+    for t in x.split():
+        if len(t) > 1:
+            out.append(t)
+    return set(out)
+
+def _tmdb_score_item(query: str, it: dict, *, year_hint: str | None = None, lang_hint: str | None = None) -> tuple[float, str]:
+    """Return (score 0..1, why_short)."""
+    q = (query or "").strip()
+    title = (it.get("title") or it.get("name") or "").strip()
+    orig_lang = (it.get("original_language") or "").strip().lower()
+    year = str(it.get("year") or "")[:4]
+
+    ql = q.lower()
+    tl = title.lower()
+
+    score = 0.0
+    why = []
+
+    # title match
+    if title and q:
+        if tl == ql:
+            score += 0.55
+            why.append("точное совпадение названия")
+        elif ql and (ql in tl or tl in ql):
+            score += 0.40
+            why.append("совпали ключевые слова в названии")
+        else:
+            qt = _title_tokens(q)
+            tt = _title_tokens(title)
+            if qt and tt:
+                inter = len(qt & tt)
+                uni = len(qt | tt)
+                j = inter / max(1, uni)
+                score += 0.35 * min(1.0, j * 1.8)
+                if inter:
+                    why.append("частичное совпадение слов")
+
+    # year match
+    if year_hint and year and year_hint == year:
+        score += 0.18
+        why.append("совпадает год")
+
+    # stabilizers
+    pop = float(it.get("popularity") or 0.0)
+    vc = float(it.get("vote_count") or 0.0)
+    score += min(0.12, (pop / 200.0) * 0.12)
+    score += min(0.10, (vc / 5000.0) * 0.10)
+
+    # language hint
+    if lang_hint:
+        lh = (lang_hint or "").lower().strip()
+        if lh and orig_lang and lh == orig_lang:
+            score += 0.05
+
+    score = max(0.0, min(1.0, score))
+    return score, (", ".join(why[:2]) if why else "похоже по общим признакам")
+
+def _format_media_ranked(query: str, items: list[dict], *, year_hint: str | None = None, lang: str = "ru", source: str = "tmdb") -> str:
+    """Best match + why + 2–3 alternatives. Threshold to avoid junk."""
+    if not items:
+        return MEDIA_NOT_FOUND_REPLY_RU
+
+    scored = []
+    for it in items:
+        sc, why = _tmdb_score_item(query, it, year_hint=year_hint, lang_hint=("ru" if lang == "ru" else None))
+        scored.append((sc, why, it))
+    scored.sort(key=lambda x: x[0], reverse=True)
+
+    best_sc, best_why, best = scored[0]
+    alts = scored[1:4]
+
+    TH = 0.58
+    if best_sc < TH:
+        lines = ["🎬 Похоже, но уверенности мало.", ""]
+        for i, (sc, why, it) in enumerate(scored[:2], start=1):
+            t = (it.get("title") or it.get("name") or "—")
+            y = (it.get("year") or "—")
+            r = (it.get("vote_average") or "—")
+            lines.append(f"{i}) {t} ({y}) — ⭐ {r} · {why}")
+        lines += ["", "🧩 Уточни 1 деталь: год / актёр / страна / что происходит в сцене — и я добью точно."]
+        return "\n".join(lines)
+
+    t = (best.get("title") or best.get("name") or "—")
+    y = (best.get("year") or "—")
+    r = (best.get("vote_average") or "—")
+    lines = [
+        f"✅ Лучшее совпадение: {t} ({y}) — ⭐ {r}",
+        f"Почему: {best_why}.",
+    ]
+    if alts:
+        lines.append("")
+        lines.append("Альтернативы:")
+        for i, (sc, why, it) in enumerate(alts, start=1):
+            tt = (it.get("title") or it.get("name") or "—")
+            yy = (it.get("year") or "—")
+            rr = (it.get("vote_average") or "—")
+            lines.append(f"{i}) {tt} ({yy}) — ⭐ {rr}")
+    lines += ["", "Кнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить"]
+    return "\n".join(lines)
+
+
 def _media_confident(item: dict) -> bool:
     """Conservative confidence heuristic for Vision results."""
     try:
@@ -994,6 +1132,8 @@ def _is_bad_media_query(q: str) -> bool:
 
 
 # --- media session cache (in-memory, no DB migrations) ---
+MEDIA_CTX_TTL_SEC = 20 * 60  # 20 minutes
+
 
 
 log = logging.getLogger("media")
@@ -1390,6 +1530,7 @@ async def run_assistant(
     lang: str,
     *,
     session: Any = None,
+    has_media: bool = False,
 ) -> str:
     if AsyncOpenAI is None:
         return "🤖 Ассистент временно недоступен (сервер без openai).\nПопробуй позже или напиши в поддержку."
@@ -1423,14 +1564,31 @@ async def run_assistant(
         if mode == "media" and until and until > now:
             sticky_media_db = True
 
-    # IMPORTANT: if we have in-memory session => treat as media follow-up
-    is_media = (
-        _is_media_query(text)
-        or sticky_media_db
-        or bool(st)
-        or _looks_like_freeform_media_query(text)
-        or ((sticky_media_db or bool(st)) and _looks_like_year_or_hint(text))
-    )
+    # --- INTENT gate (prevents media context from leaking into other topics) ---
+    intent_res = detect_intent((text or '').strip() if text else None, has_media=bool(has_media))
+    intent = getattr(intent_res, 'intent', None) or intent_res
+    is_intent_media = intent in (Intent.MEDIA_IMAGE, Intent.MEDIA_TEXT)
+
+    # If user message is NOT media-related, we must drop sticky media (DB + memory)
+    if not is_intent_media:
+        if uid:
+            try:
+                _MEDIA_SESSIONS.pop(uid, None)
+            except Exception:
+                pass
+        if user is not None:
+            try:
+                mode = getattr(user, 'assistant_mode', None)
+                if mode == 'media':
+                    setattr(user, 'assistant_mode', None)
+                    setattr(user, 'assistant_mode_until', now - timedelta(seconds=1))
+                    if session:
+                        await session.commit()
+            except Exception:
+                pass    # IMPORTANT: media mode should trigger ONLY for media intents (or real media message)
+    # st/sticky are allowed to keep follow-ups ONLY when current intent is media.
+    is_media = bool(has_media) or bool(is_intent_media) or (sticky_media_db and bool(is_intent_media)) or (bool(st) and bool(is_intent_media))
+
 
     if is_media:
         _d(
@@ -1563,7 +1721,7 @@ async def run_assistant(
             try:
                 # --- media refinement guard ---
                 # If user sends non-digit while media session is active, treat it as query refinement.
-                if (st or sticky_media_db) and text:
+                if is_intent_media and (st or sticky_media_db) and text:
                     t = text.strip()
                     if t and (not re.fullmatch(r"\d+", t)) and (not t.startswith("/")):
                         query = t
@@ -1614,7 +1772,7 @@ async def run_assistant(
         items = _scrub_media_items(items)
         if uid:
             _media_set(uid, query, items)
-        return build_media_context(items) + "\n\nВыбери номер варианта."
+        return _format_media_ranked(query, items, year_hint=_parse_media_hints(query).get('year'), lang=lang, source='tmdb')
 
     # ---- Normal assistant (non-media) ----
     ctx = await build_context(session, user, lang, plan)
@@ -2003,6 +2161,7 @@ async def run_assistant_vision(
             used_cand = ""
 
             ordered = _pick_best_lens_candidates(lens_cands, limit=12)
+            ordered = (ordered or [])[:5]  # hard cap: 3–5 clean candidates
 
             best_lens_fallback = ordered[:8]
             _d("vision.lens.pick", ordered=ordered[:10])
@@ -2043,7 +2202,7 @@ async def run_assistant_vision(
             if uid and used_cand:
                 _media_set(uid, used_cand, items)
 
-            return build_media_context(items) + "\n\nВыбери номер варианта."
+            return _format_media_ranked(used_cand, items, year_hint=_parse_media_hints(used_cand).get('year'), lang=lang, source='tmdb')
 
     # Vision → TMDb candidates (robust)
 
@@ -2174,7 +2333,7 @@ async def run_assistant_vision(
         # Default: return title directly if confident (or single result)
         top = items[0]
 
-        return build_media_context(items) + "\n\nВыбери номер варианта."
+        return _format_media_ranked(used_query or (cand_list[0] if cand_list else ''), items, year_hint=_parse_media_hints(used_query or (cand_list[0] if cand_list else '')).get('year'), lang=lang, source='tmdb')
 
     # --- Failsafe: Vision must always return text ---
     final_text = (out_text or "").strip()

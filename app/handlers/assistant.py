@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from aiogram import Router, F
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,6 +59,15 @@ except Exception:  # pragma: no cover
 
 
 router = Router(name="assistant")
+
+def _media_inline_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Это оно", callback_data="media:ok")
+    kb.button(text="🔁 Другие варианты", callback_data="media:alts")
+    kb.button(text="🧩 Уточнить", callback_data="media:hint")
+    kb.adjust(2, 1)
+    return kb.as_markup()
+
 
 
 class AssistantFSM(StatesGroup):
@@ -301,7 +311,12 @@ async def assistant_photo(
         except Exception:
             pass
 
-    await m.answer(reply)
+    # media inline buttons
+    if isinstance(reply, str) and "Кнопки:" in reply:
+        clean = reply.replace("\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", "")
+        await m.answer(clean, reply_markup=_media_inline_kb())
+    else:
+        await m.answer(reply)
 
 
 async def _ack_media_search_once(m, state) -> None:
@@ -395,4 +410,9 @@ async def assistant_dialog(
             except Exception:
                 pass
 
-    await m.answer(reply)
+    # media inline buttons
+    if isinstance(reply, str) and "Кнопки:" in reply:
+        clean = reply.replace("\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", "")
+        await m.answer(clean, reply_markup=_media_inline_kb())
+    else:
+        await m.answer(reply)
