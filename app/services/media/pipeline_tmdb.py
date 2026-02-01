@@ -5,7 +5,11 @@ from app.services.media.safety import _scrub_media_items
 from app.services.media.session import _extract_year
 from app.services.media_search import tmdb_search_multi
 
+<<<<<<< HEAD
 # app/services/assistant.py
+=======
+# app/services/assistant.py (pipeline_tmbd.py)
+>>>>>>> 50c59ea (fix(assistant/media): stabilize sticky queries + tmdb/vision parsing)
 
 
 def _dedupe_media(items: list[dict]) -> list[dict]:

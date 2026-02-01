@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+# pyright: reportOptionalSubscript=false
+
 import os as _os
 import time as _time
 import contextvars as _contextvars
@@ -58,10 +61,7 @@ def _atrace_set(tid: str):
         _trace_id_var.set(tid)
     except Exception:
         pass
-import time
-
 def _dbg_media(logger, tag: str, **kv):
-    _dbg_media(logger, 'enter_safe', is_media=locals().get('is_media'), sticky_media_db=locals().get('sticky_media_db'), has_st=locals().get('has_st'), uid=str(locals().get('uid')))
     try:
         logger.info('[media][dbg] %s | %s', tag, kv)
     except Exception:
@@ -158,7 +158,7 @@ def _vision_cache_get(key: str) -> str | None:
         if not v:
             return None
         ts, reply = v
-        if (time.time() - ts) > _VISION_IMG_CACHE_TTL_SEC:
+        if (_time.time() - ts) > _VISION_IMG_CACHE_TTL_SEC:
             _VISION_IMG_CACHE.pop(key, None)
             return None
         return reply
@@ -168,7 +168,7 @@ def _vision_cache_get(key: str) -> str | None:
 def _vision_cache_set(key: str, reply: str) -> None:
     try:
         if key and reply:
-            _VISION_IMG_CACHE[key] = (time.time(), reply)
+            _VISION_IMG_CACHE[key] = (_time.time(), reply)
     except Exception:
         pass
 
@@ -710,8 +710,27 @@ async def run_assistant(
         if st and prev_q and raw and (len(raw) <= 140):
             raw_l = raw.lower().strip()
             prev_l = prev_q.lower().strip()
+
+            def _is_strong_candidate(q: str) -> bool:
+                q = (q or '').strip()
+                if not q:
+                    return False
+                # год/короткий хинт
+                if _looks_like_year_or_hint(q):
+                    return True
+                # тайтл + год (Inception 2010)
+                if re.search(r"\b(19\d{2}|20\d{2})\b", q) and len(q) <= 80:
+                    return True
+                # нормальный tmdb-кандидат: короткий, без мусора
+                if _good_tmdb_cand(q) and len(q) <= 80:
+                    return True
+                return False
+
+            # ✅ ключевой фикс: сильный кандидат НЕ смешиваем с прошлым описанием
+            if _is_strong_candidate(raw):
+                query = _tmdb_sanitize_query(_normalize_tmdb_query(raw))
             # если пользователь фактически повторил прошлый запрос — не дергаем новый поиск
-            if raw_l == prev_l:
+            elif raw_l == prev_l:
                 query = _tmdb_sanitize_query(_normalize_tmdb_query(prev_q))
             # если в уточнении уже есть прошлый запрос — используем уточнение как есть
             elif prev_l and (prev_l in raw_l):

@@ -95,7 +95,9 @@ def _looks_like_year_or_hint(text: str) -> bool:
     # 1–2 слова (часто это уточнение: "Америка", "США", "комедия", "Netflix")
     parts = t.split()
     if 1 <= len(parts) <= 2 and len(t) <= 18:
-        return True
+        # если нет больших букв (новый тайтл) и нет года
+        if not re.search(r"[A-ZА-ЯЁ]", text):
+            return True
 
     # короткие уточнения: актёр/страна/язык/год/серия/эпизод + страны/аббревиатуры
     hint_words = (
