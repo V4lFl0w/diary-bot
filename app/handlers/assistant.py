@@ -71,6 +71,7 @@ router = Router(name="assistant")
 async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMContext):
     st = await state.get_state()
     if not st:
+        await cb.answer()
         return
     # only when we're inside assistant FSM
     if not st.startswith("AssistantFSM"):
@@ -130,9 +131,9 @@ def _extract_poster_url(text: str) -> tuple[Optional[str], str]:
 
 def _media_inline_kb():
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Это оно", callback_data="media:ok")
-    kb.button(text="🔁 Другие варианты", callback_data="media:alts")
-    kb.button(text="🧩 Уточнить", callback_data="media:hint")
+    kb.button(text="✅ Это оно", callback_data="media:pick")
+    kb.button(text="🔁 Другие варианты", callback_data="media:nav:next")
+    kb.button(text="🧩 Уточнить", callback_data="media:refine")
     kb.adjust(2, 1)
     return kb.as_markup()
 
@@ -602,7 +603,7 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
         )
 
 
-@router.callback_query(F.data == "media:ok")
+@router.callback_query(F.data == "media:pick")
 async def media_ok(call: CallbackQuery, state: FSMContext) -> None:
     # user confirmed the result
     try:
@@ -613,7 +614,7 @@ async def media_ok(call: CallbackQuery, state: FSMContext) -> None:
     await call.answer("✅ Ок, принято.")
 
 
-@router.callback_query(F.data == "media:alts")
+@router.callback_query(F.data == "media:nav:next")
 async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     # ask assistant for alternative variants based on last query
     try:
@@ -673,7 +674,7 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
     await call.answer()
 
 
-@router.callback_query(F.data == "media:hint")
+@router.callback_query(F.data == "media:refine")
 async def media_hint(call: CallbackQuery, state: FSMContext) -> None:
     # ask user for clarification; next text message will be merged with last query
     try:

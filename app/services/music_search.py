@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 import aiohttp
@@ -32,7 +33,12 @@ async def itunes_search(query: str, *, limit: int = 8, country: str = "US") -> l
         async with s.get("https://itunes.apple.com/search", params=params) as r:
             if r.status != 200:
                 return []
-            data: dict[str, Any] = await r.json()
+            text = await r.text()
+
+    try:
+        data: dict[str, Any] = json.loads(text)
+    except Exception:
+        return []
 
     out: list[SearchTrack] = []
     for item in (data.get("results") or [])[:limit]:

@@ -96,7 +96,6 @@
         <button class="btn" id="stopBtn" disabled>⏹ Stop</button>
       </div>
     </div>
-  
 <audio id="bellStart" src="/static/sounds/meditation_start.mp3" preload="auto"></audio>
 <audio id="bellEnd" src="/static/sounds/meditation_end.mp3" preload="auto"></audio>
 
@@ -245,6 +244,12 @@ function _oldBell(pattern="start") {
       bgNode = null;
     }
 
+    // Background (generated, no mp3)
+    function stopBg() {
+      try { bgNode?.stop?.(); } catch(e) {}
+      bgNode = null;
+    }
+
     function startBg(kind) {
       stopBg();
       if (kind === "off") return;
@@ -252,7 +257,6 @@ function _oldBell(pattern="start") {
       const ctx = ensureAudio();
       if (!ctx || !master) return;
 
-      // white noise buffer helper
       function makeNoiseBuffer(seconds=2.0) {
         const sr = ctx.sampleRate;
         const len = Math.floor(sr * seconds);
@@ -268,15 +272,15 @@ function _oldBell(pattern="start") {
         src.loop = true;
 
         const g = ctx.createGain();
-        g.gain.value = 0.35; // base level (overall volume still via master)
+        g.gain.value = 0.35;
         src.connect(g).connect(master);
         src.start();
+
         bgNode = { stop: () => { try{ src.stop(); }catch(e){} } };
         return;
       }
 
       if (kind === "rain") {
-        // noise + lowpass + gentle modulation
         const src = ctx.createBufferSource();
         src.buffer = makeNoiseBuffer(2.0);
         src.loop = true;
@@ -296,7 +300,6 @@ function _oldBell(pattern="start") {
       }
 
       if (kind === "forest") {
-        // “ветер/лес”: pink-ish noise imitation via lowpass + very low rumble
         const src = ctx.createBufferSource();
         src.buffer = makeNoiseBuffer(2.0);
         src.loop = true;
@@ -308,7 +311,6 @@ function _oldBell(pattern="start") {
         const g = ctx.createGain();
         g.gain.value = 0.45;
 
-        // subtle rumble
         const rumble = ctx.createOscillator();
         rumble.type = "sine";
         rumble.frequency.value = 80;
@@ -322,12 +324,18 @@ function _oldBell(pattern="start") {
         src.start();
         rumble.start();
 
-        bgNode = { stop: () => { try{ src.stop(); }catch(e){} try{ rumble.stop(); }catch(e){} } };
+        bgNode = {
+          stop: () => {
+            try{ src.stop(); }catch(e){}
+            try{ rumble.stop(); }catch(e){}
+          }
+        };
         return;
       }
     }
 
     // --- UI render ---
+
     function setActiveButtons(container, attr, value) {
       [...container.querySelectorAll("button")].forEach(b => {
         const v = b.getAttribute(attr);
