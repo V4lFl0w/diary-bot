@@ -361,7 +361,7 @@ async def open_premium_from_inline(
         )
 
     is_premium = _has_premium(user)
-    is_admin_tg(cb.from_user.id)
+    is_admin = is_admin_tg(cb.from_user.id)
 
     if cb.message:
         await cb.message.answer(
@@ -608,7 +608,15 @@ async def assistant_dialog(
         else:
             await m.answer(clean, reply_markup=_media_inline_kb(), parse_mode=None)
     else:
-        await m.answer(str(reply))
+        is_admin = is_admin_tg(m.from_user.id)
+        await m.answer(
+            str(reply),
+            reply_markup=get_main_kb(
+                lang,
+                is_premium=_has_premium(user),
+                is_admin=is_admin,
+            ),
+        )
 
 
 @router.callback_query(F.data == "media:ok")
@@ -728,5 +736,5 @@ async def assistant_photo_fallback(
         except Exception:
             sticky_media = False
         if not sticky_media:
-            return
+            raise SkipHandler
     await assistant_photo(m, state, session)

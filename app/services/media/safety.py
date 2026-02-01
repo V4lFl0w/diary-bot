@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-<<<<<<< HEAD
 # app/services/assistant.py
-=======
-# app/services/assistant.py (safety.py)
->>>>>>> 50c59ea (fix(assistant/media): stabilize sticky queries + tmdb/vision parsing)
 
 
 _EXPLICIT_OVERVIEW_WORDS = (

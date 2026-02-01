@@ -103,7 +103,6 @@ from app.services.media.query import (
     _good_tmdb_cand,
     _is_asking_for_title,
     _is_bad_media_query,
-    _is_generic_media_caption,
     _looks_like_freeform_media_query,
     _normalize_tmdb_query,
     _parse_media_hints,
@@ -126,6 +125,31 @@ from app.services.media.vision_parse import (
     _extract_search_query_from_text,
     _extract_title_like_from_model_text,
 )
+
+# --- compat: generic media caption detector (legacy import path) ---
+try:
+    from app.services.media_text import (
+        is_generic_media_caption as _is_generic_media_caption,
+    )  # type: ignore
+except Exception:  # pragma: no cover
+
+    def _is_generic_media_caption(text: str) -> bool:  # type: ignore
+        t = (text or "").strip().lower()
+        if not t:
+            return True
+        t = re.sub(r"\s+", " ", t).strip()
+        return t in {
+            "откуда кадр",
+            "откуда кадр?",
+            "что за фильм",
+            "что за фильм?",
+            "что за сериал",
+            "что за сериал?",
+            "что за мультик",
+            "что за мультик?",
+            "как называется",
+            "как называется?",
+        }
 
 ANTI_HALLUCINATION_PREFIX: str = ""
 
@@ -236,34 +260,6 @@ except Exception:  # pragma: no cover
 # --- TMDB query sanitizer: TMDB hates long "scene description" queries ---
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _media_confident(item: dict) -> bool:
     """Conservative confidence heuristic for Vision results."""
     try:
@@ -274,55 +270,11 @@ def _media_confident(item: dict) -> bool:
     return (pop >= 25 and va >= 6.8) or (pop >= 60) or (va >= 7.6)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # --- BAD OCR / GENERIC QUERY FILTER FOR MEDIA SEARCH ---
-
 
 # --- media query cleaning: turn human phrasing into search-friendly query ---
 
-
-
-
-
-
-
 # --- media session cache (in-memory, no DB migrations) ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 def _env(name: str, default: str = "") -> str:
     v = os.getenv(name)
@@ -929,10 +881,6 @@ async def run_assistant(
         return str(getattr(resp, "output", "")).strip() or "⚠️ Empty response."
     except Exception:
         return "⚠️ Не смог прочитать ответ модели."
-
-
-
-
 
 
 async def run_assistant_vision(

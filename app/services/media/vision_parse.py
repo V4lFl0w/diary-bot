@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-<<<<<<< HEAD
 # app/services/assistant.py
-=======
-from app.services.media.query import (
-    _tmdb_sanitize_query, _normalize_tmdb_query, _good_tmdb_cand, GENERIC_TITLE_WORDS
-)
-
-# app/services/assistant.py (vision_parse.py)
->>>>>>> 50c59ea (fix(assistant/media): stabilize sticky queries + tmdb/vision parsing)
 import json
 import re
 from typing import Any, Optional
@@ -208,7 +200,7 @@ def _build_tmdb_queries_from_media_json(mj: Optional[dict]) -> list[str]:
         alts = [alts]
 
     cast_legacy = norm_list(mj.get("cast"))
-    keywords_legacy = norm_list(mj.get("legacy_keywords"))
+    keywords_legacy = norm_list(mj.get("keywords"))
 
     # Priority 1: title hints / title
     for t in (title_hints or [])[:6]:
