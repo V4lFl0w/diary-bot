@@ -73,6 +73,64 @@ GENERIC_TITLE_WORDS = {
     "откуда",
 }
 
+# --- tmdb candidate stoplist (json keys + generic descriptors) ---
+_BAD_TMDB_CANDIDATES = {
+    # json keys / system labels
+    "actors",
+    "actor",
+    "actress",
+    "cast",
+    "characters",
+    "character",
+    "dialogue",
+    "dialog",
+    "keywords",
+    "title_hints",
+    "search_query",
+    "query",
+    "prompt",
+    "description",
+    "summary",
+    "scene",
+    "plot",
+    "synopsis",
+    "genre",
+    "genres",
+
+    # common useless descriptors from lens/vision
+    "male characters",
+    "female characters",
+    "dark scene",
+    "dark",
+    "a dark scene",
+    "a scene",
+    "movie scene",
+    "tv show",
+    "tv series",
+}
+
+def _is_bad_tmdb_candidate(q: str) -> bool:
+    q = _norm(q)
+    if not q:
+        return True
+
+    low = q.lower().strip()
+
+    # 1) прямые стоп-слова
+    if low in _BAD_TMDB_CANDIDATES:
+        return True
+
+    # 2) если это по сути "общие слова" (все токены — из GENERIC_TITLE_WORDS)
+    toks = [t for t in re.split(r"\s+", low) if t]
+    if toks and all(t in GENERIC_TITLE_WORDS for t in toks):
+        return True
+
+    # 3) короткий мусор
+    if len(low) <= 2:
+        return True
+
+    return False
+
 
 @dataclass(frozen=True)
 class MediaHints:
@@ -287,7 +345,13 @@ def build_tmdb_queries(
 
     # 3) список “внешних” кандидатов (Lens/Wiki/Serp)
     extras = [tmdb_query_compact(x) for x in (extra_candidates or [])]
-    extras = [x for x in extras if x and not is_bad_tmdb_query(x)]
+    extras = [
+        x
+        for x in extras
+        if x
+        and not is_bad_tmdb_query(x)
+        and not _is_bad_tmdb_candidate(x)
+    ]
 
     # 4) если есть SxxEyy и есть базовый компакт — делаем уточнённые
     out: list[str] = []
@@ -318,7 +382,7 @@ def build_tmdb_queries(
     final: list[str] = []
     for q in out:
         q2 = _norm(q)
-        if not q2 or is_bad_tmdb_query(q2):
+        if not q2 or is_bad_tmdb_query(q2) or _is_bad_tmdb_candidate(q2):
             continue
         k = q2.lower()
         if k in seen:
@@ -469,8 +533,15 @@ def _is_bad_media_query(q: str) -> bool:
 
 
 def _good_tmdb_cand(q: str) -> bool:
-    # “хороший кандидат” = не мусор
-    return not is_bad_tmdb_query(q)
+    # “хороший кандидат” = не мусор + не стоп-слово/общая болтовня
+    q = _norm(q)
+    if not q:
+        return False
+    if is_bad_tmdb_query(q):
+        return False
+    if _is_bad_tmdb_candidate(q):
+        return False
+    return True
 
 
 _KIND_MARK_RE = re.compile(r"(?i)\b(video|видео|clip|клип|тизер|trailer|трейлер)\b")

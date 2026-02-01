@@ -67,7 +67,7 @@ except Exception:  # pragma: no cover
 router = Router(name="assistant")
 
 
-@router.callback_query()
+@router.callback_query(F.data.startswith("media:"))
 async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMContext):
     st = await state.get_state()
     if not st:
@@ -471,11 +471,11 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
 
     if isinstance(reply, str) and _needs_media_kb(reply):
         clean = _strip_media_knobs(reply)
-        poster_url, clean2 = _extract_poster_url(clean)
+        poster_url, clean = _extract_poster_url(clean)
         if poster_url:
             await m.answer_photo(
-                poster_url,
-                caption=clean2,
+                photo=poster_url,
+                caption=clean,
                 reply_markup=_media_inline_kb(),
                 parse_mode=None,
             )
