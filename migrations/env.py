@@ -22,7 +22,6 @@ for m in pkgutil.walk_packages(models_pkg.__path__, models_pkg.__name__ + "."):
     importlib.import_module(m.name)
 
 
-
 config = context.config
 
 if config.config_file_name is not None:
@@ -43,13 +42,13 @@ def _get_db_url() -> str | None:
 db_url = _get_db_url()
 if not db_url:
     raise RuntimeError(
-        "Database URL is not configured. "
-        "Provide settings.db_url/database_url or set DATABASE_URL env variable."
+        "Database URL is not configured. Provide settings.db_url/database_url or set DATABASE_URL env variable."
     )
 
 config.set_main_option("sqlalchemy.url", str(db_url))
 
 target_metadata = Base.metadata
+
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")

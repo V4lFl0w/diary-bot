@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, date
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
+
 from sqlalchemy import select
+
 
 def _local_today(tz: str | None) -> date:
     try:
@@ -10,7 +12,8 @@ def _local_today(tz: str | None) -> date:
     except Exception:
         z = ZoneInfo("Europe/Uzhgorod")
     return datetime.now(z).date()
-from datetime import date
+
+
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,15 +26,17 @@ async def log_proactive_entry(session: AsyncSession, user, kind: str, payload: d
     today = _local_today(getattr(user, "tz", None))
 
     # one entry per (user, kind, day) — update if already exists
-    existing = (await session.execute(
-        select(ProactiveEntry)
-        .where(
-            ProactiveEntry.user_id == user.id,
-            ProactiveEntry.kind == kind,
-            ProactiveEntry.local_date == today,
+    existing = (
+        await session.execute(
+            select(ProactiveEntry)
+            .where(
+                ProactiveEntry.user_id == user.id,
+                ProactiveEntry.kind == kind,
+                ProactiveEntry.local_date == today,
+            )
+            .limit(1)
         )
-        .limit(1)
-    )).scalar_one_or_none()
+    ).scalar_one_or_none()
 
     if existing:
         existing.payload = payload

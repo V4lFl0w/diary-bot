@@ -8,9 +8,11 @@ import httpx
 TMDB_API = "https://api.themoviedb.org/3"
 TMDB_IMG = "https://image.tmdb.org/t/p/w342"
 
+
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     v = os.getenv(name)
     return v if v not in (None, "") else default
+
 
 def _tmdb_auth_headers_and_params() -> Tuple[Dict[str, str], Dict[str, str]]:
     """
@@ -30,6 +32,7 @@ def _tmdb_auth_headers_and_params() -> Tuple[Dict[str, str], Dict[str, str]]:
         params["api_key"] = api_key_v3
 
     return headers, params
+
 
 async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5) -> List[Dict[str, Any]]:
     q = (query or "").strip()
@@ -71,19 +74,22 @@ async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5) 
         title = it.get("title") if mt == "movie" else it.get("name")
         date = it.get("release_date") if mt == "movie" else it.get("first_air_date")
         year = (date or "")[:4] if date else ""
-        out.append({
-            "media_type": mt,
-            "id": it.get("id"),
-            "title": title,
-            "year": year,
-            "overview": it.get("overview") or "",
-            "popularity": it.get("popularity") or 0,
-            "vote_average": it.get("vote_average") or 0,
-            "poster_path": it.get("poster_path") or "",
-        })
+        out.append(
+            {
+                "media_type": mt,
+                "id": it.get("id"),
+                "title": title,
+                "year": year,
+                "overview": it.get("overview") or "",
+                "popularity": it.get("popularity") or 0,
+                "vote_average": it.get("vote_average") or 0,
+                "poster_path": it.get("poster_path") or "",
+            }
+        )
         if len(out) >= limit:
             break
     return out
+
 
 def build_media_context(items: List[Dict[str, Any]]) -> str:
     if not items:
@@ -128,7 +134,12 @@ async def tmdb_discover_with_people(person_id: int, *, year: str | None, kind: s
     media_type = "movie" if kind != "tv" else "tv"
     url = f"{TMDB_API}/discover/{media_type}"
 
-    params = {**base_params, "with_people": person_id, "sort_by": "popularity.desc", "page": 1}
+    params = {
+        **base_params,
+        "with_people": person_id,
+        "sort_by": "popularity.desc",
+        "page": 1,
+    }
 
     if year:
         if media_type == "movie":
@@ -146,14 +157,16 @@ async def tmdb_discover_with_people(person_id: int, *, year: str | None, kind: s
 
     out = []
     for it in items[:5]:
-        out.append({
-            "media_type": media_type,
-            "id": it.get("id"),
-            "title": it.get("title") if media_type == "movie" else it.get("name"),
-            "year": (it.get("release_date") or it.get("first_air_date") or "")[:4],
-            "overview": it.get("overview") or "",
-            "poster_path": it.get("poster_path"),
-            "popularity": it.get("popularity") or 0,
-            "vote_average": it.get("vote_average") or 0,
-        })
+        out.append(
+            {
+                "media_type": media_type,
+                "id": it.get("id"),
+                "title": it.get("title") if media_type == "movie" else it.get("name"),
+                "year": (it.get("release_date") or it.get("first_air_date") or "")[:4],
+                "overview": it.get("overview") or "",
+                "poster_path": it.get("poster_path"),
+                "popularity": it.get("popularity") or 0,
+                "vote_average": it.get("vote_average") or 0,
+            }
+        )
     return out

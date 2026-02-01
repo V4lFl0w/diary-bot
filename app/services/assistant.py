@@ -1,31 +1,40 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+# pyright: reportOptionalSubscript=false
+
 import os as _os
 import time as _time
 import contextvars as _contextvars
 import uuid as _uuid
+
 
 async def _send_dbg(logger, kind: str, fn, *args, **kwargs):
     """Обертка для отправки сообщений: логирует наличие клавиатуры/markup и текст (коротко)."""
     if _TRACE_ON:
         txt = None
         try:
-            if 'text' in kwargs and isinstance(kwargs.get('text'), str):
-                txt = kwargs.get('text')[:180]
+            if "text" in kwargs and isinstance(kwargs.get("text"), str):
+                txt = kwargs.get("text")[:180]
         except Exception:
             pass
-        _atrace(logger, f'tg.{kind}.send', has_markup=bool(kwargs.get('reply_markup') or kwargs.get('markup')), text=txt)
+        _atrace(
+            logger, f"tg.{kind}.send", has_markup=bool(kwargs.get("reply_markup") or kwargs.get("markup")), text=txt
+        )
     return await fn(*args, **kwargs)
 
 
 _TRACE_ON = _os.getenv("TRACE_ASSISTANT", "0") == "1"
 _trace_id_var: _contextvars.ContextVar[str] = _contextvars.ContextVar("atrace_id", default="")
 
+
 def _atrace_id() -> str:
     return _trace_id_var.get() or "-"
 
+
 def _atrace_new(prefix: str = "a") -> str:
     return f"{prefix}{_uuid.uuid4().hex[:10]}"
+
 
 def _atrace(logger, stage: str, **kv):
     if not _TRACE_ON:
@@ -35,16 +44,19 @@ def _atrace(logger, stage: str, **kv):
     except Exception:
         pass
 
+
 class _ASpan:
     def __init__(self, logger, stage: str, **kv):
         self.logger = logger
         self.stage = stage
         self.kv = kv
         self.t0 = None
+
     def __enter__(self):
         self.t0 = _time.time()
         _atrace(self.logger, self.stage + ".in", **self.kv)
         return self
+
     def __exit__(self, exc_type, exc, tb):
         dt = int((_time.time() - (self.t0 or _time.time())) * 1000)
         if exc is not None:
@@ -53,19 +65,20 @@ class _ASpan:
         _atrace(self.logger, self.stage + ".out", ms=dt)
         return False
 
+
 def _atrace_set(tid: str):
     try:
         _trace_id_var.set(tid)
     except Exception:
         pass
-import time
+
 
 def _dbg_media(logger, tag: str, **kv):
-    _dbg_media(logger, 'enter_safe', is_media=locals().get('is_media'), sticky_media_db=locals().get('sticky_media_db'), has_st=locals().get('has_st'), uid=str(locals().get('uid')))
     try:
-        logger.info('[media][dbg] %s | %s', tag, kv)
+        logger.info("[media][dbg] %s | %s", tag, kv)
     except Exception:
         pass
+
 
 # app/services/assistant.py
 import os
@@ -103,7 +116,6 @@ from app.services.media.query import (
     _good_tmdb_cand,
     _is_asking_for_title,
     _is_bad_media_query,
-    _is_generic_media_caption,
     _looks_like_freeform_media_query,
     _normalize_tmdb_query,
     _parse_media_hints,
@@ -127,6 +139,32 @@ from app.services.media.vision_parse import (
     _extract_title_like_from_model_text,
 )
 
+# --- compat: generic media caption detector (legacy import path) ---
+try:
+    from app.services.media_text import (
+        is_generic_media_caption as _is_generic_media_caption,
+    )  # type: ignore
+except Exception:  # pragma: no cover
+
+    def _is_generic_media_caption(text: str) -> bool:  # type: ignore
+        t = (text or "").strip().lower()
+        if not t:
+            return True
+        t = re.sub(r"\s+", " ", t).strip()
+        return t in {
+            "откуда кадр",
+            "откуда кадр?",
+            "что за фильм",
+            "что за фильм?",
+            "что за сериал",
+            "что за сериал?",
+            "что за мультик",
+            "что за мультик?",
+            "как называется",
+            "как называется?",
+        }
+
+
 ANTI_HALLUCINATION_PREFIX: str = ""
 
 try:
@@ -142,15 +180,13 @@ except ModuleNotFoundError:
 # --- restored media helpers (from assistant.py.bak2) ---
 
 
-
-
 # --- restored helpers (from assistant.py.bak2) ---
-
 
 
 # --- vision cache (screenshot -> result) ---
 _VISION_IMG_CACHE: dict[str, tuple[float, str]] = {}
 _VISION_IMG_CACHE_TTL_SEC = 30 * 60  # 30 minutes
+
 
 def _vision_cache_get(key: str) -> str | None:
     try:
@@ -158,28 +194,23 @@ def _vision_cache_get(key: str) -> str | None:
         if not v:
             return None
         ts, reply = v
-        if (time.time() - ts) > _VISION_IMG_CACHE_TTL_SEC:
+        if (_time.time() - ts) > _VISION_IMG_CACHE_TTL_SEC:
             _VISION_IMG_CACHE.pop(key, None)
             return None
         return reply
     except Exception:
         return None
 
+
 def _vision_cache_set(key: str, reply: str) -> None:
     try:
         if key and reply:
-            _VISION_IMG_CACHE[key] = (time.time(), reply)
+            _VISION_IMG_CACHE[key] = (_time.time(), reply)
     except Exception:
         pass
 
+
 # --- safety: scrub explicit overviews (TMDb sometimes returns NSFW text even with include_adult=false) ---
-
-
-
-
-
-
-
 
 
 # --- Services imports (try real, otherwise safe stubs) ---
@@ -197,9 +228,7 @@ try:
     )
 except Exception:  # pragma: no cover
 
-    async def web_to_tmdb_candidates(
-        *args: Any, **kwargs: Any
-    ) -> tuple[list[str], str]:
+    async def web_to_tmdb_candidates(*args: Any, **kwargs: Any) -> tuple[list[str], str]:
         return ([], "web_stub")
 
 
@@ -209,9 +238,7 @@ try:
     )  # expected existing
 except Exception:  # pragma: no cover
 
-    async def image_bytes_to_tmdb_candidates(
-        *args: Any, **kwargs: Any
-    ) -> tuple[list[str], str]:
+    async def image_bytes_to_tmdb_candidates(*args: Any, **kwargs: Any) -> tuple[list[str], str]:
         return ([], "lens_stub")
 
 
@@ -236,34 +263,6 @@ except Exception:  # pragma: no cover
 # --- TMDB query sanitizer: TMDB hates long "scene description" queries ---
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _media_confident(item: dict) -> bool:
     """Conservative confidence heuristic for Vision results."""
     try:
@@ -274,54 +273,11 @@ def _media_confident(item: dict) -> bool:
     return (pop >= 25 and va >= 6.8) or (pop >= 60) or (va >= 7.6)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # --- BAD OCR / GENERIC QUERY FILTER FOR MEDIA SEARCH ---
-
 
 # --- media query cleaning: turn human phrasing into search-friendly query ---
 
-
-
-
-
-
-
 # --- media session cache (in-memory, no DB migrations) ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def _env(name: str, default: str = "") -> str:
@@ -354,7 +310,6 @@ def _assistant_plan(user: Optional[User]) -> str:
         return "free"
 
     now = datetime.now(timezone.utc)
-
 
     # если premium_until есть и он истёк → FREE
     pu = getattr(user, "premium_until", None)
@@ -496,9 +451,7 @@ async def _fetch_recent_journal(
     return out
 
 
-async def build_context(
-    session: Any, user: Optional[User], lang: str, plan: str
-) -> str:
+async def build_context(session: Any, user: Optional[User], lang: str, plan: str) -> str:
     parts: list[str] = []
     parts.append(f"Time now: {_now_str_user(user)}")
 
@@ -625,8 +578,8 @@ async def run_assistant(
             sticky_media_db = True
 
     # --- INTENT gate (prevents media context from leaking into other topics) ---
-    intent_res = detect_intent((text or '').strip() if text else None, has_media=bool(has_media))
-    intent = getattr(intent_res, 'intent', None) or intent_res
+    intent_res = detect_intent((text or "").strip() if text else None, has_media=bool(has_media))
+    intent = getattr(intent_res, "intent", None) or intent_res
     is_intent_media = intent in (Intent.MEDIA_IMAGE, Intent.MEDIA_TEXT)
 
     # If user message is NOT media-related, we must drop sticky media (DB + memory)
@@ -638,17 +591,21 @@ async def run_assistant(
                 pass
         if user is not None:
             try:
-                mode = getattr(user, 'assistant_mode', None)
-                if mode == 'media':
-                    setattr(user, 'assistant_mode', None)
-                    setattr(user, 'assistant_mode_until', now - timedelta(seconds=1))
+                mode = getattr(user, "assistant_mode", None)
+                if mode == "media":
+                    setattr(user, "assistant_mode", None)
+                    setattr(user, "assistant_mode_until", now - timedelta(seconds=1))
                     if session:
                         await session.commit()
             except Exception:
-                pass    # IMPORTANT: media mode should trigger ONLY for media intents (or real media message)
+                pass  # IMPORTANT: media mode should trigger ONLY for media intents (or real media message)
     # st/sticky are allowed to keep follow-ups ONLY when current intent is media.
-    is_media = bool(has_media) or bool(is_intent_media) or (sticky_media_db and bool(is_intent_media)) or (bool(st) and bool(is_intent_media))
-
+    is_media = (
+        bool(has_media)
+        or bool(is_intent_media)
+        or (sticky_media_db and bool(is_intent_media))
+        or (bool(st) and bool(is_intent_media))
+    )
 
     if is_media:
         _d(
@@ -662,12 +619,14 @@ async def run_assistant(
 
         # стабилизация: если пользователь повторяет тот же запрос и у нас уже есть варианты — не пересчитываем
         try:
-            if st and (st.get('items') or []) and raw_text:
+            if st and (st.get("items") or []) and raw_text:
                 raw_norm = _tmdb_sanitize_query(_normalize_tmdb_query(raw_text.strip()))
-                prev_norm = _tmdb_sanitize_query(_normalize_tmdb_query((st.get('query') or '').strip()))
+                prev_norm = _tmdb_sanitize_query(_normalize_tmdb_query((st.get("query") or "").strip()))
                 if raw_norm and prev_norm and raw_norm == prev_norm:
-                    opts = st.get('items') or []
-                    return _format_media_ranked(prev_norm, opts, year_hint=_parse_media_hints(prev_norm).get('year'), lang=lang, source='cache')
+                    opts = st.get("items") or []
+                    return _format_media_ranked(
+                        prev_norm, opts, year_hint=_parse_media_hints(prev_norm).get("year"), lang=lang, source="cache"
+                    )
         except Exception:
             pass
 
@@ -677,23 +636,21 @@ async def run_assistant(
             opts = st.get("items") or []
             if 0 <= idx < len(opts):
                 picked = opts[idx]
-                return (
-                    _format_media_pick(picked)
-                    + "\n\nХочешь — напиши другое название/описание, я поищу ещё."
-                )
+                return _format_media_pick(picked) + "\n\nХочешь — напиши другое название/описание, я поищу ещё."
 
         # 1.5) "Как называется/какое название" — это не новый поиск, показываем варианты
         if st and _is_asking_for_title(raw_text):
             opts = st.get("items") or []
             if not opts:
                 return MEDIA_NOT_FOUND_REPLY_RU
-            return build_media_context(opts) + "\n\n👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.\nЕсли кнопок нет — ответь цифрой."
+            return (
+                build_media_context(opts)
+                + "\n\n👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.\nЕсли кнопок нет — ответь цифрой."
+            )
         # 2) Build query (new query vs follow-up hint)# 2) Merge уточнение with previous query
         # 2) Build query (new query vs follow-up hint)
         raw = raw_text
         prev_q = ((st.get("query") if st else "") or "").strip()
-
-        
 
         # не даём "ядовитым" фразам портить поисковую строку
         if st and re.search(
@@ -710,8 +667,27 @@ async def run_assistant(
         if st and prev_q and raw and (len(raw) <= 140):
             raw_l = raw.lower().strip()
             prev_l = prev_q.lower().strip()
+
+            def _is_strong_candidate(q: str) -> bool:
+                q = (q or "").strip()
+                if not q:
+                    return False
+                # год/короткий хинт
+                if _looks_like_year_or_hint(q):
+                    return True
+                # тайтл + год (Inception 2010)
+                if re.search(r"\b(19\d{2}|20\d{2})\b", q) and len(q) <= 80:
+                    return True
+                # нормальный tmdb-кандидат: короткий, без мусора
+                if _good_tmdb_cand(q) and len(q) <= 80:
+                    return True
+                return False
+
+            # ✅ ключевой фикс: сильный кандидат НЕ смешиваем с прошлым описанием
+            if _is_strong_candidate(raw):
+                query = _tmdb_sanitize_query(_normalize_tmdb_query(raw))
             # если пользователь фактически повторил прошлый запрос — не дергаем новый поиск
-            if raw_l == prev_l:
+            elif raw_l == prev_l:
                 query = _tmdb_sanitize_query(_normalize_tmdb_query(prev_q))
             # если в уточнении уже есть прошлый запрос — используем уточнение как есть
             elif prev_l and (prev_l in raw_l):
@@ -746,9 +722,7 @@ async def run_assistant(
                 "media.tmdb.primary",
                 q=query,
                 n=len(items or []),
-                top=((items or [{}])[0].get("title") or (items or [{}])[0].get("name"))
-                if items
-                else None,
+                top=((items or [{}])[0].get("title") or (items or [{}])[0].get("name")) if items else None,
             )
 
             # 🔹 If nothing found — use parsed hints
@@ -790,6 +764,7 @@ async def run_assistant(
         # 2) SerpAPI только если есть ключ
         if not items and query:
             query = _normalize_tmdb_query(query)
+
             async def _try_cands(cands: list[str]) -> list[dict]:
                 out: list[dict] = []
                 for c in (cands or [])[:15]:
@@ -825,9 +800,7 @@ async def run_assistant(
                 items = []
 
             # SerpAPI — только если всё ещё пусто и реально есть ключ
-            if (not items) and (
-                os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
-            ):
+            if (not items) and (os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")):
                 try:
                     cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
                     _d(
@@ -857,7 +830,9 @@ async def run_assistant(
         items = _scrub_media_items(items)
         if uid:
             _media_set(uid, query, items)
-        return _format_media_ranked(query, items, year_hint=_parse_media_hints(query).get('year'), lang=lang, source='tmdb')
+        return _format_media_ranked(
+            query, items, year_hint=_parse_media_hints(query).get("year"), lang=lang, source="tmdb"
+        )
 
     # ---- Normal assistant (non-media) ----
     ctx = await build_context(session, user, lang, plan)
@@ -910,10 +885,6 @@ async def run_assistant(
         return str(getattr(resp, "output", "")).strip() or "⚠️ Empty response."
     except Exception:
         return "⚠️ Не смог прочитать ответ модели."
-
-
-
-
 
 
 async def run_assistant_vision(
@@ -989,6 +960,7 @@ async def run_assistant_vision(
     img_key = ""
     try:
         import hashlib
+
         img_key = hashlib.sha256(image_bytes).hexdigest()
     except Exception:
         img_key = ""
@@ -996,7 +968,6 @@ async def run_assistant_vision(
         cached = _vision_cache_get(img_key)
         if cached:
             return cached
-
 
     instr = (
         ANTI_HALLUCINATION_PREFIX
@@ -1022,15 +993,18 @@ async def run_assistant_vision(
         resp = await client.responses.create(
             model=model,
             instructions=instr,
-            input=cast(Any, [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": prompt_text},
-                        {"type": "input_image", "image_url": data_url},
-                    ],
-                }
-            ]),
+            input=cast(
+                Any,
+                [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": prompt_text},
+                            {"type": "input_image", "image_url": data_url},
+                        ],
+                    }
+                ],
+            ),
             max_output_tokens=450,
         )
     except Exception as e:
@@ -1054,14 +1028,18 @@ async def run_assistant_vision(
     out_text = (getattr(resp, "output_text", None) or "").strip()
     out_text = str(out_text)
 
-
     def _norm_lens_candidate(x: str) -> str:
         try:
             x = (x or "").strip()
             if not x:
                 return ""
             # drop common junk tokens
-            x = re.sub(r"\b(1080p|720p|2160p|4k|hdr|webrip|brrip|bluray|dvdrip|hdtv|x264|x265|hevc|aac|dts)\b", "", x, flags=re.I)
+            x = re.sub(
+                r"\b(1080p|720p|2160p|4k|hdr|webrip|brrip|bluray|dvdrip|hdtv|x264|x265|hevc|aac|dts)\b",
+                "",
+                x,
+                flags=re.I,
+            )
             x = re.sub(r"\b(season\s*\d+|s\d{1,2}e\d{1,2}|episode\s*\d+)\b", "", x, flags=re.I)
             x = re.sub(r"[\[\]\(\)\{\}]", " ", x)
             x = re.sub(r"\s{2,}", " ", x).strip(" -:;,.\t\n\r")
@@ -1069,6 +1047,7 @@ async def run_assistant_vision(
             return x[:120]
         except Exception:
             return (x or "").strip()[:120]
+
     # trace.moe (anime) — только если модель явно сказала "аниме"
     if any(k in out_text.lower() for k in ("аниме", "anime")):
         try:
@@ -1099,9 +1078,7 @@ async def run_assistant_vision(
         )
     except Exception:
         lens_cands, lens_tag = [], "lens_fail"
-    _d(
-        "vision.lens", lens_tag=lens_tag, lens_cands=(lens_cands or [])[:8]
-    )  # DBG_VISION_LENS_V2
+    _d("vision.lens", lens_tag=lens_tag, lens_cands=(lens_cands or [])[:8])  # DBG_VISION_LENS_V2
     best_lens_fallback: list[str] = []
 
     if lens_cands:
@@ -1152,17 +1129,17 @@ async def run_assistant_vision(
             if uid and used_cand:
                 _media_set(uid, used_cand, items)
             if items:
-                reply = _format_media_ranked(used_cand, items, year_hint=_parse_media_hints(used_cand).get('year'), lang=lang, source='tmdb')
+                reply = _format_media_ranked(
+                    used_cand, items, year_hint=_parse_media_hints(used_cand).get("year"), lang=lang, source="tmdb"
+                )
                 if img_key:
                     _vision_cache_set(img_key, reply)
                 return reply
-
 
     # Vision → TMDb candidates (robust)
 
     # Vision → TMDb candidates (robust)
     caption_str = (caption or "").strip()
-
 
     _d(
         "vision.model_out",
@@ -1172,12 +1149,8 @@ async def run_assistant_vision(
     )  # DBG_VISION_MODEL_OUT_V2
     # Prefer explicit SEARCH_QUERY from model, then title extracted from the explanation.
     search_q = _normalize_tmdb_query(_extract_search_query_from_text(out_text))
-    title_from_text = _normalize_tmdb_query(
-        _extract_title_like_from_model_text(out_text)
-    )
-    _d(
-        "vision.extract", search_q=search_q, title_from_text=title_from_text
-    )  # DBG_VISION_EXTRACT_V2
+    title_from_text = _normalize_tmdb_query(_extract_title_like_from_model_text(out_text))
+    _d("vision.extract", search_q=search_q, title_from_text=title_from_text)  # DBG_VISION_EXTRACT_V2
 
     # CAND_LIST_JSON_PRIORITY_V1
     try:
@@ -1196,7 +1169,7 @@ async def run_assistant_vision(
     # 4) Lens fallback (only after Vision sources)
     cand_list: list[str] = []
 
-    for c in (json_queries or []):
+    for c in json_queries or []:
         c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
         if c and _good_tmdb_cand(c) and c not in cand_list:
             cand_list.append(c)
@@ -1275,7 +1248,6 @@ async def run_assistant_vision(
         except Exception:
             items = []
 
-
     if items:
         if user is not None:
             setattr(user, "assistant_mode", "media")
@@ -1304,4 +1276,3 @@ async def run_assistant_vision(
     if final_text:
         return final_text
     return MEDIA_NOT_FOUND_REPLY_RU
-

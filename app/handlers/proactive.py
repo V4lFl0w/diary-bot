@@ -3,18 +3,19 @@ from __future__ import annotations
 import re
 from datetime import time as dtime
 from typing import Optional, Union
+from typing import Any
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
+from app.utils.aiogram_guards import is_message
 
 router = Router(name="proactive")
 
@@ -22,6 +23,7 @@ _TIME_RE = re.compile(r"^(\d{1,2}):(\d{2})$")
 
 # mode: 0 off, 1 morning, 2 evening, 3 both
 _MODE_CYCLE = [0, 1, 2, 3]
+
 
 # ---------- i18n ----------
 def _norm_lang(v: Optional[str]) -> str:
@@ -36,6 +38,7 @@ def _norm_lang(v: Optional[str]) -> str:
     if s.startswith("ru"):
         return "ru"
     return "ru"
+
 
 I18N = {
     "ru": {
@@ -135,7 +138,6 @@ I18N = {
             "Дальше бот делает всё сам\n\n"
             "🗂 Твои ответы сохраняются — ты сможешь видеть прогресс."
         ),
-
     },
     "uk": {
         "title": "⚡ Проактивність",
@@ -234,7 +236,6 @@ I18N = {
             "Далі бот робить все сам\n\n"
             "🗂 Твої відповіді зберігаються — ти бачитимеш прогрес."
         ),
-
     },
     "en": {
         "title": "⚡ Proactivity",
@@ -333,13 +334,14 @@ I18N = {
             "Then the bot does the rest\n\n"
             "🗂 Your answers are saved — you can track progress."
         ),
-
     },
 }
+
 
 def _t(lang: str, key: str) -> str:
     lang = _norm_lang(lang)
     return I18N.get(lang, I18N["ru"]).get(key, I18N["ru"].get(key, key))
+
 
 def _mode_label(lang: str, mode: int) -> str:
     lang = _norm_lang(lang)
@@ -349,12 +351,15 @@ def _mode_label(lang: str, mode: int) -> str:
         return {0: "Off", 1: "Morning", 2: "Evening", 3: "Morning + Evening"}.get(mode, "—")
     return {0: "Выключено", 1: "Утро", 2: "Вечер", 3: "Утро + Вечер"}.get(mode, "—")
 
+
 # ---------- db helpers ----------
 class ProactiveStates(StatesGroup):
     waiting_time = State()
 
+
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
     return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
+
 
 def _fmt_time(v: Union[None, dtime, str]) -> str:
     if v is None:
@@ -367,11 +372,13 @@ def _fmt_time(v: Union[None, dtime, str]) -> str:
             return "—"
         parts = s.split(":")
         if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
-            h = int(parts[0]); m = int(parts[1])
+            h = int(parts[0])
+            m = int(parts[1])
             if 0 <= h <= 23 and 0 <= m <= 59:
                 return f"{h:02d}:{m:02d}"
         return s
     return str(v)
+
 
 def _current_mode(u: User) -> int:
     m = bool(getattr(u, "morning_auto", False))
@@ -384,14 +391,17 @@ def _current_mode(u: User) -> int:
         return 2
     return 0
 
+
 def _apply_mode(u: User, mode: int) -> None:
     u.morning_auto = mode in (1, 3)
     u.evening_auto = mode in (2, 3)
+
 
 def _user_lang(u: User, fallback: str = "ru") -> str:
     # приоритет: user.lang -> user.language -> telegram language_code
     v = getattr(u, "lang", None) or getattr(u, "language", None) or fallback
     return _norm_lang(v)
+
 
 def _screen_text(u: User, lang: str) -> str:
     lang = _norm_lang(lang)
@@ -460,10 +470,19 @@ def proactive_kb(u: User, lang: str):
     kb = InlineKeyboardBuilder()
     mode = _current_mode(u)
 
-    kb.button(text=f"{_t(lang, 'kb_mode')}: {_mode_label(lang, mode)}", callback_data="proactive:mode")
+    kb.button(
+        text=f"{_t(lang, 'kb_mode')}: {_mode_label(lang, mode)}",
+        callback_data="proactive:mode",
+    )
 
-    kb.button(text=f"{_t(lang, 'kb_morning')}: {_fmt_time(getattr(u, 'morning_time', None))}", callback_data="proactive:time:morning")
-    kb.button(text=f"{_t(lang, 'kb_evening')}: {_fmt_time(getattr(u, 'evening_time', None))}", callback_data="proactive:time:evening")
+    kb.button(
+        text=f"{_t(lang, 'kb_morning')}: {_fmt_time(getattr(u, 'morning_time', None))}",
+        callback_data="proactive:time:morning",
+    )
+    kb.button(
+        text=f"{_t(lang, 'kb_evening')}: {_fmt_time(getattr(u, 'evening_time', None))}",
+        callback_data="proactive:time:evening",
+    )
 
     kb.button(text=_t(lang, "kb_sample_m"), callback_data="proactive:sample:morning")
     kb.button(text=_t(lang, "kb_sample_e"), callback_data="proactive:sample:evening")
@@ -475,14 +494,33 @@ def proactive_kb(u: User, lang: str):
     kb.adjust(1, 2, 2, 1, 1)
     return kb.as_markup()
 
+
 async def _render_to_message(m: Message, u: User, lang: str):
     await m.answer(_screen_text(u, lang), reply_markup=proactive_kb(u, lang), parse_mode=None)
 
-async def _render_edit(msg: Message, u: User, lang: str):
+
+async def _render_edit(msg: Any, u: User, lang: str):
+    text = _screen_text(u, lang)
+    markup = proactive_kb(u, lang)
+
+    if is_message(msg):
+        try:
+            await msg.edit_text(text, reply_markup=markup, parse_mode=None)
+        except Exception:
+            await msg.answer(text, reply_markup=markup, parse_mode=None)
+        return
+
+    # InaccessibleMessage: редактировать нельзя — просто шлём новое
     try:
-        await msg.edit_text(_screen_text(u, lang), reply_markup=proactive_kb(u, lang), parse_mode=None)
+        await msg.bot.send_message(
+            chat_id=msg.chat.id,  # у InaccessibleMessage есть chat
+            text=text,
+            reply_markup=markup,
+            parse_mode=None,
+        )
     except Exception:
-        await msg.answer(_screen_text(u, lang), reply_markup=proactive_kb(u, lang), parse_mode=None)
+        pass
+
 
 @router.message(Command("proactive"))
 async def proactive_cmd(m: Message, session: AsyncSession):
@@ -490,10 +528,14 @@ async def proactive_cmd(m: Message, session: AsyncSession):
         return
     u = await _get_user(session, m.from_user.id)
     if not u:
-        await m.answer(_t(_norm_lang(getattr(m.from_user, "language_code", "ru")), "press_start"), parse_mode=None)
+        await m.answer(
+            _t(_norm_lang(getattr(m.from_user, "language_code", "ru")), "press_start"),
+            parse_mode=None,
+        )
         return
     lang = _user_lang(u, fallback=_norm_lang(getattr(m.from_user, "language_code", "ru")))
     await _render_to_message(m, u, lang)
+
 
 # ВАЖНО: menus.py вызывает show_proactive_screen(m, session, lang)
 async def show_proactive_screen(message: Message, session: AsyncSession, lang: str = "ru", *_a, **_k):
@@ -506,6 +548,7 @@ async def show_proactive_screen(message: Message, session: AsyncSession, lang: s
     # если в БД есть lang — используем, иначе аргумент
     lang = _user_lang(u, fallback=lang)
     await _render_to_message(message, u, lang)
+
 
 @router.callback_query(F.data == "proactive:mode")
 async def proactive_mode(cb: CallbackQuery, session: AsyncSession):
@@ -533,9 +576,11 @@ async def proactive_mode(cb: CallbackQuery, session: AsyncSession):
     await _render_edit(cb.message, u, lang)
     await cb.answer(_t(lang, "done"))
 
+
 @router.callback_query(F.data.startswith("proactive:time:"))
 async def proactive_set_time(cb: CallbackQuery, state: FSMContext):
-    part = cb.data.split(":")[-1]
+    data = cb.data or ""
+    part = data.split(":")[-1]
     await state.set_state(ProactiveStates.waiting_time)
     await state.update_data(part=part)
 
@@ -548,10 +593,16 @@ async def proactive_set_time(cb: CallbackQuery, state: FSMContext):
     )
     await cb.answer()
 
+
 @router.message(ProactiveStates.waiting_time, Command("cancel"))
 async def proactive_cancel(message: Message, session: AsyncSession, state: FSMContext):
     await state.clear()
-    await show_proactive_screen(message, session, lang=_norm_lang(getattr(message.from_user, "language_code", "ru")))
+    await show_proactive_screen(
+        message,
+        session,
+        lang=_norm_lang(getattr(message.from_user, "language_code", "ru")),
+    )
+
 
 @router.message(ProactiveStates.waiting_time)
 async def proactive_time_input(message: Message, session: AsyncSession, state: FSMContext):
@@ -559,7 +610,11 @@ async def proactive_time_input(message: Message, session: AsyncSession, state: F
         return
 
     u = await _get_user(session, message.from_user.id)
-    lang = _user_lang(u, fallback=_norm_lang(getattr(message.from_user, "language_code", "ru"))) if u else _norm_lang(getattr(message.from_user, "language_code", "ru"))
+    lang = (
+        _user_lang(u, fallback=_norm_lang(getattr(message.from_user, "language_code", "ru")))
+        if u
+        else _norm_lang(getattr(message.from_user, "language_code", "ru"))
+    )
 
     txt = (message.text or "").strip()
     m = _TIME_RE.match(txt)
@@ -603,20 +658,30 @@ async def proactive_info(cb: CallbackQuery, session: AsyncSession):
     if not cb.message:
         return
     u = await _get_user(session, cb.from_user.id)
-    lang = _user_lang(u, fallback=_norm_lang(getattr(cb.from_user, "language_code", "ru"))) if u else _norm_lang(getattr(cb.from_user, "language_code", "ru"))
+    lang = (
+        _user_lang(u, fallback=_norm_lang(getattr(cb.from_user, "language_code", "ru")))
+        if u
+        else _norm_lang(getattr(cb.from_user, "language_code", "ru"))
+    )
     await cb.message.answer(_t(lang, "info"), parse_mode=None)
     await cb.answer("Ок")
+
 
 @router.callback_query(F.data.startswith("proactive:sample:"))
 async def proactive_sample(cb: CallbackQuery, session: AsyncSession):
     part = cb.data.split(":")[-1]
     u = await _get_user(session, cb.from_user.id)
-    lang = _user_lang(u, fallback=_norm_lang(getattr(cb.from_user, "language_code", "ru"))) if u else _norm_lang(getattr(cb.from_user, "language_code", "ru"))
+    lang = (
+        _user_lang(u, fallback=_norm_lang(getattr(cb.from_user, "language_code", "ru")))
+        if u
+        else _norm_lang(getattr(cb.from_user, "language_code", "ru"))
+    )
 
     if part == "morning":
         await cb.message.answer(_t(lang, "sample_m"), parse_mode=None)
     else:
         await cb.message.answer(_t(lang, "sample_e"), parse_mode=None)
     await cb.answer("Ок")
+
 
 __all__ = ["router", "show_proactive_screen"]

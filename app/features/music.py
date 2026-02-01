@@ -1,37 +1,48 @@
 from __future__ import annotations
 
+
+from app.services.music_search import itunes_search
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 import os
 from typing import Optional
 
-from aiogram import Router, F
+from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.types import (
-    Message,
     CallbackQuery,
-    InlineKeyboardMarkup,
     InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
 )
-from aiogram.exceptions import TelegramBadRequest
-
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
 
 from app.models.user import User
 from app.models.user_track import UserTrack
-from sqlalchemy import func
+from app.utils.aiogram_guards import cb_edit, cb_reply
 
 try:
     from app.keyboards import is_music_btn
 except Exception:
-    def is_music_btn(_text: str) -> bool:  # type: ignore
+
+    def is_music_btn(text: str, /) -> bool:  # type: ignore
         return False
 
 
 router = Router(name="music")
 
-SUPPORTED = {"ru", "uk", "en"}
 
-TXT = {
+class MusicStates(StatesGroup):
+    waiting_search = State()
+
+
+SUPPORTED = {"ru", "uk", "en"}
+PLAYLIST_LIMIT = 50
+MY_LIST_LIMIT = 10
+
+TXT: dict[str, dict[str, str]] = {
     "menu": {
         "ru": "Выбери плейлист:",
         "uk": "Оберіть плейлист:",
@@ -39,8 +50,24 @@ TXT = {
     },
     "focus_btn": {"ru": "Фокус", "uk": "Фокус", "en": "Focus"},
     "sleep_btn": {"ru": "Сон", "uk": "Сон", "en": "Sleep"},
-    "my_btn":    {"ru": "Мой плейлист", "uk": "Мій плейлист", "en": "My playlist"},
-    "add_btn":   {"ru": "Добавить трек", "uk": "Додати трек", "en": "Add a track"},
+    "my_btn": {"ru": "Мой плейлист", "uk": "Мій плейлист", "en": "My playlist"},
+    "add_btn": {"ru": "Добавить трек", "uk": "Додати трек", "en": "Add a track"},
+    "search_btn": {"ru": "🔎 Поиск", "uk": "🔎 Пошук", "en": "🔎 Search"},
+    "search_hint": {
+        "ru": "Напиши название трека или артиста.",
+        "uk": "Напиши назву треку або артиста.",
+        "en": "Type a song name or an artist.",
+    },
+    "search_results": {
+        "ru": "Результаты поиска:",
+        "uk": "Результати пошуку:",
+        "en": "Search results:",
+    },
+    "saved_external": {
+        "ru": "Сохранил в плейлист (превью/ссылка) ✅",
+        "uk": "Зберіг у плейлист (превʼю/посилання) ✅",
+        "en": "Saved to playlist (preview/link) ✅",
+    },
     "open_focus": {
         "ru": "Открыть Focus ▶️",
         "uk": "Відкрити Focus ▶️",
@@ -51,11 +78,7 @@ TXT = {
         "uk": "Відкрити Sleep ▶️",
         "en": "Open Sleep ▶️",
     },
-    "back": {
-        "ru": "⬅️ Назад",
-        "uk": "⬅️ Назад",
-        "en": "⬅️ Back",
-    },
+    "back": {"ru": "⬅️ Назад", "uk": "⬅️ Назад", "en": "⬅️ Back"},
     "send_audio_hint": {
         "ru": "Пришли мне аудио-файл(ы) — добавлю в твой плейлист.",
         "uk": "Надішли аудіофайл(и) — додам у твій плейлист.",
@@ -66,21 +89,14 @@ TXT = {
         "uk": "Зберіг у твій плейлист ✅",
         "en": "Saved to your playlist ✅",
     },
-    "empty": {
-        "ru": "Пока пусто. ",
-        "uk": "Поки порожньо. ",
-        "en": "No tracks yet. ",
-    },
-    "your_tracks": {
-        "ru": "Твои треки:",
-        "uk": "Твої треки:",
-        "en": "Your tracks:",
-    },
+    "empty": {"ru": "Пока пусто.", "uk": "Поки порожньо.", "en": "No tracks yet."},
+    "your_tracks": {"ru": "Твои треки:", "uk": "Твої треки:", "en": "Your tracks:"},
     "too_many": {
         "ru": "Пока максимум 50 треков в плейлисте.",
         "uk": "Поки максимум 50 треків у плейлисті.",
         "en": "For now the playlist limit is 50 tracks.",
-    }
+    },
+    "need_start": {"ru": "Нажми /start", "uk": "Натисни /start", "en": "Type /start"},
 }
 
 
@@ -95,21 +111,19 @@ def _normalize_lang(code: str | None) -> str:
     return "ru"
 
 
-def _tr(l: str, key: str) -> str:
-    l = _normalize_lang(l)
-    return TXT[key].get(l, TXT[key]["ru"])
+def _tr(lang: str | None, key: str) -> str:
+    l = _normalize_lang(lang)
+    return TXT.get(key, {}).get(l, TXT.get(key, {}).get("ru", key))
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (await session.execute(
-        select(User).where(User.tg_id == tg_id)
-    )).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
-def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
+def _user_lang(user: User | None, tg_lang: str | None) -> str:
     raw = (
-        getattr(user, "locale", None)
-        or getattr(user, "lang", None)
+        (getattr(user, "locale", None) if user else None)
+        or (getattr(user, "lang", None) if user else None)
         or tg_lang
         or "ru"
     )
@@ -147,6 +161,9 @@ def _menu_kb(l: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=_tr(l, "my_btn"), callback_data="music:my"),
                 InlineKeyboardButton(text=_tr(l, "add_btn"), callback_data="music:add"),
             ],
+            [
+                InlineKeyboardButton(text=_tr(l, "search_btn"), callback_data="music:search"),
+            ],
         ]
     )
 
@@ -167,12 +184,7 @@ def _numbers_kb(l: str, items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
     kb: list[list[InlineKeyboardButton]] = []
 
     for idx, (iid, _title) in enumerate(items, start=1):
-        row.append(
-            InlineKeyboardButton(
-                text=str(idx),
-                callback_data=f"music:play/{iid}",
-            )
-        )
+        row.append(InlineKeyboardButton(text=str(idx), callback_data=f"music:play/{iid}"))
         if len(row) == 5:
             kb.append(row)
             row = []
@@ -183,79 +195,98 @@ def _numbers_kb(l: str, items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 
+def _search_numbers_kb(l: str, n: int) -> InlineKeyboardMarkup:
+    kb: list[list[InlineKeyboardButton]] = []
+    row: list[InlineKeyboardButton] = []
+    for i in range(1, n + 1):
+        row.append(InlineKeyboardButton(text=str(i), callback_data=f"music:s/{i}"))
+        if len(row) == 5:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
+    kb.append([InlineKeyboardButton(text=_tr(l, "back"), callback_data="music:back")])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
 async def _save_track(session: AsyncSession, user: User, title: str, file_id: str) -> None:
     existing = await session.scalar(
-        select(UserTrack)
-        .where(UserTrack.user_id == user.id, UserTrack.file_id == file_id)
-        .limit(1)
+        select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.file_id == file_id).limit(1)
     )
-
     if existing:
         if not existing.title and title:
             existing.title = title
             await session.commit()
         return
 
-    total = await session.scalar(
-        select(func.count()).select_from(UserTrack).where(UserTrack.user_id == user.id)
-    )
-
-    if (total or 0) >= 50:
+    total = await session.scalar(select(func.count()).select_from(UserTrack).where(UserTrack.user_id == user.id))
+    if (total or 0) >= PLAYLIST_LIMIT:
         raise ValueError("limit")
 
     session.add(
         UserTrack(
             user_id=user.id,
-            tg_id=user.tg_id,          # ✅ ВОТ ЭТО ОБЯЗАТЕЛЬНО
+            tg_id=user.tg_id,
             title=title or None,
-            file_id=file_id
+            file_id=file_id,
         )
     )
     await session.commit()
 
 
-async def _list_tracks(session: AsyncSession, user: User, limit: int = 10) -> list[tuple[int, str]]:
-    rows = (await session.execute(
-        select(UserTrack)
-        .where(UserTrack.user_id == user.id)
-        .order_by(UserTrack.id.desc())
-        .limit(limit)
-    )).scalars().all()
+async def _list_tracks(session: AsyncSession, user: User, limit: int = MY_LIST_LIMIT) -> list[tuple[int, str]]:
+    rows = (
+        (
+            await session.execute(
+                select(UserTrack).where(UserTrack.user_id == user.id).order_by(UserTrack.id.desc()).limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return [(t.id, (t.title or "Track")) for t in rows]
 
 
 async def _get_track(session: AsyncSession, user: User, track_id: int) -> Optional[UserTrack]:
-    return (await session.execute(
-        select(UserTrack)
-        .where(UserTrack.user_id == user.id)
-        .where(UserTrack.id == track_id)
-        .limit(1)
-    )).scalar_one_or_none()
+    return (
+        await session.execute(select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == track_id).limit(1))
+    ).scalar_one_or_none()
 
 
 @router.message(Command("music"))
 @router.message(F.text.func(is_music_btn))
-@router.message(
-    F.text.in_(
-        {
-            "🎵 Music",
-            "🎵 Музика",
-            "🎵 Музыка",
-            "music",
-            "музыка",
-            "музика",
-        }
-    )
-)
+@router.message(F.text.in_({"🎵 Music", "🎵 Музика", "🎵 Музыка", "music", "музыка", "музика"}))
 async def cmd_music(m: Message, session: AsyncSession) -> None:
     user = await _get_user(session, m.from_user.id)
     l = _user_lang(user, getattr(m.from_user, "language_code", None))
+    if not user:
+        await m.answer("Нажми /start")
+        return
     await m.answer(_tr(l, "menu"), reply_markup=_menu_kb(l))
+
+
+@router.callback_query(F.data == "music:search")
+async def on_music_search_btn(c: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    try:
+        await c.answer()
+    except TelegramBadRequest:
+        pass
+
+    user = await _get_user(session, c.from_user.id)
+    l = _user_lang(user, getattr(c.from_user, "language_code", None))
+    if not user:
+        await cb_reply(c, "Нажми /start")
+        return
+
+    await state.set_state(MusicStates.waiting_search)
+    await cb_reply(c, _tr(l, "search_hint"))
 
 
 @router.callback_query(F.data.startswith("music:"))
 async def on_music_choice(c: CallbackQuery, session: AsyncSession) -> None:
-    kind = (c.data or "").split(":", 1)[1] if ":" in (c.data or "") else ""
+    data = c.data or ""
+    kind = data.split(":", 1)[1] if ":" in data else ""
+
     try:
         await c.answer()
     except TelegramBadRequest:
@@ -264,36 +295,34 @@ async def on_music_choice(c: CallbackQuery, session: AsyncSession) -> None:
     user = await _get_user(session, c.from_user.id)
     l = _user_lang(user, getattr(c.from_user, "language_code", None))
 
-    if kind == "back":
-        await c.message.answer(_tr(l, "menu"), reply_markup=_menu_kb(l))
+    if kind in {"back", ""}:
+        await cb_edit(c, _tr(l, "menu"), reply_markup=_menu_kb(l))
         return
 
     if kind in {"focus", "sleep"}:
-        await c.message.answer(_tr(l, "menu"), reply_markup=_open_kb(l, kind))
+        await cb_edit(c, _tr(l, "menu"), reply_markup=_open_kb(l, kind))
         return
 
     if kind == "add":
-        await c.message.answer(_tr(l, "send_audio_hint"))
+        await cb_reply(c, _tr(l, "send_audio_hint"))
         return
 
     if kind == "my":
         if not user:
-            await c.message.answer("Нажми /start")
+            await cb_reply(c, _tr(l, "need_start"))
             return
 
-        rows = await _list_tracks(session, user, limit=10)
+        rows = await _list_tracks(session, user, limit=MY_LIST_LIMIT)
         if not rows:
-            await c.message.answer(_tr(l, "empty") + _tr(l, "send_audio_hint"))
+            await cb_edit(c, f"{_tr(l, 'empty')} {_tr(l, 'send_audio_hint')}")
         else:
-            await c.message.answer(
-                _tr(l, "your_tracks"),
-                reply_markup=_numbers_kb(l, rows),
-            )
+            await cb_edit(c, _tr(l, "your_tracks"), reply_markup=_numbers_kb(l, rows))
         return
 
     if kind.startswith("play/"):
         if not user:
             return
+
         sid = kind.split("/", 1)[1]
         try:
             track_id = int(sid)
@@ -301,8 +330,15 @@ async def on_music_choice(c: CallbackQuery, session: AsyncSession) -> None:
             return
 
         track = await _get_track(session, user, track_id)
-        if track:
-            await c.message.answer_audio(audio=track.file_id, caption=track.title or None)
+        if not track:
+            return
+
+        # callback может быть без доступного message -> отправляем через bot
+        chat_id = int(getattr(getattr(c, "from_user", None), "id", 0) or 0)
+        if not chat_id:
+            return
+
+        await c.bot.send_audio(chat_id=chat_id, audio=track.file_id, caption=track.title or None)
         return
 
 
@@ -310,8 +346,9 @@ async def on_music_choice(c: CallbackQuery, session: AsyncSession) -> None:
 async def on_audio_inbox(m: Message, session: AsyncSession) -> None:
     user = await _get_user(session, m.from_user.id)
     l = _user_lang(user, getattr(m.from_user, "language_code", None))
+
     if not user:
-        await m.answer("Нажми /start")
+        await m.answer(_tr(l, "need_start"))
         return
 
     title = (
@@ -334,8 +371,9 @@ async def on_audio_inbox(m: Message, session: AsyncSession) -> None:
 async def on_audio_document(m: Message, session: AsyncSession) -> None:
     user = await _get_user(session, m.from_user.id)
     l = _user_lang(user, getattr(m.from_user, "language_code", None))
+
     if not user:
-        await m.answer("Нажми /start")
+        await m.answer(_tr(l, "need_start"))
         return
 
     title = getattr(m.document, "file_name", None) or "Track"
@@ -347,6 +385,50 @@ async def on_audio_document(m: Message, session: AsyncSession) -> None:
         return
 
     await m.answer(_tr(l, "saved"))
+
+
+@router.message(MusicStates.waiting_search, F.text)
+async def on_music_search_query(m: Message, state: FSMContext, session: AsyncSession) -> None:
+    user = await _get_user(session, m.from_user.id)
+    l = _user_lang(user, getattr(m.from_user, "language_code", None))
+    if not user:
+        await m.answer("Нажми /start")
+        return
+
+    q = (m.text or "").strip()
+    if not q:
+        await m.answer(_tr(l, "search_hint"))
+        return
+
+    results = await itunes_search(q, limit=10, country="US")
+    if not results:
+        await m.answer(_tr(l, "empty"))
+        return
+
+    packed = [
+        {
+            "title": r.title,
+            "artist": r.artist,
+            "url": r.url,
+            "preview_url": r.preview_url,
+            "source": r.source,
+        }
+        for r in results
+    ]
+    await state.update_data(music_search_results=packed)
+    await state.set_state(None)
+
+    lines = []
+    for i, r in enumerate(results, start=1):
+        line = f"{i}) {r.title}"
+        if r.artist:
+            line += f" — {r.artist}"
+        lines.append(line)
+
+    await m.answer(
+        _tr(l, "search_results") + "\n" + "\n".join(lines),
+        reply_markup=_search_numbers_kb(l, len(results)),
+    )
 
 
 __all__ = ["router"]

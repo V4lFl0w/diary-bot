@@ -1,4 +1,5 @@
 import base64
+
 import httpx
 
 
@@ -9,9 +10,7 @@ async def trace_moe_identify(image_bytes: bytes) -> dict | None:
     """
     b64 = base64.b64encode(image_bytes).decode()
 
-    payload = {
-        "image": f"data:image/jpeg;base64,{b64}"
-    }
+    payload = {"image": f"data:image/jpeg;base64,{b64}"}
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -35,5 +34,3 @@ async def trace_moe_identify(image_bytes: bytes) -> dict | None:
 
     except Exception:
         return None
-    
-    

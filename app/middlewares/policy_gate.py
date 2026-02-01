@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Dict
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 
 from app.services.policy_state import is_policy_accepted
-
 
 ALLOWED_COMMANDS = {
     "start",
     "privacy",
     "language",
     "premium",
-    "policy",      # ✅ важно
+    "policy",  # ✅ важно
 }
 
 ALLOWED_CALLBACK_PREFIXES = (
-    "policy:",     # ✅ важно (policy:agree / policy:disagree)
+    "policy:",  # ✅ важно (policy:agree / policy:disagree)
     "privacy:",
     "language:",
     "premium:",
@@ -33,22 +32,18 @@ ALLOWED_TEXT_BUTTONS = {
     "🔒 Политика",
     "🔒 Політика",
     "🔒 Privacy",
-
     # settings / navigation
     "⚙️ Настройки",
     "⬅️ Назад",
     "🏠 Главное меню",
-
     # premium
     "💎 Премиум",
     "💎 Преміум",
     "💎 Premium",
-
     # language
     "🌐 Язык",
     "🌐 Мова",
     "🌐 Language",
-
     # continue (если вдруг это reply-кнопка)
     "Продолжить",
     "Продовжити",
@@ -56,15 +51,12 @@ ALLOWED_TEXT_BUTTONS = {
     "📓 Журнал",
     "📓 Journal",
     "📓 Щоденник",
-
     "🧘 Медиа",
     "🧘 Media",
     "🧘 Медіа",
-
     "🥇 Мотивация",
     "🥇 Мотивація",
     "🥇 Motivation",
-
     "⚡️ Проактивность",
     "⚡ Проактивность",
     "Проактивность",
@@ -75,6 +67,7 @@ ALLOWED_TEXT_BUTTONS = {
     "⚡ Proactive",
     "Proactive",
 }
+
 
 class PolicyGateMiddleware(BaseMiddleware):
     async def __call__(
@@ -107,7 +100,9 @@ class PolicyGateMiddleware(BaseMiddleware):
             if text in ALLOWED_TEXT_BUTTONS:
                 return await handler(event, data)
 
-            await event.answer("🔒 Нужно принять политику, чтобы пользоваться ботом.\n\nГде найти:\n• Кнопка: ⚠️ Политика\n• Меню: ⚙️ Настройки → 🔒 Политика\n• Команда: /policy")
+            await event.answer(
+                "🔒 Нужно принять политику, чтобы пользоваться ботом.\n\nГде найти:\n• Кнопка: ⚠️ Политика\n• Меню: ⚙️ Настройки → 🔒 Политика\n• Команда: /policy"
+            )
             return
 
         # -------- CALLBACK --------

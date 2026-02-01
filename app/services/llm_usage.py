@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.llm_usage import LLMUsage
 
 

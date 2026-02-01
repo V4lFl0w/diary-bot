@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from sqlalchemy import Integer, String, DateTime, ForeignKey, JSON, BigInteger
+
+from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.db import Base
 
 

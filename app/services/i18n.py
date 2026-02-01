@@ -1,10 +1,11 @@
 # app/i18n.py
 from __future__ import annotations
+
 import json
-import re
-from pathlib import Path
-from typing import Dict, Any, Iterable
 from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict, Iterable
+
 from app.config import settings
 
 _BASE = Path(__file__).resolve().parent.parent / "i18n"
@@ -21,16 +22,19 @@ _NORMALIZE = {
     "en-gb": "en",
 }
 
+
 class _SafeDict(dict):
     def __missing__(self, key):
         # не падаем на {missing_key}, а выводим как есть
         return "{" + key + "}"
+
 
 def _norm_locale(locale: str | None) -> str:
     if not locale:
         return _DEFAULT
     l = locale.lower()
     return _NORMALIZE.get(l, l.split("-")[0])
+
 
 def _dig(d: Dict[str, Any], path: Iterable[str]) -> Any:
     cur: Any = d
@@ -40,6 +44,7 @@ def _dig(d: Dict[str, Any], path: Iterable[str]) -> Any:
         cur = cur[p]
     return cur
 
+
 @lru_cache(maxsize=16)
 def _load(locale: str) -> dict:
     p = _BASE / f"{locale}.json"
@@ -47,8 +52,10 @@ def _load(locale: str) -> dict:
         return {}
     return json.loads(p.read_text("utf-8"))
 
+
 def available_locales() -> set[str]:
     return {f.stem for f in _BASE.glob("*.json")}
+
 
 def t(key: str, locale: str | None = None, **kwargs) -> str:
     """
@@ -74,6 +81,7 @@ def t(key: str, locale: str | None = None, **kwargs) -> str:
         text = key
 
     return text.format_map(_SafeDict(**kwargs))
+
 
 def reload_locales() -> None:
     """Очистить кэш (например, в DEV после правки i18n/*.json)."""

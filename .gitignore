@@ -58,3 +58,13 @@ __pycache__/
 *.db
 *.bak.*
 tools/
+
+# local backups / trash
+.backup_*
+project_snapshot_*.txt
+
+# caches
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

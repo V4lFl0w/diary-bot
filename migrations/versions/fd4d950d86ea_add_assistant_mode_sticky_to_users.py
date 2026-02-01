@@ -5,6 +5,7 @@ Revises: (auto)
 Create Date: (auto)
 
 """
+
 from alembic import op
 import sqlalchemy as sa
 

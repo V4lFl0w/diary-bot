@@ -1,5 +1,5 @@
-import os
 import asyncio
+import os
 
 if os.getenv("APP_ROLE") != "worker":
     raise RuntimeError("This entrypoint is worker-only. Set APP_ROLE=worker")

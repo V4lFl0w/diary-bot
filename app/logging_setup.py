@@ -23,7 +23,6 @@ def clear_log_context() -> None:
     _update_id.set(None)
 
 
-
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         # Базовые поля
@@ -62,7 +61,6 @@ def setup_logging():
         return record
 
     logging.setLogRecordFactory(record_factory)
-
 
     level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)

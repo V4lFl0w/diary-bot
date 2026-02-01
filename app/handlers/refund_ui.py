@@ -5,48 +5,57 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
-from aiogram import Router, F
+from aiogram.fsm.context import FSMContext
 from aiogram.types import (
-    Message,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
     CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
 )
-
+from aiogram import Bot
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.payment import Payment, PaymentProvider, PaymentStatus
 from app.models.user import User
-from app.models.payment import Payment, PaymentStatus, PaymentProvider
-from aiogram.fsm.context import FSMContext
-from app.services.refund_flow import request_refund, approve_refund
 from app.services.admin_audit import log_admin_action
-
+from app.services.refund_flow import approve_refund, request_refund
+from app.utils.aiogram_guards import is_message, safe_chat_id, safe_message_id
 
 router = Router(name="refund_ui")
 
 CB_PREFIX = "refund"
-CB_PICK = f"{CB_PREFIX}:pick:"          # refund:pick:<id>
-CB_REASON = f"{CB_PREFIX}:reason:"      # refund:reason:<id>:<kind>
+CB_PICK = f"{CB_PREFIX}:pick:"  # refund:pick:<id>
+CB_REASON = f"{CB_PREFIX}:reason:"  # refund:reason:<id>:<kind>
 
-AUTO_OK_HOURS = int(os.getenv("REFUND_AUTO_OK_HOURS", "48"))          # 48h
-AUTO_DENY_DAYS = int(os.getenv("REFUND_AUTO_DENY_DAYS", "14"))        # 14d
+AUTO_OK_HOURS = int(os.getenv("REFUND_AUTO_OK_HOURS", "48"))  # 48h
+AUTO_DENY_DAYS = int(os.getenv("REFUND_AUTO_DENY_DAYS", "14"))  # 14d
 
 KEYWORDS_OK = (
-    "случайн", "ошибк", "не понрав", "не зайшл", "не зашло", "передумал",
-    "ошибочно", "случайно"
+    "случайн",
+    "ошибк",
+    "не понрав",
+    "не зайшл",
+    "не зашло",
+    "передумал",
+    "ошибочно",
+    "случайно",
 )
 
 # -------- utils --------
 
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
 
 def _as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
 
 def _admin_ids() -> list[int]:
     raw = (os.getenv("ADMIN_TG_ID") or "").strip()
@@ -63,48 +72,102 @@ def _admin_ids() -> list[int]:
             continue
     return out
 
+
+async def _edit_cb_message(bot: Optional[Bot], cb: CallbackQuery, text: str, *, reply_markup=None) -> None:
+    if bot is None:
+        # типо-безопасно: просто отвечаем, без редактирования
+        try:
+            await cb.answer("Не могу обновить сообщение. Открой меню заново.")
+        except Exception:
+            pass
+        return
+
+    m = cb.message
+    if m is None:
+        await cb.answer("Не могу обновить сообщение. Открой меню заново.")
+        return
+
+    if is_message(m):
+        await m.edit_text(text, reply_markup=reply_markup)
+        return
+
+    await bot.edit_message_text(
+        chat_id=safe_chat_id(m),
+        message_id=safe_message_id(m),
+        text=text,
+        reply_markup=reply_markup,
+    )
+
+
+async def _delete_cb_message(bot: Optional[Bot], cb: CallbackQuery) -> None:
+    if bot is None:
+        return
+    m = cb.message
+    if m is None:
+        return
+
+    if is_message(m):
+        await m.delete()
+        return
+
+    await bot.delete_message(chat_id=safe_chat_id(m), message_id=safe_message_id(m))
+
+
 def _t(lang: str, ru: str, uk: str, en: str) -> str:
     return {"ru": ru, "uk": uk, "en": en}.get(lang, ru)
 
+
 def _refund_btn_text(lang: str) -> str:
     return _t(lang, "💸 Возврат", "💸 Повернення", "💸 Refund")
+
 
 def _looks_auto_ok(text: str) -> bool:
     s = (text or "").lower()
     return any(k in s for k in KEYWORDS_OK)
 
+
 def _refund_info(provider: str, lang: str) -> str:
     p = (provider or "").lower()
     if p == "stars":
-        return _t(lang,
-                  "⭐ Возврат вернётся в Telegram Stars. Обычно несколько минут.",
-                  "⭐ Повернення прийде в Telegram Stars. Зазвичай кілька хвилин.",
-                  "⭐ Refund returns to Telegram Stars. Usually a few minutes.")
+        return _t(
+            lang,
+            "⭐ Возврат вернётся в Telegram Stars. Обычно несколько минут.",
+            "⭐ Повернення прийде в Telegram Stars. Зазвичай кілька хвилин.",
+            "⭐ Refund returns to Telegram Stars. Usually a few minutes.",
+        )
     if p == "mono":
-        return _t(lang,
-                  "💳 Возврат придёт на ту же карту (MonoPay). Обычно 1–5 рабочих дней.",
-                  "💳 Повернення прийде на ту ж картку (MonoPay). Зазвичай 1–5 робочих днів.",
-                  "💳 Refund returns to the same card (MonoPay). Usually 1–5 business days.")
+        return _t(
+            lang,
+            "💳 Возврат придёт на ту же карту (MonoPay). Обычно 1–5 рабочих дней.",
+            "💳 Повернення прийде на ту ж картку (MonoPay). Зазвичай 1–5 робочих днів.",
+            "💳 Refund returns to the same card (MonoPay). Usually 1–5 business days.",
+        )
     if p == "crypto":
-        return _t(lang,
-                  "🪙 Возврат по крипте делаем вручную. Нужен адрес USDT TRC20. Обычно 24–72 часа.",
-                  "🪙 Повернення криптою робимо вручну. Потрібна адреса USDT TRC20. Зазвичай 24–72 години.",
-                  "🪙 Crypto refunds are processed manually. USDT TRC20 address required. Usually 24–72 hours.")
-    return _t(lang,
-              "ℹ️ Возврат будет обработан по правилам платёжного провайдера.",
-              "ℹ️ Повернення буде оброблено за правилами платіжного провайдера.",
-              "ℹ️ Refund will be processed according to the payment provider rules.")
+        return _t(
+            lang,
+            "🪙 Возврат по крипте делаем вручную. Нужен адрес USDT TRC20. Обычно 24–72 часа.",
+            "🪙 Повернення криптою робимо вручну. Потрібна адреса USDT TRC20. Зазвичай 24–72 години.",
+            "🪙 Crypto refunds are processed manually. USDT TRC20 address required. Usually 24–72 hours.",
+        )
+    return _t(
+        lang,
+        "ℹ️ Возврат будет обработан по правилам платёжного провайдера.",
+        "ℹ️ Повернення буде оброблено за правилами платіжного провайдера.",
+        "ℹ️ Refund will be processed according to the payment provider rules.",
+    )
+
 
 async def _get_lang(session: AsyncSession, tg_id: int) -> str:
     u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     if not u:
         return "ru"
-    l = (getattr(u, "lang", None) or "ru").lower()
-    if l == "ua":
-        l = "uk"
-    if l not in ("ru", "uk", "en"):
-        l = "ru"
-    return l
+    lang_code = (getattr(u, "lang", None) or "ru").lower()
+    if lang_code == "ua":
+        lang_code = "uk"
+    if lang_code not in ("ru", "uk", "en"):
+        lang_code = "ru"
+    return lang_code
+
 
 async def _list_recent_paid(session: AsyncSession, tg_id: int, limit: int = 5) -> list[Payment]:
     u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
@@ -119,33 +182,64 @@ async def _list_recent_paid(session: AsyncSession, tg_id: int, limit: int = 5) -
     )
     return list((await session.execute(q)).scalars().all())
 
+
 def _kb_pick(payments: list[Payment], lang: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for p in payments:
-        label = f"#{p.id} • {p.provider} • {p.amount}{p.currency}"
+        label = f"#{p.id} • {p.provider.value} • {p.amount}{p.currency}"
         if p.paid_at:
             label += f" • {p.paid_at.date().isoformat()}"
         rows.append([InlineKeyboardButton(text=label, callback_data=f"{CB_PICK}{p.id}")])
-    rows.append([InlineKeyboardButton(text=_t(lang, "↩️ Назад", "↩️ Назад", "↩️ Back"), callback_data="refund:close")])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=_t(lang, "↩️ Назад", "↩️ Назад", "↩️ Back"),
+                callback_data="refund:close",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 def _kb_reason(payment_id: int, lang: str) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(
-            text=_t(lang, "😬 Случайно оплатил", "😬 Випадково оплатив", "😬 Paid by mistake"),
-            callback_data=f"{CB_REASON}{payment_id}:mistake"
-        )],
-        [InlineKeyboardButton(
-            text=_t(lang, "😕 Не понравилось", "😕 Не сподобалось", "😕 Didn't like it"),
-            callback_data=f"{CB_REASON}{payment_id}:dislike"
-        )],
-        [InlineKeyboardButton(
-            text=_t(lang, "🧾 Другое (создать заявку)", "🧾 Інше (створити заявку)", "🧾 Other (create request)"),
-            callback_data=f"{CB_REASON}{payment_id}:other"
-        )],
-        [InlineKeyboardButton(text=_t(lang, "↩️ Назад", "↩️ Назад", "↩️ Back"), callback_data="refund:back:pick:")],
+        [
+            InlineKeyboardButton(
+                text=_t(
+                    lang,
+                    "😬 Случайно оплатил",
+                    "😬 Випадково оплатив",
+                    "😬 Paid by mistake",
+                ),
+                callback_data=f"{CB_REASON}{payment_id}:mistake",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=_t(lang, "😕 Не понравилось", "😕 Не сподобалось", "😕 Didn't like it"),
+                callback_data=f"{CB_REASON}{payment_id}:dislike",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=_t(
+                    lang,
+                    "🧾 Другое (создать заявку)",
+                    "🧾 Інше (створити заявку)",
+                    "🧾 Other (create request)",
+                ),
+                callback_data=f"{CB_REASON}{payment_id}:other",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=_t(lang, "↩️ Назад", "↩️ Назад", "↩️ Back"),
+                callback_data="refund:back:pick:",
+            )
+        ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 async def _deny_payload(session: AsyncSession, pay: Payment, *, reason: str, code: str) -> None:
     raw = getattr(pay, "payload", None)
@@ -166,14 +260,27 @@ async def _deny_payload(session: AsyncSession, pay: Payment, *, reason: str, cod
     pay.payload = json.dumps(payload, ensure_ascii=False)
     await session.commit()
 
+
 def _prov_low(pay: Payment) -> str:
     prov = getattr(pay, "provider", None)
     prov = prov.value if hasattr(prov, "value") else str(prov or "")
     return (prov or "").lower()
 
+
 # -------- entry point (кнопка/команда) --------
 
-@router.message(F.text.in_({"💸 Возврат", "💸 Возврат средств", "💸 Повернення", "💸 Повернення коштів", "💸 Refund"}))
+
+@router.message(
+    F.text.in_(
+        {
+            "💸 Возврат",
+            "💸 Возврат средств",
+            "💸 Повернення",
+            "💸 Повернення коштів",
+            "💸 Refund",
+        }
+    )
+)
 async def refund_open(m: Message, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()
     tg_id = m.from_user.id
@@ -181,13 +288,21 @@ async def refund_open(m: Message, session: AsyncSession, state: FSMContext) -> N
 
     pays = await _list_recent_paid(session, tg_id, limit=5)
     if not pays:
-        await m.answer(_t(lang,
-            "Пока не вижу оплаченных платежей, по которым можно сделать возврат.",
-            "Поки не бачу оплачених платежів для повернення.",
-            "I can't find paid payments eligible for refund."))
+        await m.answer(
+            _t(
+                lang,
+                "Пока не вижу оплаченных платежей, по которым можно сделать возврат.",
+                "Поки не бачу оплачених платежів для повернення.",
+                "I can't find paid payments eligible for refund.",
+            )
+        )
         return
 
-    await m.answer(_t(lang, "Выбери платеж:", "Обери платіж:", "Pick a payment:"), reply_markup=_kb_pick(pays, lang))
+    await m.answer(
+        _t(lang, "Выбери платеж:", "Обери платіж:", "Pick a payment:"),
+        reply_markup=_kb_pick(pays, lang),
+    )
+
 
 @router.callback_query(F.data == "refund:open")
 async def refund_open_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
@@ -199,23 +314,35 @@ async def refund_open_cb(c: CallbackQuery, session: AsyncSession, state: FSMCont
 
     pays = await _list_recent_paid(session, tg_id, limit=5)
     if not pays:
-        await c.message.answer(_t(lang,
-            "Пока не вижу оплаченных платежей, по которым можно сделать возврат.",
-            "Поки не бачу оплачених платежів для повернення.",
-            "I can't find paid payments eligible for refund."))
+        await c.bot.send_message(
+            tg_id,
+            _t(
+                lang,
+                "Пока не вижу оплаченных платежей, по которым можно сделать возврат.",
+                "Поки не бачу оплачених платежів для повернення.",
+                "I can't find paid payments eligible for refund.",
+            ),
+        )
         return
 
-    await c.message.answer(_t(lang, "Выбери платеж:", "Обери платіж:", "Pick a payment:"), reply_markup=_kb_pick(pays, lang))
+    await c.bot.send_message(
+        tg_id,
+        _t(lang, "Выбери платеж:", "Обери платіж:", "Pick a payment:"),
+        reply_markup=_kb_pick(pays, lang),
+    )
+
 
 # -------- callbacks --------
+
 
 @router.callback_query(F.data == "refund:close")
 async def refund_close(c: CallbackQuery) -> None:
     await c.answer()
     try:
-        await c.message.delete()
+        await _delete_cb_message(c.bot, c)
     except Exception:
         pass
+
 
 @router.callback_query(F.data.startswith(CB_PICK))
 async def refund_pick(c: CallbackQuery, session: AsyncSession) -> None:
@@ -223,19 +350,30 @@ async def refund_pick(c: CallbackQuery, session: AsyncSession) -> None:
     tg_id = c.from_user.id
     lang = await _get_lang(session, tg_id)
 
-    payment_id = int(c.data[len(CB_PICK):])
+    data = c.data or ""
+    payment_id = int(data[len(CB_PICK) :])
     u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     pay = (await session.execute(select(Payment).where(Payment.id == payment_id))).scalar_one_or_none()
 
     if not u or not pay or int(getattr(pay, "user_id", 0) or 0) != int(u.id):
-        await c.message.answer(_t(lang, "Платёж не найден.", "Платіж не знайдено.", "Payment not found."))
+        await c.bot.send_message(
+            tg_id,
+            _t(lang, "Платёж не найден.", "Платіж не знайдено.", "Payment not found."),
+        )
         return
 
-    await c.message.edit_text(_t(lang,
-                                 f"Платёж #{payment_id}. Выбери причину:",
-                                 f"Платіж #{payment_id}. Обери причину:",
-                                 f"Payment #{payment_id}. Choose a reason:"),
-                              reply_markup=_kb_reason(payment_id, lang))
+    await _edit_cb_message(
+        c.bot,
+        c,
+        _t(
+            lang,
+            f"Платёж #{payment_id}. Выбери причину:",
+            f"Платіж #{payment_id}. Обери причину:",
+            f"Payment #{payment_id}. Choose a reason:",
+        ),
+        reply_markup=_kb_reason(payment_id, lang),
+    )
+
 
 @router.callback_query(F.data.startswith(CB_REASON))
 async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
@@ -246,13 +384,16 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
     parts = (c.data or "").split(":")
     # refund:reason:<id>:<kind>
     if len(parts) < 4:
-        await c.message.answer(_t(lang, "Ошибка данных.", "Помилка даних.", "Bad data."))
+        await c.bot.send_message(tg_id, _t(lang, "Ошибка данных.", "Помилка даних.", "Bad data."))
         return
 
     try:
         payment_id = int(parts[2])
     except Exception:
-        await c.message.answer(_t(lang, "Ошибка ID платежа.", "Помилка ID платежу.", "Bad payment id."))
+        await c.bot.send_message(
+            tg_id,
+            _t(lang, "Ошибка ID платежа.", "Помилка ID платежу.", "Bad payment id."),
+        )
         return
 
     kind = parts[3].strip().lower()
@@ -265,17 +406,28 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
     u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     pay = (await session.execute(select(Payment).where(Payment.id == payment_id))).scalar_one_or_none()
     if not u or not pay or int(getattr(pay, "user_id", 0) or 0) != int(u.id):
-        await c.message.answer(_t(lang, "Платёж не найден.", "Платіж не знайдено.", "Payment not found."))
+        await c.bot.send_message(
+            tg_id,
+            _t(lang, "Платёж не найден.", "Платіж не знайдено.", "Payment not found."),
+        )
         return
 
     if pay.status == PaymentStatus.REFUNDED:
-        await c.message.answer(_t(lang, "Этот платёж уже возвращён.", "Цей платіж уже повернений.", "This payment is already refunded."))
+        await c.bot.send_message(
+            tg_id,
+            _t(
+                lang,
+                "Этот платёж уже возвращён.",
+                "Цей платіж уже повернений.",
+                "This payment is already refunded.",
+            ),
+        )
         return
 
     paid_at = getattr(pay, "paid_at", None)
     if not paid_at:
         res = await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
-        await c.message.answer(res.msg)
+        await c.bot.send_message(tg_id, res.msg)
         return
 
     now = _now_utc()
@@ -297,10 +449,15 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
             target_tg_id=tg_id,
             extra={"reason": reason_text, "code": "too_late"},
         )
-        await c.message.answer(_t(lang,
-                                  f"❌ Возврат недоступен: прошло больше {AUTO_DENY_DAYS} дней с момента оплаты.",
-                                  f"❌ Повернення недоступне: минуло більше {AUTO_DENY_DAYS} днів з моменту оплати.",
-                                  f"❌ Refund is not available: more than {AUTO_DENY_DAYS} days have passed since payment."))
+        await c.bot.send_message(
+            tg_id,
+            _t(
+                lang,
+                f"❌ Возврат недоступен: прошло больше {AUTO_DENY_DAYS} дней с момента оплаты.",
+                f"❌ Повернення недоступне: минуло більше {AUTO_DENY_DAYS} днів з моменту оплати.",
+                f"❌ Refund is not available: more than {AUTO_DENY_DAYS} days have passed since payment.",
+            ),
+        )
         return
 
     # авто-ок (48 часов) — делаем по провайдеру
@@ -323,10 +480,15 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                     payment_id=payment_id,
                     extra={"reason": reason_text},
                 )
-            await c.message.answer(_t(lang,
-                                      "✅ Возврат одобрен.\n" + _refund_info("stars", lang),
-                                      "✅ Повернення схвалено.\n" + _refund_info("stars", lang),
-                                      "✅ Refund approved.\n" + _refund_info("stars", lang)))
+            await c.bot.send_message(
+                tg_id,
+                _t(
+                    lang,
+                    "✅ Возврат одобрен.\n" + _refund_info("stars", lang),
+                    "✅ Повернення схвалено.\n" + _refund_info("stars", lang),
+                    "✅ Refund approved.\n" + _refund_info("stars", lang),
+                ),
+            )
             return
 
         # 💳 Mono — заявка (реальный refund делается через провайдера/банк)
@@ -340,10 +502,15 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                 target_tg_id=tg_id,
                 extra={"provider": "mono", "reason": reason_text},
             )
-            await c.message.answer(_t(lang,
-                                      "✅ Заявка на возврат создана.\n" + _refund_info("mono", lang),
-                                      "✅ Заявку на повернення створено.\n" + _refund_info("mono", lang),
-                                      "✅ Refund request created.\n" + _refund_info("mono", lang)))
+            await c.bot.send_message(
+                tg_id,
+                _t(
+                    lang,
+                    "✅ Заявка на возврат создана.\n" + _refund_info("mono", lang),
+                    "✅ Заявку на повернення створено.\n" + _refund_info("mono", lang),
+                    "✅ Refund request created.\n" + _refund_info("mono", lang),
+                ),
+            )
             return
 
         # 🪙 Crypto — заявка + просим адрес
@@ -357,18 +524,34 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                 target_tg_id=tg_id,
                 extra={"provider": "crypto", "reason": reason_text},
             )
-            await c.message.answer(_t(lang,
-                                      "✅ Заявка создана.\n" + _refund_info("crypto", lang) + "\n\nОтправь адрес USDT TRC20 одним сообщением (начинается с T...).",
-                                      "✅ Заявку створено.\n" + _refund_info("crypto", lang) + "\n\nНадішли адресу USDT TRC20 одним повідомленням (починається з T...).",
-                                      "✅ Request created.\n" + _refund_info("crypto", lang) + "\n\nSend your USDT TRC20 address in one message (starts with T...)."))
+            await c.bot.send_message(
+                tg_id,
+                _t(
+                    lang,
+                    "✅ Заявка создана.\n"
+                    + _refund_info("crypto", lang)
+                    + "\n\nОтправь адрес USDT TRC20 одним сообщением (начинается с T...).",
+                    "✅ Заявку створено.\n"
+                    + _refund_info("crypto", lang)
+                    + "\n\nНадішли адресу USDT TRC20 одним повідомленням (починається з T...).",
+                    "✅ Request created.\n"
+                    + _refund_info("crypto", lang)
+                    + "\n\nSend your USDT TRC20 address in one message (starts with T...).",
+                ),
+            )
             return
 
     # серый кейс → заявка + пинг админу
     res = await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
-    await c.message.answer(_t(lang,
-                              "✅ Заявка создана. Обычно ответ приходит быстро.\n" + _refund_info(prov_low, lang),
-                              "✅ Заявку створено. Зазвичай відповідь приходить швидко.\n" + _refund_info(prov_low, lang),
-                              "✅ Request created. Usually reviewed quickly.\n" + _refund_info(prov_low, lang)))
+    await c.bot.send_message(
+        tg_id,
+        _t(
+            lang,
+            "✅ Заявка создана. Обычно ответ приходит быстро.\n" + _refund_info(prov_low, lang),
+            "✅ Заявку створено. Зазвичай відповідь приходить швидко.\n" + _refund_info(prov_low, lang),
+            "✅ Request created. Usually reviewed quickly.\n" + _refund_info(prov_low, lang),
+        ),
+    )
 
     admins = _admin_ids()
     if admins:
@@ -379,6 +562,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
             except Exception:
                 pass
 
+
 @router.callback_query(F.data.startswith("refund:back:pick:"))
 async def refund_back_to_pick(c: CallbackQuery, session: AsyncSession) -> None:
     await c.answer()
@@ -387,19 +571,34 @@ async def refund_back_to_pick(c: CallbackQuery, session: AsyncSession) -> None:
 
     pays = await _list_recent_paid(session, tg_id, limit=5)
     if not pays:
-        await c.message.edit_text(_t(lang,
-            "Пока не вижу оплаченных платежей, по которым можно сделать возврат.",
-            "Поки не бачу оплачених платежів для повернення.",
-            "I can't find paid payments eligible for refund."), reply_markup=None)
+        await _edit_cb_message(
+            c.bot,
+            c,
+            _t(
+                lang,
+                "Пока не вижу оплаченных платежей, по которым можно сделать возврат.",
+                "Поки не бачу оплачених платежів для повернення.",
+                "I can't find paid payments eligible for refund.",
+            ),
+            reply_markup=None,
+        )
         return
 
-    await c.message.edit_text(_t(lang,
-                                 "Выбери платёж для возврата:",
-                                 "Обери платіж для повернення:",
-                                 "Pick a payment to refund:"),
-                              reply_markup=_kb_pick(pays, lang))
+    await _edit_cb_message(
+        c.bot,
+        c,
+        _t(
+            lang,
+            "Выбери платёж для возврата:",
+            "Обери платіж для повернення:",
+            "Pick a payment to refund:",
+        ),
+        reply_markup=_kb_pick(pays, lang),
+    )
+
 
 # -------- crypto refund address capture --------
+
 
 def _is_trc20_address(text: str) -> bool:
     s = (text or "").strip()
@@ -461,10 +660,14 @@ async def refund_crypto_address_capture(m: Message, session: AsyncSession) -> No
             break
 
     if not target:
-        await m.answer(_t(lang,
-                          "Я вижу адрес, но не нашёл активной crypto-заявки на возврат. Сначала создай возврат через кнопку 💸 Возврат.",
-                          "Бачу адресу, але не знайшов активної crypto-заявки. Спочатку створи повернення через кнопку 💸 Повернення.",
-                          "I see the address, but I can't find an active crypto refund request. Create it via 💸 Refund first."))
+        await m.answer(
+            _t(
+                lang,
+                "Я вижу адрес, но не нашёл активной crypto-заявки на возврат. Сначала создай возврат через кнопку 💸 Возврат.",
+                "Бачу адресу, але не знайшов активної crypto-заявки. Спочатку створи повернення через кнопку 💸 Повернення.",
+                "I see the address, but I can't find an active crypto refund request. Create it via 💸 Refund first.",
+            )
+        )
         return
 
     target_payload["refund_address"] = text
@@ -475,19 +678,19 @@ async def refund_crypto_address_capture(m: Message, session: AsyncSession) -> No
     target.payload = json.dumps(target_payload, ensure_ascii=False)
     await session.commit()
 
-    await m.answer(_t(lang,
-                      "✅ Адрес получен. Передал в обработку. Обычно 24–72 часа.",
-                      "✅ Адресу отримано. Передав в обробку. Зазвичай 24–72 години.",
-                      "✅ Address received. Sent for processing. Usually 24–72 hours."))
+    await m.answer(
+        _t(
+            lang,
+            "✅ Адрес получен. Передал в обработку. Обычно 24–72 часа.",
+            "✅ Адресу отримано. Передав в обробку. Зазвичай 24–72 години.",
+            "✅ Address received. Sent for processing. Usually 24–72 hours.",
+        )
+    )
 
     admins = _admin_ids()
     if admins:
         txt = (
-            "🪙 Crypto refund address received\n"
-            f"user_tg={tg_id}\n"
-            f"payment_id={target.id}\n"
-            f"address={text}\n"
-            "network=TRC20"
+            f"🪙 Crypto refund address received\nuser_tg={tg_id}\npayment_id={target.id}\naddress={text}\nnetwork=TRC20"
         )
         for aid in admins:
             try:

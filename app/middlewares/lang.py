@@ -1,15 +1,14 @@
-
 from __future__ import annotations
 
-from typing import Any, Dict, Awaitable, Callable, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 
-from app.models.user import User
 from app.db import async_session
 from app.i18n import set_locale
+from app.models.user import User
 
 SUPPORTED_LOCALES = {"ru", "uk", "en"}
 
@@ -36,9 +35,7 @@ def _extract_from_event(event: Any) -> Tuple[Optional[int], str]:
 class LangMiddleware(BaseMiddleware):
     def __init__(self, default_locale: str = "ru") -> None:
         super().__init__()
-        self.default_locale = (
-            default_locale if default_locale in SUPPORTED_LOCALES else "ru"
-        )
+        self.default_locale = default_locale if default_locale in SUPPORTED_LOCALES else "ru"
 
     async def __call__(
         self,
@@ -52,35 +49,19 @@ class LangMiddleware(BaseMiddleware):
         if not user and tg_id:
             session = data.get("session")
             if session:
-                user = (
-                    await session.execute(
-                        select(User).where(User.tg_id == tg_id)
-                    )
-                ).scalar_one_or_none()
+                user = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
             else:
                 async with async_session() as s:
-                    user = (
-                        await s.execute(
-                            select(User).where(User.tg_id == tg_id)
-                        )
-                    ).scalar_one_or_none()
+                    user = (await s.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
             if user:
                 data["user"] = user
 
         loc = ""
         if user:
-            loc = (
-                getattr(user, "locale", None)
-                or getattr(user, "lang", None)
-                or ""
-            ).lower()
+            loc = (getattr(user, "locale", None) or getattr(user, "lang", None) or "").lower()
         loc = loc[:2]
 
-        locale = (
-            loc
-            if loc in SUPPORTED_LOCALES
-            else (tele_lc if tele_lc in SUPPORTED_LOCALES else self.default_locale)
-        )
+        locale = loc if loc in SUPPORTED_LOCALES else (tele_lc if tele_lc in SUPPORTED_LOCALES else self.default_locale)
 
         # прокидываем в handler и в i18n
         data["lang"] = locale

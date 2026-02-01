@@ -1,16 +1,25 @@
 from __future__ import annotations
 
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import Integer, String, Date, DateTime, ForeignKey, func, UniqueConstraint
+from sqlalchemy import (
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
 try:
-    from sqlalchemy.dialects.postgresql import JSONB
     from sqlalchemy import JSON as SAJSON
+    from sqlalchemy.dialects.postgresql import JSONB
+
     JSONType = SAJSON().with_variant(JSONB, "postgresql")
 except Exception:
     from sqlalchemy import JSON as JSONType  # fallback
@@ -18,9 +27,7 @@ except Exception:
 
 class ProactiveEntry(Base):
     __tablename__ = "proactive_entries"
-    table_args = (
-        UniqueConstraint("user_id", "kind", "local_date", name="ux_proactive_entry_day"),
-    )
+    table_args = (UniqueConstraint("user_id", "kind", "local_date", name="ux_proactive_entry_day"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(

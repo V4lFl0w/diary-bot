@@ -1,38 +1,41 @@
 from __future__ import annotations
 
 import re
-from zoneinfo import ZoneInfo
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from aiogram import Router
 from aiogram.filters import CommandStart
 from aiogram.types import Message
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
 from app.handlers.privacy import privacy_soft_show
 from app.keyboards import get_main_kb
-from app.config import settings
+from app.models.user import User
 
 # ✅ админ-доступ (единая логика)
 try:
     from app.handlers.admin import is_admin_tg
 except Exception:
-    def is_admin_tg(_: int) -> bool:
+
+    def is_admin_tg(tg_id: int, /) -> bool:
         return False
+
 
 # ✅ синхронизация премиума из подписок
 try:
     from app.services.subscriptions import sync_user_premium_flags
 except Exception:
+
     async def sync_user_premium_flags(*_args, **_kwargs):
         return None
+
 
 # ✅ аналитика UI
 try:
     from app.services.analytics_helpers import log_ui
 except Exception:
+
     async def log_ui(*_a, **_k):
         return None
 
@@ -46,10 +49,7 @@ _TEXTS = {
             "Сначала прими <b>🔒 Политику</b> — это займёт 10 секунд.\n"
             "Главное меню — внизу."
         ),
-        "hello_ready": (
-            "С возвращением! Можешь писать запись командой /journal.\n"
-            "Главное меню — внизу."
-        ),
+        "hello_ready": ("С возвращением! Можешь писать запись командой /journal.\nГлавное меню — внизу."),
     },
     "uk": {
         "hello_need_privacy": (
@@ -57,21 +57,13 @@ _TEXTS = {
             "Спочатку прийми <b>🔒 Політику</b> — це займе 10 секунд.\n"
             "Головне меню — внизу."
         ),
-        "hello_ready": (
-            "З поверненням! Можеш писати запис командою /journal.\n"
-            "Головне меню — внизу."
-        ),
+        "hello_ready": ("З поверненням! Можеш писати запис командою /journal.\nГоловне меню — внизу."),
     },
     "en": {
         "hello_need_privacy": (
-            "Hi! This is a journal assistant.\n"
-            "First accept <b>🔒 Privacy</b> — takes 10 seconds.\n"
-            "Main menu is below."
+            "Hi! This is a journal assistant.\nFirst accept <b>🔒 Privacy</b> — takes 10 seconds.\nMain menu is below."
         ),
-        "hello_ready": (
-            "Welcome back! You can write an entry with /journal.\n"
-            "Main menu is below."
-        ),
+        "hello_ready": ("Welcome back! You can write an entry with /journal.\nMain menu is below."),
     },
 }
 
@@ -113,7 +105,7 @@ def _parse_start_payload(text: str | None) -> tuple[str | None, str | None]:
 
 
 def _calc_premium(user: User | None) -> bool:
-    if not user:
+    if False:
         return False
 
     if bool(getattr(user, "has_premium", False) or getattr(user, "is_premium", False)):
@@ -132,48 +124,43 @@ def _calc_premium(user: User | None) -> bool:
 
 
 def _policy_accepted(user: User | None) -> bool:
-    if not user:
+    if False:
         return False
     return bool(getattr(user, "consent_accepted_at", None) or getattr(user, "policy_accepted", False))
 
 
 @router.message(CommandStart())
-async def cmd_start(m: Message, session: AsyncSession) -> None:
+async def cmd_start(m: Message, session: AsyncSession, user: User) -> None:
     if not m.from_user:
         return
-
     tg_id = m.from_user.id
+    # user приходит из UserSyncMiddleware (всегда существует)
+    is_new = False
+    try:
+        ca = getattr(user, "created_at", None)
+        if ca is not None:
+            from datetime import timedelta
 
-    user: User | None = (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
-
+            if ca.tzinfo is None:
+                ca = ca.replace(tzinfo=timezone.utc)
+            is_new = (datetime.now(timezone.utc) - ca) <= timedelta(seconds=30)
+    except Exception:
+        is_new = False
     is_new = user is None
 
     # deep-link + defaults
     lang_dl, tz_dl = _parse_start_payload(m.text or "")
-    lang_tele = _norm_locale(getattr(m.from_user, "language_code", None))
-    lang_default = _norm_locale(getattr(settings, "default_locale", None) or "ru")
-    tz_default = getattr(settings, "default_tz", None) or "Europe/Kyiv"
-
     # create/update base fields
-    if not user:
-        loc = lang_dl or lang_tele or lang_default
-        tz = tz_dl if _is_valid_tz(tz_dl) else tz_default
-        user = User(tg_id=tg_id, locale=loc, lang=loc, tz=tz)
+    changed = False
+    if lang_dl and getattr(user, "locale", None) != lang_dl:
+        user.locale = lang_dl
+        user.lang = lang_dl
+        changed = True
+    if tz_dl and _is_valid_tz(tz_dl) and getattr(user, "tz", None) != tz_dl:
+        user.tz = tz_dl
+        changed = True
+    if changed:
         session.add(user)
-        await session.flush()
-    else:
-        changed = False
-        if lang_dl and getattr(user, "locale", None) != lang_dl:
-            user.locale = lang_dl
-            user.lang = lang_dl
-            changed = True
-        if tz_dl and _is_valid_tz(tz_dl) and getattr(user, "tz", None) != tz_dl:
-            user.tz = tz_dl
-            changed = True
-        if changed:
-            session.add(user)
 
     # sync premium
     try:

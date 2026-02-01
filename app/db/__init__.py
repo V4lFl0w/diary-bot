@@ -1,5 +1,6 @@
 import os
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
@@ -17,11 +18,9 @@ def _pick_db_url() -> str:
         os.getenv(f"DATABASE_URL_{env_key}"),
         os.getenv(f"DB_URL_{env_key}"),
         os.getenv(f"DB_URI_{env_key}"),
-
         os.getenv("DATABASE_URL"),
         os.getenv("DB_URL"),
         os.getenv("DB_URI"),
-
         getattr(settings, "database_url", "") if hasattr(settings, "database_url") else "",
     ]
 

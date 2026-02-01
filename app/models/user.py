@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import time, datetime, timezone
-from typing import Optional, List, TYPE_CHECKING
+from datetime import datetime, time, timezone
+from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import BigInteger, Boolean, String, Time, DateTime, Integer, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base

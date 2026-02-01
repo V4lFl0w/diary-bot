@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict, deque
-from typing import Deque, DefaultDict
+from typing import DefaultDict, Deque
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery, TelegramObject
+from aiogram.types import CallbackQuery, Message, TelegramObject
+
 
 class RateLimitMiddleware(BaseMiddleware):
     def __init__(self, max_events: int = 25, per_seconds: int = 10):

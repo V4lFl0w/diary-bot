@@ -1,15 +1,14 @@
 from __future__ import annotations
+
 import logging
+
 logger = logging.getLogger(__name__)
 
 
 import re
 from typing import Dict, Optional
 
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
 
 # -------------------------------------------------------------------
 # I18N helper (безопасный доступ к t())
@@ -31,17 +30,13 @@ def _t(lang: Optional[str], key: str, fallback: Dict[str, str]) -> str:
     loc = (lang or "ru").strip().lower()
     try:
         from app.i18n import t as _real
+
         v = _real(key, loc)
         if isinstance(v, str):
             vv = v.strip()
             low = vv.lower()
 
-            if (
-                vv
-                and not _BAD_I18N.match(vv)
-                and low != key.lower()
-                and not low.startswith(("menu_", "btn_", "cmd_"))
-            ):
+            if vv and not _BAD_I18N.match(vv) and low != key.lower() and not low.startswith(("menu_", "btn_", "cmd_")):
                 return vv
     except Exception:
         # В проде i18n не должен падать, но мы не кладём бота из-за текстов.
@@ -58,6 +53,7 @@ def _t(lang: Optional[str], key: str, fallback: Dict[str, str]) -> str:
 # Premium бейдж
 # -------------------------------------------------------------------
 
+
 def _premium_badge(is_premium: bool) -> str:
     """
     Для бесплатных — добавляем 💎 перед премиум-фичами.
@@ -69,6 +65,7 @@ def _premium_badge(is_premium: bool) -> str:
 # -------------------------------------------------------------------
 # ROOT: главная клавиатура
 # -------------------------------------------------------------------
+
 
 def get_main_kb(
     lang: str,
@@ -127,18 +124,34 @@ def get_main_kb(
     ]
 
     row_proactive = [
-        KeyboardButton(text=_t(lang, "menu_proactive_root", {"ru":"⚡️ Проактивность","uk":"⚡️ Проактивність","en":"⚡️ Proactivity"})),
-        KeyboardButton(text=_t(lang, "menu_motivation_root", {"ru":"🥇 Мотивация","uk":"🥇 Мотивація","en":"🥇 Motivation"})),
+        KeyboardButton(
+            text=_t(
+                lang,
+                "menu_proactive_root",
+                {
+                    "ru": "⚡️ Проактивность",
+                    "uk": "⚡️ Проактивність",
+                    "en": "⚡️ Proactivity",
+                },
+            )
+        ),
+        KeyboardButton(
+            text=_t(
+                lang,
+                "menu_motivation_root",
+                {"ru": "🥇 Мотивация", "uk": "🥇 Мотивація", "en": "🥇 Motivation"},
+            )
+        ),
     ]
 
-# Помощник / Медиа
+    # Помощник / Медиа
     row_brain = [
         KeyboardButton(
             text=_t(
                 lang,
                 "btn_assistant_root",
-                {"ru":"🤖 Помощник","uk":"🤖 Помічник","en":"🤖 Assistant"},
-                )
+                {"ru": "🤖 Помощник", "uk": "🤖 Помічник", "en": "🤖 Assistant"},
+            )
         ),
         KeyboardButton(
             text=_t(
@@ -215,6 +228,7 @@ main_menu_kb = get_main_kb
 # -------------------------------------------------------------------
 # SUBMENUS
 # -------------------------------------------------------------------
+
 
 def get_journal_menu_kb(lang: str) -> ReplyKeyboardMarkup:
     """
@@ -325,7 +339,6 @@ def get_media_menu_kb(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[row1, row_back])
 
 
-
 def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMarkup:
     """
     Подменю Премиума:
@@ -343,7 +356,11 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMar
             text=_t(
                 lang,
                 "btn_premium_info",
-                {"ru": "💎 О премиуме", "uk": "💎 Про преміум", "en": "💎 About premium"},
+                {
+                    "ru": "💎 О премиуме",
+                    "uk": "💎 Про преміум",
+                    "en": "💎 About premium",
+                },
             )
         ),
         KeyboardButton(
@@ -351,7 +368,11 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMar
             + _t(
                 lang,
                 "btn_premium_card",
-                {"ru": "💳 Оплатить картой", "uk": "💳 Оплатити карткою", "en": "💳 Pay by card"},
+                {
+                    "ru": "💳 Оплатить картой",
+                    "uk": "💳 Оплатити карткою",
+                    "en": "💳 Pay by card",
+                },
             )
         ),
     ]
@@ -362,7 +383,11 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMar
             + _t(
                 lang,
                 "btn_premium_stars",
-                {"ru": "💫 Оплатить через Stars", "uk": "💫 Оплатити через Stars", "en": "💫 Pay via Stars"},
+                {
+                    "ru": "💫 Оплатить через Stars",
+                    "uk": "💫 Оплатити через Stars",
+                    "en": "💫 Pay via Stars",
+                },
             )
         ),
     ]
@@ -370,29 +395,46 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMar
     keyboard = [row1, row2]
 
     if is_premium:
-        keyboard.append([
+        keyboard.append(
+            [
+                KeyboardButton(
+                    text=_t(
+                        lang,
+                        "btn_premium_cancel",
+                        {
+                            "ru": "❌ Отменить подписку",
+                            "uk": "❌ Скасувати підписку",
+                            "en": "❌ Cancel subscription",
+                        },
+                    )
+                )
+            ]
+        )
+
+    keyboard.append(
+        [
             KeyboardButton(
                 text=_t(
                     lang,
-                    "btn_premium_cancel",
-                    {"ru": "❌ Отменить подписку", "uk": "❌ Скасувати підписку", "en": "❌ Cancel subscription"},
+                    "btn_premium_refund",
+                    {
+                        "ru": "💸 Возврат средств",
+                        "uk": "💸 Повернення коштів",
+                        "en": "💸 Refund",
+                    },
                 )
             )
-        ])
+        ]
+    )
 
-    keyboard.append([
-    KeyboardButton(
-        text=_t(lang, "btn_premium_refund", {"ru": "💸 Возврат средств", "uk": "💸 Повернення коштів", "en": "💸 Refund"})
-        )
-    ])    
+    keyboard.append([KeyboardButton(text=_t(lang, "btn_back", {"ru": "⬅️ Назад", "uk": "⬅️ Назад", "en": "⬅️ Back"}))])
 
-    keyboard.append([
-        KeyboardButton(
-            text=_t(lang, "btn_back", {"ru": "⬅️ Назад", "uk": "⬅️ Назад", "en": "⬅️ Back"})
-        )
-    ])
-
-    logger.info("PAY_KB(premium_menu): lang=%s is_premium=%s keyboard=%s", lang, is_premium, [[b.text for b in row] for row in keyboard])
+    logger.info(
+        "PAY_KB(premium_menu): lang=%s is_premium=%s keyboard=%s",
+        lang,
+        is_premium,
+        [[b.text for b in row] for row in keyboard],
+    )
 
     return ReplyKeyboardMarkup(
         resize_keyboard=True,
@@ -427,7 +469,11 @@ def get_settings_menu_kb(lang: str) -> ReplyKeyboardMarkup:
             text=_t(
                 lang,
                 "btn_data_privacy",
-                {"ru": "🔐 Данные и приватность", "uk": "🔐 Дані та приватність", "en": "🔐 Data & Privacy"},
+                {
+                    "ru": "🔐 Данные и приватность",
+                    "uk": "🔐 Дані та приватність",
+                    "en": "🔐 Data & Privacy",
+                },
             )
         )
     ]
@@ -447,6 +493,7 @@ def get_settings_menu_kb(lang: str) -> ReplyKeyboardMarkup:
 # -------------------------------------------------------------------
 # Нормализация текстов кнопок
 # -------------------------------------------------------------------
+
 
 def _norm(s: str) -> str:
     return " ".join((s or "").strip().lower().replace("ё", "е").split())
@@ -473,21 +520,67 @@ def _norm_btn(s: str) -> str:
 # root
 ROOT_JOURNAL_TXT = {_norm_btn(x) for x in ("📓 журнал", "журнал", "📓 journal", "journal")}
 ROOT_REMINDERS_TXT = {_norm_btn(x) for x in ("⏰ напоминания", "напоминания", "⏰ reminders", "reminders")}
-ROOT_CALORIES_TXT = {_norm_btn(x) for x in ("🔥 калории", "калории", "🔥 калорії", "калорії", "🔥 calories", "calories")}
+ROOT_CALORIES_TXT = {
+    _norm_btn(x)
+    for x in (
+        "🔥 калории",
+        "калории",
+        "🔥 калорії",
+        "калорії",
+        "🔥 calories",
+        "calories",
+    )
+}
 ROOT_STATS_TXT = {_norm_btn(x) for x in ("📊 статистика", "статистика", "📊 stats", "stats")}
-ROOT_ASSISTANT_TXT = {_norm_btn(x) for x in ("🤖 помощник", "помощник", "🤖 помічник", "помічник", "🤖 assistant", "assistant")}
+ROOT_ASSISTANT_TXT = {
+    _norm_btn(x)
+    for x in (
+        "🤖 помощник",
+        "помощник",
+        "🤖 помічник",
+        "помічник",
+        "🤖 assistant",
+        "assistant",
+    )
+}
 ROOT_MEDIA_TXT = {_norm_btn(x) for x in ("🧘 медиа", "медиа", "🧘 медіа", "медіа", "🧘 media", "media")}
 ROOT_PREMIUM_TXT = {_norm_btn(x) for x in ("💎 премиум", "премиум", "💎 преміум", "преміум", "💎 premium", "premium")}
-ROOT_SETTINGS_TXT = {_norm_btn(x) for x in ("⚙️ настройки", "настройки", "⚙️ налаштування", "налаштування", "⚙️ settings", "settings")}
-ROOT_PROACTIVE_TXT = {_norm_btn(x) for x in ("⚡️ проактивность","проактивность","⚡️ проактивність","проактивність","⚡️ proactivity","proactivity")}
+ROOT_SETTINGS_TXT = {
+    _norm_btn(x)
+    for x in (
+        "⚙️ настройки",
+        "настройки",
+        "⚙️ налаштування",
+        "налаштування",
+        "⚙️ settings",
+        "settings",
+    )
+}
+ROOT_PROACTIVE_TXT = {
+    _norm_btn(x)
+    for x in (
+        "⚡️ проактивность",
+        "проактивность",
+        "⚡️ проактивність",
+        "проактивність",
+        "⚡️ proactivity",
+        "proactivity",
+    )
+}
 REPORT_TXT = {
     _norm_btn(x)
     for x in (
-        "🧩 баг-репорт", "баг-репорт",
-        "🧩 report a bug", "report a bug", "report bug",
-        "🛠 сообщить о баге", "сообщить о баге",
-        "🛠 сообщить об ошибке", "сообщить об ошибке",
-        "🛠 повідомити про баг", "повідомити про баг",
+        "🧩 баг-репорт",
+        "баг-репорт",
+        "🧩 report a bug",
+        "report a bug",
+        "report bug",
+        "🛠 сообщить о баге",
+        "сообщить о баге",
+        "🛠 сообщить об ошибке",
+        "сообщить об ошибке",
+        "🛠 повідомити про баг",
+        "повідомити про баг",
     )
 }
 ADMIN_TXT = {_norm_btn(x) for x in ("🛡 админ", "админ", "🛡 адмін", "адмін", "🛡 admin", "admin")}
@@ -496,41 +589,56 @@ ADMIN_TXT = {_norm_btn(x) for x in ("🛡 админ", "админ", "🛡 ад�
 HISTORY_TXT = {
     _norm_btn(x)
     for x in (
-        "🕘 история", "история",
-        "🕘 історія", "історія",
-        "🕘 history", "history",
+        "🕘 история",
+        "история",
+        "🕘 історія",
+        "історія",
+        "🕘 history",
+        "history",
     )
 }
 TODAY_TXT = {
     _norm_btn(x)
     for x in (
-        "🧾 сегодня", "сегодня",
-        "🧾 сьогодні", "сьогодні",
-        "🧾 today", "today",
+        "🧾 сегодня",
+        "сегодня",
+        "🧾 сьогодні",
+        "сьогодні",
+        "🧾 today",
+        "today",
     )
 }
 WEEK_TXT = {
     _norm_btn(x)
     for x in (
-        "📅 неделя", "неделя",
-        "📅 тиждень", "тиждень",
-        "📅 week", "week",
+        "📅 неделя",
+        "неделя",
+        "📅 тиждень",
+        "тиждень",
+        "📅 week",
+        "week",
     )
 }
 SEARCH_TXT = {
     _norm_btn(x)
     for x in (
-        "🔍 поиск", "поиск",
-        "🔍 пошук", "пошук",
-        "🔍 search", "search",
+        "🔍 поиск",
+        "поиск",
+        "🔍 пошук",
+        "пошук",
+        "🔍 search",
+        "search",
     )
 }
 RANGE_TXT = {
     _norm_btn(x)
     for x in (
-        "🗓 диапазон", "диапазон",
-        "🗓 діапазон", "діапазон",
-        "🗓 range", "range",
+        "🗓 диапазон",
+        "диапазон",
+        "🗓 діапазон",
+        "діапазон",
+        "🗓 range",
+        "range",
     )
 }
 
@@ -538,28 +646,47 @@ RANGE_TXT = {
 MEDITATION_TXT = {
     _norm_btn(x)
     for x in (
-        "🧘 медитация", "медитация",
-        "🧘 медитація", "медитація",
-        "🧘 meditation", "meditation",
+        "🧘 медитация",
+        "медитация",
+        "🧘 медитація",
+        "медитація",
+        "🧘 meditation",
+        "meditation",
     )
 }
 MUSIC_TXT = {
     _norm_btn(x)
     for x in (
-        "🎵 музыка", "музыка",
-        "🎵 музика", "музика",
-        "🎵 music", "music",
+        "🎵 музыка",
+        "музыка",
+        "🎵 музика",
+        "музика",
+        "🎵 music",
+        "music",
     )
 }
 
 # premium submenu
-PREMIUM_INFO_TXT = {_norm_btn(x) for x in ("💎 о премиуме", "о премиуме", "💎 про преміум", "про преміум", "💎 about premium", "about premium")}
+PREMIUM_INFO_TXT = {
+    _norm_btn(x)
+    for x in (
+        "💎 о премиуме",
+        "о премиуме",
+        "💎 про преміум",
+        "про преміум",
+        "💎 about premium",
+        "about premium",
+    )
+}
 PREMIUM_CARD_TXT = {
     _norm_btn(x)
     for x in (
-        "💳 оплатить картой", "оплатить картой",
-        "💳 оплатити карткою", "оплатити карткою",
-        "💳 pay by card", "pay by card",
+        "💳 оплатить картой",
+        "оплатить картой",
+        "💳 оплатити карткою",
+        "оплатити карткою",
+        "💳 pay by card",
+        "pay by card",
     )
 }
 PREMIUM_STARS_TXT = {
@@ -578,26 +705,36 @@ PREMIUM_STARS_TXT = {
 LANGUAGE_TXT = {
     _norm_btn(x)
     for x in (
-        "🌐 язык", "язык",
-        "🌐 мова", "мова",
-        "🌐 language", "language",
+        "🌐 язык",
+        "язык",
+        "🌐 мова",
+        "мова",
+        "🌐 language",
+        "language",
     )
 }
 PRIVACY_TXT = {
     _norm_btn(x)
     for x in (
-        "🔒 политика", "политика",
-        "🔒 політика", "політика",
-        "🔒 privacy", "privacy",
+        "🔒 политика",
+        "политика",
+        "🔒 політика",
+        "політика",
+        "🔒 privacy",
+        "privacy",
     )
 }
 
 DATA_PRIVACY_TXT = {
     _norm_btn(x)
     for x in (
-        "🔐 данные и приватность", "данные и приватность",
-        "🔐 дані та приватність", "дані та приватність",
-        "🔐 data & privacy", "data & privacy", "data privacy",
+        "🔐 данные и приватность",
+        "данные и приватность",
+        "🔐 дані та приватність",
+        "дані та приватність",
+        "🔐 data & privacy",
+        "data & privacy",
+        "data privacy",
     )
 }
 
@@ -605,6 +742,7 @@ BACK_TXT = {_norm_btn(x) for x in ("⬅️ назад", "назад", "⬅️ ba
 
 
 # ---------------- root matchers ----------------
+
 
 def is_root_journal_btn(text: str) -> bool:
     return _norm_btn(text) in ROOT_JOURNAL_TXT
@@ -655,16 +793,24 @@ def is_admin_btn(text: str) -> bool:
 ADD_TXT = {
     _norm_btn(x)
     for x in (
-        "✍️ запись", "📝 запись", "➕ запись",
-        "✍️ новая запись", "📝 новая запись",
-        "✍️ запис", "📝 запис", "➕ запис",          # uk
-        "✍️ entry", "📝 entry", "➕ entry",          # en
+        "✍️ запись",
+        "📝 запись",
+        "➕ запись",
+        "✍️ новая запись",
+        "📝 новая запись",
+        "✍️ запис",
+        "📝 запис",
+        "➕ запис",  # uk
+        "✍️ entry",
+        "📝 entry",
+        "➕ entry",  # en
         "new entry",
     )
 }
 
 
 # -------------- journal submenu matchers --------------
+
 
 def is_journal_add_btn(text: str) -> bool:
     return _norm_btn(text) in ADD_TXT
@@ -692,6 +838,7 @@ def is_journal_range_btn(text: str) -> bool:
 
 # -------------- media submenu matchers --------------
 
+
 def is_meditation_btn(text: str) -> bool:
     return _norm_btn(text) in MEDITATION_TXT
 
@@ -701,6 +848,7 @@ def is_music_btn(text: str) -> bool:
 
 
 # -------------- premium submenu matchers --------------
+
 
 def is_premium_info_btn(text: str) -> bool:
     return _norm_btn(text) in PREMIUM_INFO_TXT
@@ -716,6 +864,7 @@ def is_premium_stars_btn(text: str) -> bool:
 
 # -------------- settings submenu matchers --------------
 
+
 def is_language_btn(text: str) -> bool:
     return _norm_btn(text) in LANGUAGE_TXT
 
@@ -723,9 +872,9 @@ def is_language_btn(text: str) -> bool:
 def is_privacy_btn(text: str) -> bool:
     return _norm_btn(text) in PRIVACY_TXT
 
+
 def is_data_privacy_btn(text: str) -> bool:
     return _norm_btn(text) in DATA_PRIVACY_TXT
-
 
 
 def is_policy_btn(text: str) -> bool:
@@ -808,6 +957,7 @@ def is_media_btn(text: str) -> bool:
 
 # -------------- shared --------------
 
+
 def is_back_btn(text: str) -> bool:
     return _norm_btn(text) in BACK_TXT
 
@@ -827,13 +977,11 @@ __all__ = [
     # root kb
     "get_main_kb",
     "main_menu_kb",
-
     # submenus
     "get_journal_menu_kb",
     "get_media_menu_kb",
     "get_premium_menu_kb",
     "get_settings_menu_kb",
-
     # root matchers
     "is_root_journal_btn",
     "is_root_reminders_btn",
@@ -847,7 +995,6 @@ __all__ = [
     "is_report_bug_btn",
     "is_report_btn",
     "is_admin_btn",
-
     # legacy root aliases
     "is_stats_btn",
     "is_reminders_btn",
@@ -856,7 +1003,6 @@ __all__ = [
     "is_settings_btn",
     "is_assistant_btn",
     "is_media_btn",
-
     # journal submenu
     "is_journal_add_btn",
     "is_journal_today_btn",
@@ -864,7 +1010,6 @@ __all__ = [
     "is_journal_history_btn",
     "is_journal_search_btn",
     "is_journal_range_btn",
-
     # legacy journal aliases
     "is_journal_btn",
     "is_today_btn",
@@ -872,21 +1017,17 @@ __all__ = [
     "is_history_btn",
     "is_search_btn",
     "is_range_btn",
-
     # media submenu
     "is_meditation_btn",
     "is_music_btn",
-
     # premium submenu
     "is_premium_info_btn",
     "is_premium_card_btn",
     "is_premium_stars_btn",
-
     # settings submenu
     "is_language_btn",
     "is_privacy_btn",
     "is_policy_btn",
-
     # shared
     "is_back_btn",
     "PRIVACY_LABELS",

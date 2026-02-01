@@ -37,11 +37,13 @@ _SHOP_KW = re.compile(
 
 _YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
+
 @dataclass(frozen=True)
 class IntentResult:
     intent: Intent
     confidence: float
     reason: str
+
 
 def detect_intent(text: Optional[str], *, has_media: bool) -> IntentResult:
     if has_media:

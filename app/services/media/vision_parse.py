@@ -1,13 +1,52 @@
 from __future__ import annotations
 
-from app.services.media.query import (
-    _tmdb_sanitize_query, _normalize_tmdb_query, _good_tmdb_cand, GENERIC_TITLE_WORDS
-)
-
 # app/services/assistant.py
 import json
 import re
 from typing import Any, Optional
+
+from app.services.media.query import (
+    GENERIC_TITLE_WORDS,
+    _good_tmdb_cand,
+    _normalize_tmdb_query,
+    _tmdb_sanitize_query,
+)
+
+# --- compat exports for assistant.py (old imports) ---
+try:
+    from app.services.media_text import (
+        is_generic_media_caption as _is_generic_media_caption,
+    )  # type: ignore
+except Exception:  # pragma: no cover
+
+    def _is_generic_media_caption(text: str) -> bool:  # type: ignore
+        t = (text or "").strip().lower()
+        return t in {
+            "откуда кадр",
+            "откуда кадр?",
+            "что за фильм",
+            "что за фильм?",
+            "как называется",
+            "как называется?",
+        }
+
+
+# --- compat exports for assistant.py ---
+try:
+    from app.services.media.lens import _lens_bad_candidate  # type: ignore
+except Exception:  # pragma: no cover
+
+    def _lens_bad_candidate(x: str) -> bool:  # type: ignore
+        return False
+
+
+# --- compat exports for assistant.py ---
+try:
+    from app.services.media.lens import _pick_best_lens_candidates  # type: ignore
+except Exception:  # pragma: no cover
+
+    def _pick_best_lens_candidates(cands: list[str], limit: int = 12) -> list[str]:  # type: ignore
+        return (cands or [])[:limit]
 
 
 def _extract_title_like_from_model_text(text: str) -> str:
@@ -40,12 +79,14 @@ def _extract_title_like_from_model_text(text: str) -> str:
 
     return ""
 
+
 def _extract_search_query_from_text(s: str) -> str:
     s = s or ""
     m = re.search(r"(?im)^\s*SEARCH_QUERY:\s*(.*)\s*$", s)
     if m:
         return (m.group(1) or "").strip()
     return ""
+
 
 def _extract_media_json_from_model_text(text: str) -> Optional[dict]:
     """
@@ -106,6 +147,7 @@ def _extract_media_json_from_model_text(text: str) -> Optional[dict]:
             return None
 
     return None
+
 
 def _build_tmdb_queries_from_media_json(mj: Optional[dict]) -> list[str]:
     """

@@ -1,13 +1,16 @@
+import re
 
 from aiogram.filters import BaseFilter
 from aiogram.types import Message
-import re
+
 from app.i18n import t
 
-_rx = re.compile(r'[^a-zA-Zа-яА-ЯёЁіІїЇєЄґҐ0-9]+', re.U)
+_rx = re.compile(r"[^a-zA-Zа-яА-ЯёЁіІїЇєЄґҐ0-9]+", re.U)
+
 
 def _norm(x: str) -> str:
-    return _rx.sub('', (x or '').strip().lower())
+    return _rx.sub("", (x or "").strip().lower())
+
 
 class Btn(BaseFilter):
     def __init__(self, key: str):
@@ -23,7 +26,7 @@ class Btn(BaseFilter):
             _norm(t(self.key, "en")),
         }
         if self.key in {"btn_premium", "menu_premium"}:
-            variants |= {"premium","премиум","преміум"}
+            variants |= {"premium", "премиум", "преміум"}
             if (message.text or "").lstrip().startswith("/premium"):
                 return True
         return txt in variants

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional, Any, Dict, Set, Mapping
+from typing import Any, Dict, Mapping, Optional, FrozenSet
 
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -12,6 +12,7 @@ from app.models.user import User
 try:
     from app.services.analytics_v2 import log_event_v2
 except Exception:  # pragma: no cover
+
     async def log_event_v2(*_a: Any, **_k: Any):
         return None
 
@@ -20,6 +21,7 @@ except Exception:  # pragma: no cover
 try:
     from app.services.subscriptions import sync_user_premium_flags
 except Exception:  # pragma: no cover
+
     async def sync_user_premium_flags(*_a: Any, **_k: Any):
         return None
 
@@ -33,34 +35,35 @@ except Exception:  # pragma: no cover
 # 3) has_feature() проверяет только канон.
 # ---------------------------------------------------------------------
 
-BASIC_FEATURES: Set[str] = frozenset({
-    "journal_basic",
-    "remind_basic",
-    "calories_text",
-    "music_basic",
-    "meditations_basic",
-})
+BASIC_FEATURES: FrozenSet[str] = frozenset(
+    {
+        "journal_basic",
+        "remind_basic",
+        "calories_text",
+        "music_basic",
+        "meditations_basic",
+    }
+)
 
-PREMIUM_FEATURES: Set[str] = frozenset({
-    # reminders / meditations / stats / helper
-    "premium_reminders",
-    "premium_meditations",
-    "premium_playlists",
-    "premium_stats",
-    "premium_helper",
-
-    # journal premium (канон)
-    "journal_search",
-    "journal_range",
-    "journal_history_extended",
-
-    # calories photo (канон)
-    "calories_photo",
-
-    # служебные/админские
-    "admin_panel",
-    "analytics_dashboard",
-})
+PREMIUM_FEATURES: FrozenSet[str] = frozenset(
+    {
+        # reminders / meditations / stats / helper
+        "premium_reminders",
+        "premium_meditations",
+        "premium_playlists",
+        "premium_stats",
+        "premium_helper",
+        # journal premium (канон)
+        "journal_search",
+        "journal_range",
+        "journal_history_extended",
+        # calories photo (канон)
+        "calories_photo",
+        # служебные/админские
+        "admin_panel",
+        "analytics_dashboard",
+    }
+)
 
 # Все старые и альтернативные ключи
 FEATURE_ALIASES: Mapping[str, str] = {
@@ -68,14 +71,11 @@ FEATURE_ALIASES: Mapping[str, str] = {
     "premium_journal_search": "journal_search",
     "premium_journal_range": "journal_range",
     "premium_journal_history_extended": "journal_history_extended",
-
     # stats: стягиваем всё в один канон premium_stats
     "journal_stats": "premium_stats",
     "premium_journal_stats": "premium_stats",
-
     # calories
     "premium_calories_photo": "calories_photo",
-
     # на случай старых названий/экспериментов
     "premium_history_extended": "journal_history_extended",
 }
@@ -87,6 +87,7 @@ CB_OPEN_PREMIUM = "open_premium"
 # ---------------------------------------------------------------------
 # I18N
 # ---------------------------------------------------------------------
+
 
 def _normalize_lang(code: Optional[str]) -> str:
     s = (code or "ru").strip().lower()
@@ -100,8 +101,8 @@ def _normalize_lang(code: Optional[str]) -> str:
 
 
 def _tr(lang: str, ru: str, uk: str, en: str) -> str:
-    l = _normalize_lang(lang)
-    return uk if l == "uk" else en if l == "en" else ru
+    loc = _normalize_lang(lang)
+    return uk if loc == "uk" else en if loc == "en" else ru
 
 
 def _premium_btn_text(lang: str) -> str:
@@ -111,15 +112,14 @@ def _premium_btn_text(lang: str) -> str:
 def _detect_lang(user: Optional[User], m: Optional[Message] = None) -> str:
     tg_lang = getattr(getattr(m, "from_user", None), "language_code", None) if m else None
     return _normalize_lang(
-        (getattr(user, "locale", None) if user else None)
-        or (getattr(user, "lang", None) if user else None)
-        or tg_lang
+        (getattr(user, "locale", None) if user else None) or (getattr(user, "lang", None) if user else None) or tg_lang
     )
 
 
 # ---------------------------------------------------------------------
 # CORE
 # ---------------------------------------------------------------------
+
 
 def resolve_feature(feature: str) -> str:
     key = (feature or "").strip()
@@ -202,12 +202,14 @@ async def require_feature_v2(
     # если user отсутствует — мягкий выход
     if user is None:
         lang_code = _detect_lang(None, m)
-        await m.answer(_tr(
-            lang_code,
-            "Нажми /start, чтобы активировать профиль.",
-            "Натисни /start, щоб активувати профіль.",
-            "Press /start to initialize your profile.",
-        ))
+        await m.answer(
+            _tr(
+                lang_code,
+                "Нажми /start, чтобы активировать профиль.",
+                "Натисни /start, щоб активувати профіль.",
+                "Press /start to initialize your profile.",
+            )
+        )
         return False
 
     # синк премиума, чтобы "только оплатил" сразу открыло доступ
@@ -266,7 +268,7 @@ async def require_feature_v2(
         ]
     )
 
-        # аналитика фейла (если включена)
+    # аналитика фейла (если включена)
     try:
         if getattr(user, "id", None):
             event_name = event_on_fail or "feature_locked"

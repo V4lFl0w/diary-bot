@@ -10,14 +10,16 @@ TRACE_ENABLED = os.getenv("TRACE_ASSISTANT", "0") == "1"
 trace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="")
 trace_src_var: contextvars.ContextVar[str] = contextvars.ContextVar("trace_src", default="")
 
+
 def _mk_trace_id(update: Any) -> str:
     try:
         uid = getattr(update, "update_id", None)
         if uid is not None:
-            return f"u{uid}-{int(time.time()*1000)%100000}"
+            return f"u{uid}-{int(time.time() * 1000) % 100000}"
     except Exception:
         pass
-    return f"t{int(time.time()*1000)}"
+    return f"t{int(time.time() * 1000)}"
+
 
 def tlog(logger, stage: str, **kv):
     if not TRACE_ENABLED:
@@ -29,6 +31,7 @@ def tlog(logger, stage: str, **kv):
     except Exception:
         pass
 
+
 class TraceUpdateMiddleware:
     """Логирует жизненный цикл update:
     - вход
@@ -36,10 +39,13 @@ class TraceUpdateMiddleware:
     - ошибки
     - плюс выставляет trace_id в contextvars
     """
+
     def __init__(self, logger):
         self.logger = logger
 
-    async def __call__(self, handler: Callable[[Any, Dict[str, Any]], Awaitable[Any]], event: Any, data: Dict[str, Any]) -> Any:
+    async def __call__(
+        self, handler: Callable[[Any, Dict[str, Any]], Awaitable[Any]], event: Any, data: Dict[str, Any]
+    ) -> Any:
         if not TRACE_ENABLED:
             return await handler(event, data)
 

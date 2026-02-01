@@ -5,6 +5,7 @@ import logging
 
 log = logging.getLogger("media")
 
+
 def _d(event: str, **kw) -> None:
     """Structured debug logger for media/vision pipeline."""
     safe = {}

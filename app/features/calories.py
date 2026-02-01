@@ -2,49 +2,58 @@ from __future__ import annotations
 
 import os
 import re
-
-_COUNT_PIECES_RE = re.compile(r"(\d+)\s*(?:шт\.?|штук|pcs|piece)?\s*([а-яёa-z\-\s]+)", re.I)
-
-def _try_piece_guess(text: str) -> tuple[str, float] | None:
-    # '5 вареников' -> ('вареники', 250)
-    m = _COUNT_PIECES_RE.search((text or '').strip().lower())
-    if not m:
-        return None
-    n = int(m.group(1))
-    name = m.group(2).strip()
-    defaults = {
-        'вареник': 50.0,
-        'пельмен': 12.0,
-        'котлет': 100.0,
-        'сосиск': 50.0,
-        'яйц': 50.0,
-        'яблок': 150.0,
-    }
-    for k, g in defaults.items():
-        if k in name:
-            return (k, n * g)
-    # поддержка словоформ:
-    if "вареник" in name or "вареник" in name or "вареник"[:6] in name or "вареник" in name or "вареник" in name:
-        return ("вареник", n * 50.0)
-    if "пельмен" in name:
-        return ("пельмен", n * 12.0)
-    return None
-
 import base64
 import json
-from typing import Dict, Optional, Any
 from io import BytesIO
-from PIL import Image, ImageDraw, ImageFont
+from typing import Any, Dict, Optional
 
 import httpx
+from PIL import Image, ImageDraw, ImageFont
+
 from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import InlineKeyboardMarkup, BufferedInputFile
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+_COUNT_PIECES_RE = re.compile(
+    r"\b(\d+)\s*(?:шт\.?|штук|pcs|pieces?|piece)?\b\s*([а-яёa-z][а-яёa-z\-\s]{0,40})",
+    re.I,
+)
+
+
+def _try_piece_guess(text: str) -> tuple[str, float] | None:
+    """
+    Возвращает: (ключ_для_FALLBACK, граммы)
+    Пример: "5 вареников" -> ("вареник", 250.0)
+    """
+    m = _COUNT_PIECES_RE.search((text or "").strip().lower())
+    if not m:
+        return None
+
+    n = int(m.group(1))
+    name = (m.group(2) or "").strip()
+
+    # ключ -> грамм за 1 шт
+    defaults: dict[str, float] = {
+        "вареник": 50.0,
+        "пельмен": 12.0,
+        "котлет": 100.0,
+        "сосиск": 50.0,
+        "яйц": 50.0,
+        "яблок": 150.0,
+    }
+
+    # нормализация словоформ через "вхождение корня"
+    for k, g_per_piece in defaults.items():
+        if k in name:
+            return (k, n * g_per_piece)
+
+    return None
+
 
 from app.i18n import t
 from app.keyboards import (
@@ -66,8 +75,10 @@ from app.keyboards import (
 try:
     from app.handlers.admin import is_admin_tg
 except Exception:
-    def is_admin_tg(_: int) -> bool:
+
+    def is_admin_tg(tg_id: int, /) -> bool:
         return False
+
 
 from app.models.user import User
 
@@ -86,12 +97,14 @@ SUPPORTED_LANGS = {"ru", "uk", "en"}
 
 # -------------------- FSM --------------------
 
+
 class CaloriesFSM(StatesGroup):
     waiting_input = State()
     waiting_photo = State()
 
 
 # -------------------- i18n helpers --------------------
+
 
 def _normalize_lang(code: Optional[str]) -> str:
     c = (code or "ru").strip().lower()
@@ -107,8 +120,8 @@ def _normalize_lang(code: Optional[str]) -> str:
 
 
 def _tr(lang: str, ru: str, uk: str, en: str) -> str:
-    l = _normalize_lang(lang)
-    return uk if l == "uk" else en if l == "en" else ru
+    lang_norm = _normalize_lang(lang)
+    return uk if lang_norm == "uk" else en if lang_norm == "en" else ru
 
 
 def _cal_hook_inline_kb(lang_code: str) -> InlineKeyboardMarkup:
@@ -118,7 +131,12 @@ def _cal_hook_inline_kb(lang_code: str) -> InlineKeyboardMarkup:
         callback_data="cal:enter",
     )
     kb.button(
-        text=_tr(lang_code, "📸 Отправить фото (Premium)", "📸 Надіслати фото (Premium)", "📸 Send photo (Premium)"),
+        text=_tr(
+            lang_code,
+            "📸 Отправить фото (Premium)",
+            "📸 Надіслати фото (Premium)",
+            "📸 Send photo (Premium)",
+        ),
         callback_data="cal:photo",
     )
     kb.adjust(1, 1)
@@ -130,13 +148,7 @@ async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
 
 
 def _user_lang(user: Optional[User], fallback: Optional[str], tg_lang: Optional[str] = None) -> str:
-    return _normalize_lang(
-        getattr(user, "locale", None)
-        or getattr(user, "lang", None)
-        or fallback
-        or tg_lang
-        or "ru"
-    )
+    return _normalize_lang(getattr(user, "locale", None) or getattr(user, "lang", None) or fallback or tg_lang or "ru")
 
 
 def _format_cal_total(lang_code: str, res: Dict[str, float]) -> str:
@@ -163,7 +175,14 @@ def _is_water_only(text: str) -> bool:
 
 def _zero_ok_result(conf: float = 0.95) -> Dict[str, float]:
     # спец-флаг, чтобы 0 ккал не считалось ошибкой в хэндлерах
-    return {"kcal": 0.0, "p": 0.0, "f": 0.0, "c": 0.0, "confidence": conf, "zero_ok": 1.0}
+    return {
+        "kcal": 0.0,
+        "p": 0.0,
+        "f": 0.0,
+        "c": 0.0,
+        "confidence": conf,
+        "zero_ok": 1.0,
+    }
 
 
 def _kcal_is_invalid(res: Optional[Dict[str, float]]) -> bool:
@@ -173,7 +192,8 @@ def _kcal_is_invalid(res: Optional[Dict[str, float]]) -> bool:
     zero_ok = bool(res.get("zero_ok"))
     return (kcal <= 0) and (not zero_ok)
 
-def _format_photo_details(lang_code: str, res: Dict[str, float]) -> str:
+
+def _format_photo_details(lang_code: str, res: Dict[str, Any]) -> str:
     """
     Доп-детали только для фото-анализа:
     title / ingredients / portion / assumptions
@@ -202,13 +222,34 @@ def _format_photo_details(lang_code: str, res: Dict[str, float]) -> str:
         parts.append(_tr(lang_code, f"Блюдо: {title}", f"Страва: {title}", f"Dish: {title}"))
     if ingredients_list:
         joined = ", ".join(ingredients_list[:12])
-        parts.append(_tr(lang_code, f"Состав: {joined}", f"Склад: {joined}", f"Ingredients: {joined}"))
+        parts.append(
+            _tr(
+                lang_code,
+                f"Состав: {joined}",
+                f"Склад: {joined}",
+                f"Ingredients: {joined}",
+            )
+        )
     if portion:
-        parts.append(_tr(lang_code, f"Порция: {portion}", f"Порція: {portion}", f"Portion: {portion}"))
+        parts.append(
+            _tr(
+                lang_code,
+                f"Порция: {portion}",
+                f"Порція: {portion}",
+                f"Portion: {portion}",
+            )
+        )
     if assumptions_list:
         # 1-2 пункта максимум, чтобы карточку не ломать
         joined = "; ".join(assumptions_list[:2])
-        parts.append(_tr(lang_code, f"Допущения: {joined}", f"Припущення: {joined}", f"Assumptions: {joined}"))
+        parts.append(
+            _tr(
+                lang_code,
+                f"Допущения: {joined}",
+                f"Припущення: {joined}",
+                f"Assumptions: {joined}",
+            )
+        )
 
     return "\n".join(parts).strip()
 
@@ -218,14 +259,11 @@ def _format_photo_details(lang_code: str, res: Dict[str, float]) -> str:
 FALLBACK: Dict[str, Dict[str, float]] = {
     "молок": dict(kcal=60, p=3.2, f=3.2, c=4.7),
     "milk": dict(kcal=60, p=3.2, f=3.2, c=4.7),
-
     "банан": dict(kcal=89, p=1.1, f=0.3, c=23.0),
     "banana": dict(kcal=89, p=1.1, f=0.3, c=23.0),
-
     # --- extended basics (autopatch) ---  # COLA_EXTENDED_MARKER
     "яблок": dict(kcal=52, p=0.3, f=0.2, c=14.0),
     "apple": dict(kcal=52, p=0.3, f=0.2, c=14.0),
-
     # напитки (на 100 мл)
     "вода": dict(kcal=0, p=0.0, f=0.0, c=0.0),
     "water": dict(kcal=0, p=0.0, f=0.0, c=0.0),
@@ -233,75 +271,55 @@ FALLBACK: Dict[str, Dict[str, float]] = {
     "coke": dict(kcal=42, p=0.0, f=0.0, c=10.6),
     "coca": dict(kcal=42, p=0.0, f=0.0, c=10.6),
     "pepsi": dict(kcal=43, p=0.0, f=0.0, c=10.9),
-
     "сок": dict(kcal=46, p=0.2, f=0.1, c=11.0),
     "juice": dict(kcal=46, p=0.2, f=0.1, c=11.0),
-
     "чай": dict(kcal=1, p=0.0, f=0.0, c=0.2),
     "tea": dict(kcal=1, p=0.0, f=0.0, c=0.2),
     "кофе": dict(kcal=2, p=0.3, f=0.0, c=0.0),
     "coffee": dict(kcal=2, p=0.3, f=0.0, c=0.0),
-
     # крупы/гарниры (ГОТОВЫЕ, на 100 г)
     "рис": dict(kcal=130, p=2.7, f=0.3, c=28.0),
     "rice": dict(kcal=130, p=2.7, f=0.3, c=28.0),
-
     "овсянк": dict(kcal=68, p=2.4, f=1.4, c=12.0),
     "oat": dict(kcal=68, p=2.4, f=1.4, c=12.0),
-
     "пшеничн": dict(kcal=98, p=3.2, f=1.1, c=20.0),  # пшеничная каша
     "wheat": dict(kcal=98, p=3.2, f=1.1, c=20.0),
-
     "макарон": dict(kcal=131, p=5.0, f=1.1, c=25.0),
     "pasta": dict(kcal=131, p=5.0, f=1.1, c=25.0),
-
     "картоф": dict(kcal=80, p=2.0, f=0.1, c=17.0),
     "пюре": dict(kcal=110, p=2.2, f=4.0, c=16.0),
-
     # мясо/готовое
     "котлет": dict(kcal=240, p=16.0, f=18.0, c=6.0),  # усреднённо
     "cutlet": dict(kcal=240, p=16.0, f=18.0, c=6.0),
-
     "грудинк": dict(kcal=330, p=15.0, f=30.0, c=0.0),  # свиная грудка/грудинка
     "porkbelly": dict(kcal=330, p=15.0, f=30.0, c=0.0),
-
     # кото-корм (сухой, усреднённо)
     "корм": dict(kcal=360, p=30.0, f=12.0, c=30.0),
     "catfood": dict(kcal=360, p=30.0, f=12.0, c=30.0),
-
     "арахис": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "арахіс": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "peanut": dict(kcal=567, p=26.0, f=49.0, c=16.0),
-
     # гречка: по умолчанию ГОТОВАЯ
     "гречк": dict(kcal=110, p=3.6, f=1.3, c=21.3),
     "buckwheat": dict(kcal=110, p=3.6, f=1.3, c=21.3),
-
     # гречка сухая (только если явно указано "сух"/"крупа")
     "гречк_сух": dict(kcal=343, p=13.3, f=3.4, c=71.5),
-
     # вареники/пельмени (усреднённо, на 100 г)
     "вареник": dict(kcal=210, p=6.0, f=4.0, c=38.0),
     "пельмен": dict(kcal=260, p=11.0, f=14.0, c=22.0),
-
     "яйц": dict(kcal=143, p=13.0, f=10.0, c=1.1),
     "egg": dict(kcal=143, p=13.0, f=10.0, c=1.1),
-
     "хлеб": dict(kcal=250, p=9.0, f=3.0, c=49.0),
     "хліб": dict(kcal=250, p=9.0, f=3.0, c=49.0),
     "bread": dict(kcal=250, p=9.0, f=3.0, c=49.0),
-
     "сыр": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "сир": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "cheese": dict(kcal=350, p=26.0, f=27.0, c=3.0),
-
     "сосиск": dict(kcal=300, p=12.0, f=27.0, c=2.0),
     "sausage": dict(kcal=300, p=12.0, f=27.0, c=2.0),
-
     "куриц": dict(kcal=190, p=29.0, f=7.0, c=0.0),
     "курк": dict(kcal=190, p=29.0, f=7.0, c=0.0),
     "chicken": dict(kcal=190, p=29.0, f=7.0, c=0.0),
-
     "свинин": dict(kcal=260, p=26.0, f=18.0, c=0.0),
     "шашлык": dict(kcal=250, p=22.0, f=18.0, c=0.0),
     "мяс": dict(kcal=230, p=23.0, f=15.0, c=0.0),
@@ -309,31 +327,53 @@ FALLBACK: Dict[str, Dict[str, float]] = {
 
 PIECE_GRAMS: Dict[str, int] = {
     # --- extended pieces (autopatch) ---  # PIECE_EXTENDED_MARKER
-    "яблок": 150, "apple": 150,
-    "котлет": 100, "cutlet": 100,
+    "яблок": 150,
+    "apple": 150,
+    "котлет": 100,
+    "cutlet": 100,
     # стакан/чашка/кружка (очень грубо)
     "стакан": 250,
     "чашк": 250,
     "кружк": 300,
-    "яйц": 50, "egg": 50,
-    "банан": 120, "banana": 120,
-    "хлеб": 30, "хліб": 30, "bread": 30,
-    "сыр": 30, "сир": 30, "cheese": 30,
-    "сосиск": 50, "sausage": 50,
-    "куриц": 80, "курк": 80, "chicken": 80,
-
+    "яйц": 50,
+    "egg": 50,
+    "банан": 120,
+    "banana": 120,
+    "хлеб": 30,
+    "хліб": 30,
+    "bread": 30,
+    "сыр": 30,
+    "сир": 30,
+    "cheese": 30,
+    "сосиск": 50,
+    "sausage": 50,
+    "куриц": 80,
+    "курк": 80,
+    "chicken": 80,
     "вареник": 50,
     "пельмен": 12,
 }
 
 
 REV_DRINK_KEYS = {
-    "вода","water","кола","coke","coca","pepsi",
-    "сок","juice","чай","tea","кофе","coffee",
-    "молок","milk",
+    "вода",
+    "water",
+    "кола",
+    "coke",
+    "coca",
+    "pepsi",
+    "сок",
+    "juice",
+    "чай",
+    "tea",
+    "кофе",
+    "coffee",
+    "молок",
+    "milk",
 }
 
 CAL_KEYS = list(FALLBACK.keys())
+
 
 def _strip_cmd_prefix(text: str) -> str:
     s = (text or "").strip()
@@ -379,7 +419,6 @@ def _looks_like_food(text: Optional[str]) -> bool:
     return any(k in low for k in CAL_KEYS)
 
 
-
 def _add_confidence(out: str, conf: float | None, lang_code: str = "ru") -> str:
     try:
         c = float(conf or 0)
@@ -389,11 +428,17 @@ def _add_confidence(out: str, conf: float | None, lang_code: str = "ru") -> str:
         return out
 
     pct = int(round(c * 100))
-    out += f"\nУверенность: {pct}%"
-    if c < 0.65:
-        out += "\n⚠️ Если уточнишь граммовку/порцию — пересчитаю точнее."
-    return out
+    title = _tr(lang_code, "Уверенность", "Впевненість", "Confidence")
+    out += f"\n{title}: {pct}%"
 
+    if c < 0.65:
+        out += "\n" + _tr(
+            lang_code,
+            "⚠️ Если уточнишь граммовку/порцию — пересчитаю точнее.",
+            "⚠️ Якщо уточниш грамівку/порцію — перерахую точніше.",
+            "⚠️ If you clarify grams/portion — I’ll recalc more accurately.",
+        )
+    return out
 
 
 def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_w: int):
@@ -416,6 +461,7 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
             lines.append(cur)
     return lines
 
+
 def render_text_card(text: str) -> bytes:
     W, H = 1080, 620
     PAD = 54
@@ -423,7 +469,7 @@ def render_text_card(text: str) -> bytes:
     draw = ImageDraw.Draw(bg)
 
     font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52)
-    font_body  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+    font_body = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
 
     draw.text((PAD, 40), "Калории", font=font_title, fill=(255, 255, 255))
 
@@ -437,6 +483,7 @@ def render_text_card(text: str) -> bytes:
     buf = BytesIO()
     bg.save(buf, format="JPEG", quality=92, optimize=True)
     return buf.getvalue()
+
 
 def render_result_card(photo_bytes: bytes, text: str) -> bytes:
     W = 1080
@@ -455,11 +502,11 @@ def render_result_card(photo_bytes: bytes, text: str) -> bytes:
     draw.rectangle([0, new_h, W, new_h + PANEL_H], fill=(15, 18, 22))
 
     font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48)
-    font_body  = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+    font_body = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
 
     draw.text((PAD, new_h + 28), "Расчёт калорий", font=font_title, fill=(255, 255, 255))
 
-    max_w = W - PAD*2
+    max_w = W - PAD * 2
     lines = _wrap_text(draw, text, font_body, max_w)
     y = new_h + 28 + 72
     for ln in lines[:12]:
@@ -472,6 +519,7 @@ def render_result_card(photo_bytes: bytes, text: str) -> bytes:
 
 
 # -------------------- analyze text --------------------
+
 
 async def analyze_text(text: str) -> Dict[str, float]:
     """
@@ -519,8 +567,6 @@ async def analyze_text(text: str) -> Dict[str, float]:
     # "cola" -> "coke" (у тебя есть coke/coca/pepsi/кола)
     low = re.sub(r"\bcola\b", "coke", low)
 
-    
-
     # --- normalize RU cola declensions: колы/колу/колой -> кола
     low = re.sub(r"\bкол(?:а|ы|у|е|ой|ою)\b", "кола", low)
     is_dry_buckwheat = False
@@ -543,7 +589,7 @@ async def analyze_text(text: str) -> Dict[str, float]:
                 "c": round(meta["c"] * 0.60, 1),
                 "confidence": 0.45,
             }
-    
+
     if piece_hint and not re.search(r"\d+\s*(г|гр|g|мл|ml)\b", low):
         k, g = piece_hint
         if k in FALLBACK:
@@ -569,7 +615,6 @@ async def analyze_text(text: str) -> Dict[str, float]:
     num = r"(\d+(?:[.,]\d+)?)"
     unit_re = r"(г|g|гр|ml|мл|л|l)"
 
-
     for name, meta in FALLBACK.items():
         if is_dry_buckwheat and name == "гречк":
             continue
@@ -594,18 +639,19 @@ async def analyze_text(text: str) -> Dict[str, float]:
             grams_info.append((float(g), meta))
 
         for m in re.finditer(pattern_rev, low):
-            qty_raw = m.group(1).replace(',', '.')
+            qty_raw = m.group(1).replace(",", ".")
             try:
                 qty = float(qty_raw)
             except ValueError:
                 continue
-            unit = (m.group(2) or '').lower()
+            unit = (m.group(2) or "").lower()
             g = qty
-            if unit in ('л', 'l'):
+            if unit in ("л", "l"):
                 g = qty * 1000.0
             grams_info.append((float(g), meta))
 
-        if name in PIECE_GRAMS and name in low and not re.search(pattern, low):
+        # не добавляем "дефолт-порцию", если уже был распознан режим "шт"
+        if (not piece_hint) and name in PIECE_GRAMS and name in low and not re.search(pattern, low):
             grams_info.append((float(PIECE_GRAMS[name]), meta))
 
     kcal = p = f = c = 0.0
@@ -634,18 +680,33 @@ async def analyze_text(text: str) -> Dict[str, float]:
         "confidence": confidence,
     }
 
+
 # -------------------- photo analyze (OpenAI Vision) --------------------
+
 
 async def _download_photo_bytes(message: types.Message) -> Optional[bytes]:
     if not message.photo:
         return None
+
     ph = message.photo[-1]
-    file = await message.bot.get_file(ph.file_id)
-    bio = await message.bot.download_file(file.file_path)
-    return bio.read()
+    try:
+        f = await message.bot.get_file(ph.file_id)
+    except Exception:
+        return None
+
+    buf = BytesIO()
+    file_path = getattr(f, "file_path", None)
+    if not isinstance(file_path, str) or not file_path:
+        return None
+    try:
+        await message.bot.download_file(file_path, destination=buf)
+    except Exception:
+        return None
+
+    return buf.getvalue()
 
 
-async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
+async def analyze_photo(message: types.Message) -> Optional[Dict[str, Any]]:
     """
     OpenAI Vision (Responses API):
     - требуются переменные окружения:
@@ -679,13 +740,15 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
 
     payload = {
         "model": model,
-        "input": [{
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": prompt},
-                {"type": "input_image", "image_url": data_url},
-            ],
-        }],
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {"type": "input_image", "image_url": data_url},
+                ],
+            }
+        ],
         "max_output_tokens": 200,
     }
 
@@ -693,7 +756,10 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
         async with httpx.AsyncClient(timeout=60.0) as client:
             r = await client.post(
                 "https://api.openai.com/v1/responses",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
                 json=payload,
             )
             r.raise_for_status()
@@ -706,7 +772,7 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
             chunks = []
             for item in out:
                 if item.get("type") == "message":
-                    for part in (item.get("content") or []):
+                    for part in item.get("content") or []:
                         if part.get("type") in ("output_text", "text"):
                             chunks.append(part.get("text", ""))
             txt = "\n".join(chunks).strip()
@@ -735,6 +801,7 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, float]]:
 
 
 # -------------------- premium gate --------------------
+
 
 async def _require_photo_premium(
     message: types.Message,
@@ -773,9 +840,15 @@ async def _require_photo_premium(
 
 # -------------------- entrypoints --------------------
 
+
 @router.message(Command("calories"))
 @router.message(Command("kcal"))
-async def cal_cmd(message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def cal_cmd(
+    message: types.Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
@@ -793,7 +866,7 @@ async def cal_cmd(message: types.Message, state: FSMContext, session: AsyncSessi
             return
         out = _format_cal_total(lang_code, res)
 
-        out = _add_confidence(out, float(res.get('confidence', 0) or 0), lang_code)
+        out = _add_confidence(out, float(res.get("confidence", 0) or 0), lang_code)
 
         card = render_text_card(out)
         await message.answer_photo(BufferedInputFile(card, filename="kcal.jpg"))
@@ -845,7 +918,12 @@ Examples:
 
 
 @router.message(F.text.func(is_calories_btn))
-async def cal_btn(message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def cal_btn(
+    message: types.Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
@@ -897,6 +975,7 @@ Examples:
 
 # -------------------- callbacks --------------------
 
+
 @router.callback_query(F.data == "cal:enter")
 async def cal_enter_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
     await state.set_state(CaloriesFSM.waiting_input)
@@ -905,12 +984,23 @@ async def cal_enter_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "cal:photo")
-async def cal_photo_cb(cb: types.CallbackQuery, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def cal_photo_cb(
+    cb: types.CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
     tg_lang = getattr(cb.from_user, "language_code", None)
     user = await _get_user(session, cb.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
-    ok = await _require_photo_premium(cb.message, session, user, lang_code, source="hook_button")
+    msg = cb.message
+    # Pyright: cb.message может быть InaccessibleMessage
+    if msg is None or not isinstance(msg, types.Message):
+        await cb.answer()
+        return
+
+    ok = await _require_photo_premium(msg, session, user, lang_code, source="hook_button")
     if not ok:
         return
 
@@ -921,8 +1011,14 @@ async def cal_photo_cb(cb: types.CallbackQuery, state: FSMContext, session: Asyn
 
 # -------------------- cancel --------------------
 
+
 @router.message(Command("cancel"))
-async def cal_cancel_global(message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def cal_cancel_global(
+    message: types.Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
@@ -940,8 +1036,14 @@ async def cal_cancel_global(message: types.Message, state: FSMContext, session: 
 
 # -------------------- MODE: waiting_input --------------------
 
+
 @router.message(CaloriesFSM.waiting_input, F.text)
-async def cal_text_in_mode(message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def cal_text_in_mode(
+    message: types.Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
     text = (message.text or "").strip()
     if not text:
         return
@@ -967,13 +1069,21 @@ async def cal_text_in_mode(message: types.Message, state: FSMContext, session: A
         return
     out = _format_cal_total(lang_code, res)
 
-    out = _add_confidence(out, float(res.get('confidence', 0) or 0), lang_code)
+    out = _add_confidence(out, float(res.get("confidence", 0) or 0), lang_code)
 
     await message.answer(out)
+
+
 # -------------------- MODE: waiting_photo --------------------
 
+
 @router.message(CaloriesFSM.waiting_photo, F.photo)
-async def cal_photo_waiting(message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def cal_photo_waiting(
+    message: types.Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
@@ -1001,7 +1111,10 @@ async def cal_photo_waiting(message: types.Message, state: FSMContext, session: 
     else:
         await message.answer(out)
     await state.set_state(CaloriesFSM.waiting_input)
+
+
 # -------------------- free text autodetect --------------------
+
 
 @router.message(F.text.func(_looks_like_food))
 async def cal_text_free_autodetect(message: types.Message, session: AsyncSession, lang: Optional[str] = None) -> None:
@@ -1025,10 +1138,13 @@ async def cal_text_free_autodetect(message: types.Message, session: AsyncSession
         return
     out = _format_cal_total(lang_code, res)
 
-    out = _add_confidence(out, float(res.get('confidence', 0) or 0), lang_code)
+    out = _add_confidence(out, float(res.get("confidence", 0) or 0), lang_code)
 
     await message.answer(out)
+
+
 # -------------------- photo with caption trigger --------------------
+
 
 @router.message(F.photo)
 async def cal_photo_caption_trigger(message: types.Message, session: AsyncSession, lang: Optional[str] = None) -> None:
@@ -1064,7 +1180,7 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
             return
         out = _format_cal_total(lang_code, res)
 
-        out = _add_confidence(out, float(res.get('confidence', 0) or 0), lang_code)
+        out = _add_confidence(out, float(res.get("confidence", 0) or 0), lang_code)
 
         await message.answer(out)
         return
@@ -1087,4 +1203,6 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
         await message.answer_photo(BufferedInputFile(card, filename="calories.jpg"))
     else:
         await message.answer(out)
+
+
 __all__ = ["router"]

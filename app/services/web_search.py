@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import List
 
 import httpx
 
@@ -40,12 +40,14 @@ async def brave_search(query: str, *, count: int = 5) -> List[dict]:
     results = []
     web = (data or {}).get("web") or {}
     for it in (web.get("results") or [])[:count]:
-        results.append({
-            "title": (it.get("title") or "").strip(),
-            "snippet": (it.get("description") or "").strip(),
-            "url": (it.get("url") or "").strip(),
-            "provider": "brave",
-        })
+        results.append(
+            {
+                "title": (it.get("title") or "").strip(),
+                "snippet": (it.get("description") or "").strip(),
+                "url": (it.get("url") or "").strip(),
+                "provider": "brave",
+            }
+        )
     return results
 
 
@@ -78,10 +80,12 @@ async def serpapi_search(query: str, *, count: int = 5) -> List[dict]:
 
     results = []
     for it in (data.get("organic_results") or [])[:count]:
-        results.append({
-            "title": (it.get("title") or "").strip(),
-            "snippet": (it.get("snippet") or "").strip(),
-            "url": (it.get("link") or "").strip(),
-            "provider": "serpapi",
-        })
+        results.append(
+            {
+                "title": (it.get("title") or "").strip(),
+                "snippet": (it.get("snippet") or "").strip(),
+                "url": (it.get("link") or "").strip(),
+                "provider": "serpapi",
+            }
+        )
     return results

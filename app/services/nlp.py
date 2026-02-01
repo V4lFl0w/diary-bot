@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, time
-from typing import Optional, Literal
+from datetime import datetime, time, timedelta
+from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
 
@@ -107,9 +107,7 @@ def parse_toggle(text: str) -> Optional[ToggleRequest]:
 
     act = m.group("act")
     action: Literal["enable", "disable"] = (
-        "enable"
-        if re.search(rf"^{_TOGGLE_ON_WORDS}$", act, flags=re.I)
-        else "disable"
+        "enable" if re.search(rf"^{_TOGGLE_ON_WORDS}$", act, flags=re.I) else "disable"
     )
 
     is_all = bool(m.group("all") and m.group("all").strip())
@@ -169,12 +167,8 @@ _RE_TIME = re.compile(
     r"\b(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ampm>am|pm)?\b",
     re.I,
 )
-_RE_DATE_DOT = re.compile(
-    r"\b(?P<d>\d{1,2})\.(?P<m>\d{1,2})(?:\.(?P<y>\d{4}))?\b"
-)
-_RE_DATE_ISO = re.compile(
-    r"\b(?P<y>\d{4})-(?P<m>\d{1,2})-(?P<d>\d{1,2})\b"
-)
+_RE_DATE_DOT = re.compile(r"\b(?P<d>\d{1,2})\.(?P<m>\d{1,2})(?:\.(?P<y>\d{4}))?\b")
+_RE_DATE_ISO = re.compile(r"\b(?P<y>\d{4})-(?P<m>\d{1,2})-(?P<d>\d{1,2})\b")
 
 _RE_REL = re.compile(
     rf"\b{_RE_IN}\s+"
@@ -305,9 +299,7 @@ def _parse_once_datetime(
 
     # завтра
     if re.search(rf"\b{_RE_TOMORROW}\b", text_norm):
-        base = (now + timedelta(days=1)).replace(
-            hour=9, minute=0, second=0, microsecond=0
-        )
+        base = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
         if tm:
             base = _apply_time(base, tm)
         return base

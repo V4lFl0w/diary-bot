@@ -1,10 +1,10 @@
 # app/services/reminders.py
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
@@ -13,9 +13,8 @@ except Exception:  # fallback-стаб, чтобы не падать
     croniter = None  # type: ignore
 
 # Модели
-from app.models.user import User
 from app.models.reminder import Reminder
-
+from app.models.user import User
 
 # ---------- i18n мини-набор ----------
 _TEXT = {
@@ -44,9 +43,7 @@ def _fmt_local(dt_utc: datetime, tz_name: str | None) -> str:
     if dt_utc.tzinfo is None:
         dt_utc = dt_utc.replace(tzinfo=timezone.utc)
     try:
-        return dt_utc.astimezone(ZoneInfo(tz_name or "Europe/Kyiv")).strftime(
-            "%Y-%m-%d %H:%M"
-        )
+        return dt_utc.astimezone(ZoneInfo(tz_name or "Europe/Kyiv")).strftime("%Y-%m-%d %H:%M")
     except Exception:
         return dt_utc.astimezone(ZoneInfo("Europe/Kyiv")).strftime("%Y-%m-%d %H:%M")
 
@@ -165,9 +162,7 @@ async def tick_reminders(*args):
       - await tick_reminders(async_sessionmaker, bot)
     """
     if len(args) != 2:
-        raise TypeError(
-            "tick_reminders expects 2 args: (session, bot) OR (bot, sessionmaker)"
-        )
+        raise TypeError("tick_reminders expects 2 args: (session, bot) OR (bot, sessionmaker)")
 
     a, b = args
 
@@ -186,9 +181,7 @@ async def tick_reminders(*args):
     elif hasattr(b, "send_message") and callable(a):
         bot, session_factory = b, a
     else:
-        raise TypeError(
-            "tick_reminders: unable to detect (session vs bot vs sessionmaker)"
-        )
+        raise TypeError("tick_reminders: unable to detect (session vs bot vs sessionmaker)")
 
     # Открываем сессию из фабрики (async_sessionmaker)
     async with session_factory() as session:

@@ -4,22 +4,26 @@ import contextlib
 import os
 from typing import Dict, Optional, Set
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ForceReply
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import ForceReply, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
-from app.models.bug_report import BugReport
 from app.keyboards import get_main_kb, is_report_btn
+from app.models.bug_report import BugReport
+from app.models.user import User
+
 try:
     from app.handlers.admin import is_admin_tg
 except Exception:
-    def is_admin_tg(_: int) -> bool:
+
+    def is_admin_tg(tg_id: int, /) -> bool:
         return False
+
+
 from app.config import settings
 
 router = Router(name="report")
@@ -31,20 +35,14 @@ class ReportFSM(StatesGroup):
 
 TEXTS: Dict[str, Dict[str, str]] = {
     "ru": {
-        "ask": (
-            "Опиши, что не работает/что улучшить. Можно приложить скрин/файл.\n"
-            "Отправь сообщением ниже 👇"
-        ),
+        "ask": ("Опиши, что не работает/что улучшить. Можно приложить скрин/файл.\nОтправь сообщением ниже 👇"),
         "saved": "Спасибо! Репорт сохранён. Мы посмотрим и ответим.",
         "start_first": "Нажми /start — и повтори репорт.",
         "empty": "Нужно написать пару слов к репорту. Попробуй ещё раз 👇",
         "cancelled": "Ок, отменил.",
     },
     "uk": {
-        "ask": (
-            "Опишіть, що не працює/що покращити. Можна додати скрін/файл.\n"
-            "Надішліть повідомлення нижче 👇"
-        ),
+        "ask": ("Опишіть, що не працює/що покращити. Можна додати скрін/файл.\nНадішліть повідомлення нижче 👇"),
         "saved": "Дякуємо! Репорт збережено. Переглянемо і відповімо.",
         "start_first": "Натисніть /start — і повторіть репорт.",
         "empty": "Потрібно написати кілька слів до репорту. Спробуйте ще раз 👇",
@@ -52,8 +50,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     },
     "en": {
         "ask": (
-            "Describe what’s broken / what to improve. You may attach a screenshot/file.\n"
-            "Send your message below 👇"
+            "Describe what’s broken / what to improve. You may attach a screenshot/file.\nSend your message below 👇"
         ),
         "saved": "Thanks! Bug report saved. We’ll review and reply.",
         "start_first": "Please press /start and send the report again.",
@@ -80,20 +77,20 @@ def _t(lang: str, key: str) -> str:
     return pack.get(key, TEXTS["ru"].get(key, key))
 
 
-def _user_lang(user: User | None, fallback: Optional[str]) -> str:
+def _user_lang(user: Optional[User], fallback: Optional[str]) -> str:
     return _normalize_lang(
-        (getattr(user, "locale", None)
-         or getattr(user, "lang", None)
-         or fallback
-         or getattr(settings, "default_locale", None)
-         or "ru")
+        (
+            getattr(user, "locale", None)
+            or getattr(user, "lang", None)
+            or fallback
+            or getattr(settings, "default_locale", None)
+            or "ru"
+        )
     )
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 def _collect_admin_ids() -> Set[int]:
@@ -144,23 +141,14 @@ async def ask_report(
 
     user = await _get_user(session, m.from_user.id)
     loc = _user_lang(user, lang)
-    is_premium = bool(getattr(user, "is_premium", False)) if user else False
-    is_admin = is_admin_tg(m.from_user.id)
+    bool(getattr(user, "is_premium", False)) if user else False
+    is_admin_tg(m.from_user.id)
 
     await state.set_state(ReportFSM.waiting_text)
     await m.answer(_t(loc, "ask"), reply_markup=ForceReply(selective=True))
 
 
-content_any = (
-    F.text
-    | F.caption
-    | F.photo
-    | F.document
-    | F.video
-    | F.animation
-    | F.voice
-    | F.audio
-)
+content_any = F.text | F.caption | F.photo | F.document | F.video | F.animation | F.voice | F.audio
 
 
 # ✅ ВАЖНО: cancel должен быть выше save_report
@@ -180,7 +168,10 @@ async def cancel_report(
     is_admin = is_admin_tg(m.from_user.id)
 
     await state.clear()
-    await m.answer(_t(loc, "cancelled"), reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin))
+    await m.answer(
+        _t(loc, "cancelled"),
+        reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin),
+    )
 
 
 @router.message(ReportFSM.waiting_text, content_any)
@@ -200,7 +191,10 @@ async def save_report(
 
     if not user:
         await state.clear()
-        await m.answer(_t(loc, "start_first"), reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin))
+        await m.answer(
+            _t(loc, "start_first"),
+            reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin),
+        )
         return
 
     text = (m.text or m.caption or "").strip()
@@ -236,7 +230,10 @@ async def save_report(
                 )
 
     await state.clear()
-    await m.answer(_t(loc, "saved"), reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin))
+    await m.answer(
+        _t(loc, "saved"),
+        reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin),
+    )
 
 
 __all__ = ["router"]

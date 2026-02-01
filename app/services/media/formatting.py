@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-# app/services/assistant.py
+from app.services.media.query import is_strong_title_match
 
+# app/services/assistant.py
 
 
 MEDIA_VIDEO_STUB_REPLY_RU = (
@@ -14,6 +15,12 @@ MEDIA_NOT_FOUND_REPLY_RU = (
     "Не могу уверенно найти по этому запросу.\n"
     "Дай 1–2 факта: актёр/актриса, примерный год, страна или что происходит в сцене."
 )
+
+ANTI_HALLUCINATION_PREFIX = (
+    "Если ты не уверен в источнике (фильм/сериал/мультфильм), "
+    "прямо скажи, что не уверен. Не выдумывай названия, актёров или детали.\n"
+)
+
 
 def build_media_context(items: list[dict]) -> str:
     """Numbered list for TMDb search results."""
@@ -28,6 +35,7 @@ def build_media_context(items: list[dict]) -> str:
             year = it.get("year") or ""
             lines.append(f"\n{i}) {title} {f'({year})' if year else ''}".strip())
     return "\n".join(lines)
+
 
 def _format_media_pick(item: dict) -> str:
     """
@@ -56,6 +64,7 @@ def _format_media_pick(item: dict) -> str:
         lines.append(url)
     return "\n".join(lines)
 
+
 def _title_tokens(x: str) -> set[str]:
     x = (x or "").lower()
     x = x.replace("ё", "е")
@@ -73,7 +82,10 @@ def _title_tokens(x: str) -> set[str]:
             out.append(t)
     return set(out)
 
-def _tmdb_score_item(query: str, it: dict, *, year_hint: str | None = None, lang_hint: str | None = None) -> tuple[float, str]:
+
+def _tmdb_score_item(
+    query: str, it: dict, *, year_hint: str | None = None, lang_hint: str | None = None
+) -> tuple[float, str]:
     """Return (score 0..1, why_short)."""
     q = (query or "").strip()
     title = (it.get("title") or it.get("name") or "").strip()
@@ -125,7 +137,15 @@ def _tmdb_score_item(query: str, it: dict, *, year_hint: str | None = None, lang
     score = max(0.0, min(1.0, score))
     return score, (", ".join(why[:2]) if why else "похоже по общим признакам")
 
-def _format_media_ranked(query: str, items: list[dict], *, year_hint: str | None = None, lang: str = "ru", source: str = "tmdb") -> str:
+
+def _format_media_ranked(
+    query: str,
+    items: list[dict],
+    *,
+    year_hint: str | None = None,
+    lang: str = "ru",
+    source: str = "tmdb",
+) -> str:
     """Best match + why + 2–3 alternatives. Buttons-first. Digits only as fallback."""
     if not items:
         return MEDIA_NOT_FOUND_REPLY_RU
@@ -143,7 +163,12 @@ def _format_media_ranked(query: str, items: list[dict], *, year_hint: str | None
     scored: list[tuple[float, str, dict]] = []
     for it in items:
         try:
-            sc, why = _tmdb_score_item(query, it, year_hint=year_hint, lang_hint=("ru" if lang == "ru" else None))
+            sc, why = _tmdb_score_item(
+                query,
+                it,
+                year_hint=year_hint,
+                lang_hint=("ru" if lang == "ru" else None),
+            )
         except Exception:
             sc, why = 0.0, "похоже по общим признакам"
         scored.append((float(sc), str(why), it))
@@ -152,10 +177,21 @@ def _format_media_ranked(query: str, items: list[dict], *, year_hint: str | None
     best_sc, best_why, best = scored[0]
     alts = scored[1:4]
 
+    best_title = (best.get("title") or best.get("name") or "").strip()
+    best_orig = (best.get("original_title") or best.get("original_name") or "").strip()
+
+    # ✅ если title явно совпал — считаем это уверенным результатом
+    try:
+        if is_strong_title_match(query, best_title) or (best_orig and is_strong_title_match(query, best_orig)):
+            best_sc = max(best_sc, 0.72)
+            best_why = "точное совпадение по названию"
+    except Exception:
+        pass
+
     # fields
-    t = (best.get("title") or best.get("name") or "—")
-    y = (best.get("year") or "—")
-    r = (best.get("vote_average") or "—")
+    t = best.get("title") or best.get("name") or "—"
+    y = best.get("year") or "—"
+    r = best.get("vote_average") or "—"
     kind = (best.get("media_type") or "").strip()
     kind_ru = "сериал" if kind == "tv" else "фильм" if kind == "movie" else (kind or "медиа")
 
@@ -167,9 +203,9 @@ def _format_media_ranked(query: str, items: list[dict], *, year_hint: str | None
         out.append("🎬 Нашёл варианты, но уверенность низкая.")
         out.append("")
         for i, (sc, why, it) in enumerate(scored[:3], start=1):
-            tt = (it.get("title") or it.get("name") or "—")
-            yy = (it.get("year") or "—")
-            rr = (it.get("vote_average") or "—")
+            tt = it.get("title") or it.get("name") or "—"
+            yy = it.get("year") or "—"
+            rr = it.get("vote_average") or "—"
             kk = (it.get("media_type") or "").strip()
             kk_ru = "сериал" if kk == "tv" else "фильм" if kk == "movie" else (kk or "медиа")
             out.append(f"{i}) {tt} ({yy}) — {kk_ru} · ⭐ {rr} · {why}")
@@ -190,9 +226,9 @@ def _format_media_ranked(query: str, items: list[dict], *, year_hint: str | None
         out2.append("")
         out2.append("Альтернативы (если не то):")
         for i, (sc, why, it) in enumerate(alts, start=1):
-            tt = (it.get("title") or it.get("name") or "—")
-            yy = (it.get("year") or "—")
-            rr = (it.get("vote_average") or "—")
+            tt = it.get("title") or it.get("name") or "—"
+            yy = it.get("year") or "—"
+            rr = it.get("vote_average") or "—"
             kk = (it.get("media_type") or "").strip()
             kk_ru = "сериал" if kk == "tv" else "фильм" if kk == "movie" else (kk or "медиа")
             out2.append(f"{i}) {tt} ({yy}) — {kk_ru} · ⭐ {rr}")
@@ -201,6 +237,8 @@ def _format_media_ranked(query: str, items: list[dict], *, year_hint: str | None
     out2.append("👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.")
     out2.append("Если кнопок нет — можешь ответить цифрой 1–3.")
     return "\n".join(out2)
+
+
 def _format_one_media(item: dict) -> str:
     # items come from tmdb_search_multi(): title/year/media_type/overview/vote_average
     title = (item.get("title") or item.get("name") or "Без названия").strip()
@@ -208,9 +246,7 @@ def _format_one_media(item: dict) -> str:
     overview = (item.get("overview") or "").strip()
     rating = item.get("vote_average", None)
     kind = (item.get("media_type") or "").strip()
-    kind_ru = (
-        "сериал" if kind == "tv" else "фильм" if kind == "movie" else kind or "медиа"
-    )
+    kind_ru = "сериал" if kind == "tv" else "фильм" if kind == "movie" else kind or "медиа"
 
     line = f"🎬 {title}"
     if year:

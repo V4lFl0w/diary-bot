@@ -2,20 +2,25 @@ from __future__ import annotations
 
 import os
 from typing import Optional
-
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-
 from aiogram.fsm.context import FSMContext
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    WebAppInfo,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # кнопка из главного меню (если есть)
 try:
     from app.keyboards import is_meditation_btn
 except Exception:  # pragma: no cover
-    def is_meditation_btn(_text: str) -> bool:  # type: ignore
+
+    def is_meditation_btn(text: str, /) -> bool:  # type: ignore
         return False
+
 
 router = Router(name="meditation")
 
@@ -115,9 +120,10 @@ async def cmd_meditation(m: Message, session: AsyncSession, state: FSMContext) -
 __all__ = ["router"]
 
 
-
 import json
+
 from aiogram import F
+
 
 def _bell_ids():
     start_id = (os.getenv("MEDIT_BELL_START_FILE_ID") or "").strip()

@@ -2,41 +2,44 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Optional
-
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.fsm.context import FSMContext
-from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
+from app.handlers.assistant import _media_inline_kb
 from app.keyboards import (
-    get_main_kb,
     get_journal_menu_kb,
+    get_main_kb,
     get_media_menu_kb,
-    get_settings_menu_kb,
     get_premium_menu_kb,
+    get_settings_menu_kb,
+    is_back_btn,
     is_root_journal_btn,
     is_root_media_btn,
-    is_root_settings_btn,
-    is_root_proactive_btn,
     is_root_premium_btn,
-    is_back_btn,
+    is_root_proactive_btn,
+    is_root_settings_btn,
 )
+from app.models.user import User
 from app.services.analytics_helpers import log_ui
 from app.services.assistant import run_assistant
 
-
-from app.handlers.assistant import _media_inline_kb
 router = Router(name="menus")
 
 
-async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
+async def _get_user(session: AsyncSession, tg_id: int) -> User:
+    user = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
+    if user is None:
+        user = User(tg_id=tg_id)
+        session.add(user)
+        await session.commit()
+    return user
 
 
-def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
+def _user_lang(user: User, tg_lang: Optional[str]) -> str:
     loc = (getattr(user, "locale", None) or getattr(user, "lang", None) or tg_lang or "ru").lower()
     if loc.startswith(("ua", "uk")):
         return "uk"
@@ -45,7 +48,7 @@ def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
     return "ru"
 
 
-def _is_premium_user(user: Optional[User]) -> bool:
+def _is_premium_user(user: User) -> bool:
     if not user:
         return False
     if bool(getattr(user, "has_premium", False) or getattr(user, "is_premium", False)):
@@ -62,17 +65,24 @@ def _is_premium_user(user: Optional[User]) -> bool:
     return False
 
 
-def _is_admin_user(user: Optional[User], tg_id: int) -> bool:
+def _is_admin_user(user: User, tg_id: int) -> bool:
     if user and bool(getattr(user, "is_admin", False)):
         return True
     try:
         from app.handlers.admin import is_admin
+
         return bool(is_admin(tg_id, user))
     except Exception:
         return False
 
 
-async def _log(session: AsyncSession, user: Optional[User], tg_lang: Optional[str], event: str, source: str) -> None:
+async def _log(
+    session: AsyncSession,
+    user: User,
+    tg_lang: Optional[str],
+    event: str,
+    source: str,
+) -> None:
     await log_ui(
         session,
         user=user,
@@ -139,6 +149,7 @@ async def open_proactive_menu(m: Message, session: AsyncSession, state: FSMConte
     await _log(session, user, tg_lang, "open_proactive_menu", "menu")
 
     from app.handlers.proactive import show_proactive_screen
+
     await show_proactive_screen(m, session, lang)
 
 
@@ -156,6 +167,7 @@ async def open_premium_menu(m: Message, session: AsyncSession, state: FSMContext
     await _log(session, user, tg_lang, "premium_click", "menu")
 
     from aiogram.types import ReplyKeyboardRemove
+
     await m.answer("💎 Премиум", reply_markup=ReplyKeyboardRemove())
     await m.answer("💎 Премиум", reply_markup=get_premium_menu_kb(lang, is_premium=is_premium))
 
@@ -204,6 +216,7 @@ async def back_to_main(m: Message, session: AsyncSession, state: FSMContext) -> 
             is_admin=_is_admin_user(user, m.from_user.id),
         ),
     )
+
 
 @router.message(F.text & ~F.text.startswith("/"))
 async def media_mode_text_router(message: Message, session: AsyncSession, state: FSMContext):

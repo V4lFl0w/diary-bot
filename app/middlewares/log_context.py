@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable, Dict
 from aiogram import BaseMiddleware
 from aiogram.types import Update
 
-from app.logging_setup import set_log_context, clear_log_context
+from app.logging_setup import clear_log_context, set_log_context
 
 
 class LogContextMiddleware(BaseMiddleware):

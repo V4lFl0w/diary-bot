@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, time, timezone, timedelta
+from datetime import datetime, time, timedelta, timezone
 from typing import Optional
 
-
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from sqlalchemy import select, or_
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.user import User
@@ -34,6 +33,7 @@ def _parse_hhmm(v: Optional[str]) -> Optional[time]:
 def _user_tz(user: User):
     try:
         from zoneinfo import ZoneInfo
+
         return ZoneInfo(getattr(user, "tz", None) or "Europe/Kyiv")
     except Exception:
         return timezone.utc
@@ -122,8 +122,6 @@ def _checkin_text(lang: str) -> str:
     )
 
 
-
-
 def _reply_kb(kind: str, lang: str) -> InlineKeyboardMarkup:
     # kind: "morning" / "evening"
     lang = _norm_lang(lang)
@@ -135,10 +133,9 @@ def _reply_kb(kind: str, lang: str) -> InlineKeyboardMarkup:
         btn = "✍️ Ответить"
 
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=btn, callback_data=f"proactive:checkin:{kind}")]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text=btn, callback_data=f"proactive:checkin:{kind}")]]
     )
+
 
 async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
     while True:
@@ -147,12 +144,19 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
                 now_utc = datetime.now(timezone.utc)
 
                 users = (
-                    await s.execute(
-                        select(User).where(
-                            or_(User.morning_auto.is_(True), User.evening_auto.is_(True))
+                    (
+                        await s.execute(
+                            select(User).where(
+                                or_(
+                                    User.morning_auto.is_(True),
+                                    User.evening_auto.is_(True),
+                                )
+                            )
                         )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
 
                 changed = False
 
@@ -180,11 +184,19 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
 
                             if should_send:
                                 try:
-                                    await bot.send_message(tg_id, _briefing_text(lang), parse_mode=None, reply_markup=_reply_kb('morning', lang))
+                                    await bot.send_message(
+                                        tg_id,
+                                        _briefing_text(lang),
+                                        parse_mode=None,
+                                        reply_markup=_reply_kb("morning", lang),
+                                    )
                                     u.morning_last_sent_at = now_utc
                                     changed = True
                                 except Exception:
-                                    log.exception("proactive morning send failed (tg_id=%s)", tg_id)
+                                    log.exception(
+                                        "proactive morning send failed (tg_id=%s)",
+                                        tg_id,
+                                    )
 
                     # ----- EVENING -----
                     if bool(getattr(u, "evening_auto", False)):
@@ -201,11 +213,19 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
 
                             if should_send:
                                 try:
-                                    await bot.send_message(tg_id, _checkin_text(lang), parse_mode=None, reply_markup=_reply_kb('evening', lang))
+                                    await bot.send_message(
+                                        tg_id,
+                                        _checkin_text(lang),
+                                        parse_mode=None,
+                                        reply_markup=_reply_kb("evening", lang),
+                                    )
                                     u.evening_last_sent_at = now_utc
                                     changed = True
                                 except Exception:
-                                    log.exception("proactive evening send failed (tg_id=%s)", tg_id)
+                                    log.exception(
+                                        "proactive evening send failed (tg_id=%s)",
+                                        tg_id,
+                                    )
 
                 if changed:
                     await s.commit()

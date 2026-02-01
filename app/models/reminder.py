@@ -3,9 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import text
 
 from app.db import Base
 from app.models.mixins import TimestampMixin
@@ -44,9 +43,7 @@ class Reminder(TimestampMixin, Base):
         server_default=text("true"),
     )
 
-    __table_args__ = (
-        Index("ix_reminder_due", "is_active", "next_run"),
-    )
+    __table_args__ = (Index("ix_reminder_due", "is_active", "next_run"),)
 
     def __repr__(self) -> str:
         return (

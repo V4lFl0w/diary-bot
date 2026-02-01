@@ -1,17 +1,24 @@
 # app/config.py
-import os, json, time, subprocess, urllib.request
+import json
+import os
+import subprocess
+import time
+import urllib.request
 from typing import Optional
+
 
 def _as_bool(v: Optional[str], default=False) -> bool:
     if v is None:
         return default
-    return str(v).strip().lower() in {"1","true","yes","y","on"}
+    return str(v).strip().lower() in {"1", "true", "yes", "y", "on"}
+
 
 def _as_int(v: Optional[str], default: int) -> int:
     try:
         return int(str(v).strip())
     except Exception:
         return default
+
 
 def _discover_ngrok_https() -> str:
     try:
@@ -24,6 +31,7 @@ def _discover_ngrok_https() -> str:
     except Exception:
         pass
     return ""
+
 
 class Settings:
     def __init__(self) -> None:
@@ -53,7 +61,9 @@ class Settings:
             self.default_locale = "ru"
 
         # timezone
-        self.default_tz = (os.getenv("DEFAULT_TZ") or os.getenv("APP_DEFAULT_TZ") or "Europe/Kyiv").strip() or "Europe/Kyiv"
+        self.default_tz = (
+            os.getenv("DEFAULT_TZ") or os.getenv("APP_DEFAULT_TZ") or "Europe/Kyiv"
+        ).strip() or "Europe/Kyiv"
 
         # premium channel
         self.premium_channel = (os.getenv("PREMIUM_CHANNEL") or "@NoticesDiarY").strip()
@@ -68,12 +78,7 @@ class Settings:
 
     def _resolve_database_url(self) -> str:
         # 1) explicit override (highest priority)
-        explicit = (
-            os.getenv("DATABASE_URL")
-            or os.getenv("DB_URL")
-            or os.getenv("DB_URI")
-            or ""
-        ).strip()
+        explicit = (os.getenv("DATABASE_URL") or os.getenv("DB_URL") or os.getenv("DB_URI") or "").strip()
         if explicit:
             return explicit
 
@@ -82,22 +87,14 @@ class Settings:
         # 2) env-specific vars
         if env in {"prod", "production"}:
             return (
-                os.getenv("DATABASE_URL_PROD")
-                or os.getenv("DB_URL_PROD")
-                or os.getenv("DB_URI_PROD")
-                or ""
+                os.getenv("DATABASE_URL_PROD") or os.getenv("DB_URL_PROD") or os.getenv("DB_URI_PROD") or ""
             ).strip()
 
         # default: dev/local/test
-        return (
-            os.getenv("DATABASE_URL_DEV")
-            or os.getenv("DB_URL_DEV")
-            or os.getenv("DB_URI_DEV")
-            or ""
-        ).strip()
+        return (os.getenv("DATABASE_URL_DEV") or os.getenv("DB_URL_DEV") or os.getenv("DB_URI_DEV") or "").strip()
 
     def ensure_public_url(self) -> str:
-                # In production we never use ngrok discovery
+        # In production we never use ngrok discovery
         if self.environment in {"prod", "production"}:
             return self._public_url
         if self._public_url:
@@ -106,7 +103,11 @@ class Settings:
         u = _discover_ngrok_https()
         if not u:
             try:
-                subprocess.Popen(["ngrok", "http", "8000"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(
+                    ["ngrok", "http", "8000"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
                 time.sleep(2.5)
                 u = _discover_ngrok_https()
             except Exception:
@@ -121,5 +122,6 @@ class Settings:
     @property
     def public_url(self) -> str:
         return self.ensure_public_url()
+
 
 settings = Settings()

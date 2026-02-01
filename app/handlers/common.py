@@ -1,18 +1,18 @@
 # app/handlers/cancel.py
 from __future__ import annotations
-
 from typing import Optional
-
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
 from app.keyboards import get_main_kb
+
 try:
     from app.handlers.admin import is_admin_tg
 except Exception:
-    def is_admin_tg(_: int) -> bool:
+
+    def is_admin_tg(tg_id: int, /) -> bool:
         return False
 
 

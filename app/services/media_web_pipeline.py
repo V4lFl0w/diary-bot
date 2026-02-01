@@ -1,32 +1,55 @@
 # app/services/media_web_pipeline.py
 from __future__ import annotations
-from app.services.assistant import _ASpan, _atrace
 
-import os
-import logging
-import re
 import json
+import logging
+import os
+import re
 import urllib.parse
 import urllib.request
 from typing import List, Tuple
-from app.services.media_text import YEAR_RE as _YEAR_RE, SXXEYY_RE as _SXXEYY_RE
+
+from app.services.media_text import SXXEYY_RE as _SXXEYY_RE
+from app.services.media_text import YEAR_RE as _YEAR_RE
 
 # --- candidate cleanup: drop SEO/stock-image junk that often comes from web search ---
 _SEO_TRASH_TOKENS = (
-    "изображения", "картинки", "скачать", "download", "wallpaper", "обои",
-    "png", "jpeg", "jpg", "free", "бесплатно", "stock", "shutterstock",
-    "depositphotos", "pinterest", "unsplash", "pixabay", "istock",
-    "отзывы", "форум", "инструкция", "как", "почему", "что значит",
+    "изображения",
+    "картинки",
+    "скачать",
+    "download",
+    "wallpaper",
+    "обои",
+    "png",
+    "jpeg",
+    "jpg",
+    "free",
+    "бесплатно",
+    "stock",
+    "shutterstock",
+    "depositphotos",
+    "pinterest",
+    "unsplash",
+    "pixabay",
+    "istock",
+    "отзывы",
+    "форум",
+    "инструкция",
+    "как",
+    "почему",
+    "что значит",
 )
+
 
 def _looks_like_seo_trash_title(s: str) -> bool:
     sl = (s or "").lower()
     return any(t in sl for t in _SEO_TRASH_TOKENS)
 
+
 def _clean_title_cands(cands: list[str]) -> list[str]:
     out: list[str] = []
     seen = set()
-    for c in (cands or []):
+    for c in cands or []:
         c2 = (c or "").strip()
         if not c2:
             continue
@@ -38,12 +61,17 @@ def _clean_title_cands(cands: list[str]) -> list[str]:
         seen.add(key)
         out.append(c2)
     return out
+
+
 _LOG = logging.getLogger(__name__)
-_DEBUG = os.getenv('MEDIA_WEB_DEBUG', '').lower() in ('1','true','yes','on')
+_DEBUG = os.getenv("MEDIA_WEB_DEBUG", "").lower() in ("1", "true", "yes", "on")
+
+
 def _norm(q: str) -> str:
     q = (q or "").strip()
     q = re.sub(r"\s+", " ", q)
     return q
+
 
 def _dedupe(seq: List[str]) -> List[str]:
     seen = set()
@@ -59,7 +87,9 @@ def _dedupe(seq: List[str]) -> List[str]:
         out.append(x)
     return out
 
+
 _SEASON_EP_RE = re.compile(r"(?i)\b(season|s)\s*(\d{1,2})\b.*\b(episode|e)\s*(\d{1,3})\b")
+
 
 def _strip_episode_tokens(q: str) -> str:
     q = _norm(q)
@@ -68,10 +98,12 @@ def _strip_episode_tokens(q: str) -> str:
     q2 = re.sub(r"(?i)\b(ep|episode|серия|сезон)\b\s*\d{1,3}", "", q2)
     return _norm(q2)
 
+
 def _http_json(url: str, headers: dict | None = None, timeout: int = 10) -> dict | list | None:
     req = urllib.request.Request(
         url,
-        headers=(headers or {}) | {
+        headers=(headers or {})
+        | {
             "User-Agent": "ValFlowDiaryBot/1.0 (media lookup)",
             "Accept": "application/json",
         },
@@ -83,8 +115,9 @@ def _http_json(url: str, headers: dict | None = None, timeout: int = 10) -> dict
         return json.loads(raw.decode("utf-8", errors="ignore"))
     except Exception as e:
         if _DEBUG:
-            _LOG.warning('media_web_pipeline http_json FAIL url=%s err=%r', url, e)
+            _LOG.warning("media_web_pipeline http_json FAIL url=%s err=%r", url, e)
         return None
+
 
 def _wiki_opensearch(q: str, lang: str = "en", limit: int = 6) -> List[str]:
     q = _norm(q)
@@ -107,14 +140,15 @@ def _wiki_opensearch(q: str, lang: str = "en", limit: int = 6) -> List[str]:
         return []
     return [t for t in titles if isinstance(t, str)]
 
+
 def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
     key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
     if _DEBUG:
-        _LOG.info('SERPAPI CALL q=%r limit=%s has_key=%s', q, limit, bool(key))
+        _LOG.info("SERPAPI CALL q=%r limit=%s has_key=%s", q, limit, bool(key))
     if not key:
-        _LOG.info('SERPAPI: enabled=%s (no key)', False)
+        _LOG.info("SERPAPI: enabled=%s (no key)", False)
         return []
-    _LOG.info('SERPAPI: enabled=%s', True)
+    _LOG.info("SERPAPI: enabled=%s", True)
     q = _norm(q)
     if not q:
         return []
@@ -161,7 +195,7 @@ def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
 
     organic = data.get("organic_results") or []
     if isinstance(organic, list):
-        for r in organic[:limit*3]:
+        for r in organic[: limit * 3]:
             if not isinstance(r, dict):
                 continue
             add_title(r.get("title"))
@@ -169,6 +203,7 @@ def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
                 break
 
     return _dedupe(out)[:limit]
+
 
 # --- Lens post-processing (cleanup titles -> TMDB-friendly short candidates) ---
 
@@ -183,12 +218,41 @@ def _is_bad_lens_title(t: str) -> bool:
     tl = t.lower()
 
     bad_words = (
-        "watch", "online", "stream", "full movie", "full hd", "hd", "1080", "720",
-        "torrent", "netflix", "youtube", "youtu.be", "vk.com", "tiktok", "rutube", "ok.ru",
-        "смотреть онлайн", "бесплатно", "фильм онлайн", "сериал онлайн",
-        "биография", "интервью", "совместные работы", "премьера", "новости", "обзор", "рецензия",
-        "википедия", "wiki", "кинопоиск",
-        "актёр", "актер", "актриса", "режиссёр", "режиссер",
+        "watch",
+        "online",
+        "stream",
+        "full movie",
+        "full hd",
+        "hd",
+        "1080",
+        "720",
+        "torrent",
+        "netflix",
+        "youtube",
+        "youtu.be",
+        "vk.com",
+        "tiktok",
+        "rutube",
+        "ok.ru",
+        "смотреть онлайн",
+        "бесплатно",
+        "фильм онлайн",
+        "сериал онлайн",
+        "биография",
+        "интервью",
+        "совместные работы",
+        "премьера",
+        "новости",
+        "обзор",
+        "рецензия",
+        "википедия",
+        "wiki",
+        "кинопоиск",
+        "актёр",
+        "актер",
+        "актриса",
+        "режиссёр",
+        "режиссер",
     )
 
     if any(x in tl for x in bad_words):
@@ -207,10 +271,27 @@ def _is_bad_lens_title(t: str) -> bool:
 
     return False
 
+
 _LENS_SITE_TOKENS = {
-    "imdb", "youtube", "netflix", "wikipedia", "reddit", "tiktok", "instagram", "facebook",
-    "twitter", "x", "x.com", "kinopoisk", "hdrezka", "rezka", "torrent", "rutube", "ok.ru",
+    "imdb",
+    "youtube",
+    "netflix",
+    "wikipedia",
+    "reddit",
+    "tiktok",
+    "instagram",
+    "facebook",
+    "twitter",
+    "x",
+    "x.com",
+    "kinopoisk",
+    "hdrezka",
+    "rezka",
+    "torrent",
+    "rutube",
+    "ok.ru",
 }
+
 
 def _strip_site_suffix(s: str) -> str:
     s = _norm(s)
@@ -229,6 +310,7 @@ def _strip_site_suffix(s: str) -> str:
         if last2 in _LENS_SITE_TOKENS:
             parts2 = parts2[:-1]
     return _norm(" - ".join(parts2))
+
 
 def _extract_known_titles(s: str) -> List[str]:
     """Extract extra short candidates from the phrase (series name/person name)."""
@@ -256,10 +338,11 @@ def _extract_known_titles(s: str) -> List[str]:
 
     return out
 
+
 def _clean_lens_candidates(raw: List[str], limit: int = 15) -> List[str]:
     cleaned: List[str] = []
 
-    for s in (raw or []):
+    for s in raw or []:
         base = _strip_site_suffix(s)
 
         # Drop super long garbage
@@ -284,6 +367,7 @@ def _clean_lens_candidates(raw: List[str], limit: int = 15) -> List[str]:
             break
 
     return cleaned[:limit]
+
 
 def _serpapi_lens_candidates(image_url: str, limit: int = 8, hl: str = "ru") -> List[str]:
     """
@@ -319,8 +403,17 @@ def _serpapi_lens_candidates(image_url: str, limit: int = 8, hl: str = "ru") -> 
             return
         sl = s2.lower()
         bad = (
-            "watch", "online", "stream", "full movie", "hd", "netflix", "torrent",
-            "смотреть", "онлайн", "hdrezka", "торрент",
+            "watch",
+            "online",
+            "stream",
+            "full movie",
+            "hd",
+            "netflix",
+            "torrent",
+            "смотреть",
+            "онлайн",
+            "hdrezka",
+            "торрент",
         )
         if any(x in sl for x in bad):
             return
@@ -348,6 +441,7 @@ def _serpapi_lens_candidates(image_url: str, limit: int = 8, hl: str = "ru") -> 
 
     return _dedupe(out)[:limit]
 
+
 async def image_to_tmdb_candidates(
     image_url: str,
     use_serpapi_lens: bool = True,
@@ -371,6 +465,7 @@ async def image_to_tmdb_candidates(
     cands = _clean_lens_candidates(cands, limit=15)
     tag = "lens" if use_serpapi_lens else "no_lens"
     return cands, tag
+
 
 async def image_bytes_to_tmdb_candidates(
     image_bytes: bytes,
@@ -403,6 +498,7 @@ async def image_bytes_to_tmdb_candidates(
 
     cands, tag = await image_to_tmdb_candidates(public_url, use_serpapi_lens=use_serpapi_lens, hl=hl)
     return cands, f"{tag}+spaces"
+
 
 async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple[List[str], str]:
     q = _norm(query)

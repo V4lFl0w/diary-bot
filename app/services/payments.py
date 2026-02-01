@@ -4,12 +4,11 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
 from app.models.payment import Payment, PaymentPlan, PaymentStatus
+from app.models.user import User
 from app.services.analytics_v2 import log_event_v2
-from app.services.subscriptions import activate_subscription_from_payment
 from app.services.pricing import get_spec
-
+from app.services.subscriptions import activate_subscription_from_payment
 
 PLAN_DAYS = {
     PaymentPlan.TRIAL: 1,
@@ -132,8 +131,8 @@ async def apply_payment_to_premium(
                 session,
                 user,
                 payment,
-                plan=_val(payment.plan),     # "trial" / "month" / "year" / "quarter" (если придёт как строка)
-                duration_days=None,          # PLAN_DAYS_MAP решит по ключу или ставь days, если хочешь жёстко
+                plan=_val(payment.plan),  # "trial" / "month" / "year" / "quarter" (если придёт как строка)
+                duration_days=None,  # PLAN_DAYS_MAP решит по ключу или ставь days, если хочешь жёстко
                 auto_renew=False,
             )
             result = f"extended_{days}_days"

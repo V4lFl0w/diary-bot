@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import os
-import uuid
 import asyncio
 import logging
+import os
+import uuid
 from typing import Optional
 
 import boto3.session
 from botocore.client import Config as BotoConfig
+
 assert boto3.session and BotoConfig
 
 _LOG = logging.getLogger(__name__)
@@ -30,10 +31,12 @@ _s3 = _session.client(
     config=BotoConfig(signature_version="s3v4"),
 )
 
+
 def _must_env(name: str, val: Optional[str]) -> str:
     if val:
         return val
     raise RuntimeError(f"Missing env var: {name}")
+
 
 def _content_type_for_ext(ext: str) -> str:
     ext = (ext or "").lower().lstrip(".")
@@ -44,6 +47,7 @@ def _content_type_for_ext(ext: str) -> str:
     if ext == "webp":
         return "image/webp"
     return "application/octet-stream"
+
 
 async def upload_bytes_get_url(data: bytes, ext: str = "jpg", prefix: str = "frames") -> str:
     """

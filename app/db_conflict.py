@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+
 from app.config import settings
 
 
@@ -58,8 +59,8 @@ async def init_models() -> None:
     """
     try:
         # подхватываем все декларации таблиц
-        from app.models import user as _user  # noqa: F401
         from app.models import payment as _payment  # noqa: F401
+        from app.models import user as _user  # noqa: F401
     except Exception:
         # если структура модулей иная — просто пропускаем
         pass

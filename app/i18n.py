@@ -19,7 +19,6 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "lang_updated": "Готово. Язык обновлён.",
         "press_start": "Нажми /start",
         "main_hint": "Главное меню — внизу.",
-
         # --- MAIN MENU (keys used in keyboards.py) ---
         "menu_journal": "📓 Журнал",
         "menu_history": "🕘 История",
@@ -29,35 +28,28 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "menu_week": "📅 Неделя",
         "menu_reminders": "⏰ Напоминания",
         "menu_stats": "📊 Статистика",
-
         "menu_meditation": "🧘 Медитация",
         "menu_music": "🎵 Музыка",
-
         "btn_language": "🌐 Язык",
         "btn_privacy": "🔒 Политика",
         "btn_premium": "💎 Премиум",
         "btn_calories": "🔥 Калории",
         "btn_admin": "🛡 Админ",
-
         # --- Bug report (match keyboards + handlers) ---
         "btn_report_bug": "🧩 Баг-репорт",
         # optional legacy alias if somewhere used
         "btn_report": "🛠 Сообщить про баг",
-
         # --- Admin ---
         "admin_panel_title": "🛡 Админ-панель",
-
         # --- Feature intros ---
         "meditations_intro": "🧘 Подборка коротких медитаций и дыхательных практик.",
         "music_intro": "🎵 Музыка для фокуса, сна и расслабления.",
         "med_choose": "Выбери режим медитации:",
         "music_choose": "Выбери плейлист:",
-
         # --- Calories ---
         "cal_send": "Напиши, что ты съел/выпил за раз, например: «{example}» — я посчитаю калории.",
         "cal_total": "Итого: {kcal} ккал (Б: {p} г, Ж: {f} г, У: {c} г).",
     },
-
     "uk": {
         "welcome": "Привіт! Це щоденник-помічник. Натисни 🔒 Політика, щоб прийняти умови і почати.",
         "privacy": "Це помічник-щоденник, не терапія і не медична послуга.",
@@ -68,7 +60,6 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "lang_updated": "Готово. Мову оновлено.",
         "press_start": "Натисни /start",
         "main_hint": "Головне меню — внизу.",
-
         "menu_journal": "📓 Журнал",
         "menu_history": "🕘 Історія",
         "menu_journal_search": "🔍 Пошук",
@@ -77,30 +68,23 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "menu_week": "📅 Тиждень",
         "menu_reminders": "⏰ Нагадування",
         "menu_stats": "📊 Статистика",
-
         "menu_meditation": "🧘 Медитація",
         "menu_music": "🎵 Музика",
-
         "btn_language": "🌐 Мова",
         "btn_privacy": "🔒 Політика",
         "btn_premium": "💎 Преміум",
         "btn_calories": "🔥 Калорії",
         "btn_admin": "🛡 Адмін",
-
         "btn_report_bug": "🧩 Баг-репорт",
         "btn_report": "🛠 Повідомити про баг",
-
         "admin_panel_title": "🛡 Адмін-панель",
-
         "meditations_intro": "🧘 Добірка коротких медитацій та дихальних практик.",
         "music_intro": "🎵 Музика для фокусу, сну та розслаблення.",
         "med_choose": "Оберіть режим медитації:",
         "music_choose": "Виберіть плейлист:",
-
         "cal_send": "Напиши, що ти з'їв/випив за раз, наприклад: «{example}» — я порахую калорії.",
         "cal_total": "Разом: {kcal} ккал (Б: {p} г, Ж: {f} г, В: {c} г).",
     },
-
     "en": {
         "welcome": "Hi! This is a diary assistant. Tap 🔒 Privacy to accept the policy and start.",
         "privacy": "This is a journal assistant, not therapy or a medical service.",
@@ -111,7 +95,6 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "lang_updated": "Done. Language updated.",
         "press_start": "Press /start",
         "main_hint": "Main menu is below.",
-
         "menu_journal": "📓 Journal",
         "menu_history": "🕘 History",
         "menu_journal_search": "🔍 Search",
@@ -120,26 +103,20 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "menu_week": "📅 Week",
         "menu_reminders": "⏰ Reminders",
         "menu_stats": "📊 Stats",
-
         "menu_meditation": "🧘 Meditation",
         "menu_music": "🎵 Music",
-
         "btn_language": "🌐 Language",
         "btn_privacy": "🔒 Privacy",
         "btn_premium": "💎 Premium",
         "btn_calories": "🔥 Calories",
         "btn_admin": "🛡 Admin",
-
         "btn_report_bug": "🧩 Report a bug",
         "btn_report": "🛠 Report a bug",
-
         "admin_panel_title": "🛡 Admin panel",
-
         "meditations_intro": "🧘 Short meditations and breathing exercises.",
         "music_intro": "🎵 Music for focus, sleep and relaxation.",
         "med_choose": "Choose a meditation mode:",
         "music_choose": "Choose a playlist:",
-
         "cal_send": "Type what you ate / drank, e.g. “{example}” — I’ll calculate calories.",
         "cal_total": "Total: {kcal} kcal (P: {p} g, F: {f} g, C: {c} g).",
     },
@@ -176,7 +153,6 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "uk": "Не бачу підписки. Натисни «Підписатися», потім «Перевірити».",
         "en": "I can’t see your subscription. Tap “Subscribe” then “Check”.",
     },
-
     # premium flow buttons
     "btn_pay": {
         "ru": "Оплатить",
@@ -193,7 +169,6 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
         "uk": "Перевірити",
         "en": "Check",
     },
-
     # bug report flow (handlers may use these)
     "bug_report_start": {
         "ru": "Опиши проблему одним сообщением и приложи скрин/видео. Или пришли /cancel.",
@@ -215,6 +190,7 @@ TRANSLATIONS: Dict[str, Dict[str, str]] = {
 # ---------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------
+
 
 def _normalize_lang(lang: str | None) -> str:
     if not lang:

@@ -1,13 +1,59 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import importlib
+import inspect
+import logging
+import os
+import pkgutil
+import re
+from typing import Any, Awaitable, Callable, Dict
+
+from aiogram import BaseMiddleware, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
+from sqlalchemy import text
+
+import app.hooks  # noqa: F401
+import app.models as _models_pkg
+from app.bot import bot
+from app.config import settings
+from app.db import Base, engine
+from app.db import async_session as SessionLocal
+from app.handlers import export
 from app.handlers.proactive_checkin import router as proactive_checkin_router
+from app.logging_setup import setup_logging
+from app.middlewares.ban import BanMiddleware
+from app.middlewares.last_seen import LastSeenMiddleware
+from app.middlewares.policy_gate import PolicyGateMiddleware
+from app.middlewares.rate_limit import RateLimitMiddleware
+from app.middlewares.trace import TraceUpdateMiddleware
+
+# ---------- роутеры ----------
+
+from app.features import router as features_router
+from app.handlers import (
+    data_privacy,
+    journal,
+    language,
+    motivation,
+    payments_stars,  # ✅ Stars
+    premium,
+    premium_reset,
+    privacy,
+    proactive,
+    refund,
+    refund_ui,
+    reminders,
+    report,
+    start,
+)
 
 
-async def log_db_info():
+async def log_db_info() -> None:
     try:
-        from app.db import engine
         url = str(engine.url)
-        # маскируем пароль
         url = re.sub(r"://([^:]+):([^@]+)@", r"://\1:***@", url)
         logging.getLogger("root").info("DB_URL=%s", url)
 
@@ -18,56 +64,30 @@ async def log_db_info():
         logging.getLogger("root").exception("DB_INFO_FAILED: %r", e)
 
 
-import os
-
-
-from app.middlewares.ban import BanMiddleware
-import asyncio
-import contextlib
-import importlib
-import inspect
-import logging
-import re
-from sqlalchemy import text
-import pkgutil
-from typing import Any, Awaitable, Callable, Dict
-
-from app.logging_setup import setup_logging
-from aiogram import BaseMiddleware, Dispatcher
-from app.middlewares.trace import TraceUpdateMiddleware
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand
-
-from app.middlewares.policy_gate import PolicyGateMiddleware
-from app.middlewares.rate_limit import RateLimitMiddleware
-from app.middlewares.last_seen import LastSeenMiddleware
-from app.bot import bot
-from app.config import settings
-from app.db import Base, async_session as SessionLocal, engine
-
-import app.hooks  # noqa: F401
-import app.models as _models_pkg
-from app.handlers import export
-
 # ---------- сервисы ----------
 
 try:
     from app.services.reminders import tick_reminders
 except Exception:
+
     async def tick_reminders(*_a, **_kw) -> None:
         return None
+
 
 # ✅ renewal reminders (подписка скоро закончится)
 try:
     from app.jobs.renewal_reminders import run_renewal_reminders
 except Exception:
+
     async def run_renewal_reminders(*_a, **_kw) -> None:
         return None
+
 
 # ✅ proactive morning/evening
 try:
     from app.services.proactive_loop import proactive_loop
 except Exception:
+
     async def proactive_loop(*_a, **_kw) -> None:
         return None
 
@@ -76,28 +96,6 @@ try:
     from app.scheduler import ensure_started  # type: ignore
 except Exception:
     ensure_started = None  # type: ignore
-
-
-# ---------- роутеры ----------
-
-from app.features import router as features_router
-
-from app.handlers import (
-    journal,
-    language,
-    premium,
-    premium_reset,
-    privacy,
-    reminders,
-    report,
-    start,
-    payments_stars,   # ✅ Stars
-    refund,
-    refund_ui,
-    proactive,
-    motivation,
-    data_privacy,
-)
 
 # меню (открывает подменю: Журнал/Медиа/Настройки/Премиум и т.д.)
 try:
@@ -192,17 +190,20 @@ def _build_commands(include_admin: bool, include_calories: bool) -> Dict[str, li
 # ---------- миддлвари ----------
 
 try:
-    from app.middlewares.lang import LangMiddleware
+    from app.middlewares.lang import LangMiddleware as LangMiddlewareImpl
 except Exception:
-    class LangMiddleware(BaseMiddleware):
-        async def __call__(
-            self,
-            handler: Callable[[Any, Dict[str, Any]], Awaitable[Any]],
-            event: Any,
-            data: Dict[str, Any],
-        ) -> Any:
-            data.setdefault("lang", "ru")
-            return await handler(event, data)
+    LangMiddlewareImpl = None  # type: ignore
+
+
+class _FallbackLangMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[Any, Dict[str, Any]], Awaitable[Any]],
+        event: Any,
+        data: Dict[str, Any],
+    ) -> Any:
+        data.setdefault("lang", "ru")
+        return await handler(event, data)
 
 
 class DBSessionMiddleware(BaseMiddleware):
@@ -224,13 +225,11 @@ class DBSessionMiddleware(BaseMiddleware):
                 raise
 
 
-
 # ---------- утилиты ----------
 
+
 async def _ensure_db() -> None:
-    for _, name, _ in pkgutil.iter_modules(
-        _models_pkg.__path__, _models_pkg.__name__ + "."
-    ):
+    for _, name, _ in pkgutil.iter_modules(_models_pkg.__path__, _models_pkg.__name__ + "."):
         importlib.import_module(name)
 
     async with engine.begin() as conn:
@@ -248,7 +247,7 @@ async def _set_commands(include_admin: bool, include_calories: bool) -> None:
 async def _reminders_loop() -> None:
     tick = max(
         1,
-        int(os.getenv("REMINDER_TICK_SEC", str(getattr(settings, "reminder_tick_sec", 5))))
+        int(os.getenv("REMINDER_TICK_SEC", str(getattr(settings, "reminder_tick_sec", 5)))),
     )
 
     try:
@@ -270,7 +269,7 @@ async def _renewal_reminders_loop() -> None:
 
     every_sec = max(
         60,
-        int(os.getenv("RENEWAL_TICK_SEC", str(6 * 60 * 60)))  # 6h default
+        int(os.getenv("RENEWAL_TICK_SEC", str(6 * 60 * 60))),  # 6h default
     )
 
     try:
@@ -298,6 +297,7 @@ async def _safe_start_scheduler() -> None:
 
 # ---------- сборка dispatcher ----------
 
+
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher(storage=MemoryStorage())
     dp.update.outer_middleware(TraceUpdateMiddleware(logger))
@@ -306,13 +306,16 @@ def build_dispatcher() -> Dispatcher:
     dp.update.outer_middleware(DBSessionMiddleware())
 
     from app.middlewares.log_context import LogContextMiddleware
+
     dp.update.outer_middleware(LogContextMiddleware())
 
+    # ✅ ВОТ ТУТ
+    from app.middlewares.user_sync import UserSyncMiddleware
+
+    dp.update.outer_middleware(UserSyncMiddleware())
+
     # 2) Язык/контекст (если надо)
-    try:
-        dp.update.outer_middleware(LangMiddleware())
-    except Exception:
-        pass
+    dp.update.outer_middleware(LangMiddlewareImpl() if LangMiddlewareImpl is not None else _FallbackLangMiddleware())
 
     dp.update.outer_middleware(LastSeenMiddleware(min_update_seconds=60))
 
@@ -369,12 +372,15 @@ def build_dispatcher() -> Dispatcher:
 
     return dp
 
+
 # ---------- main ----------
+
 
 async def main() -> None:
     level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
     setup_logging()
+    logging.getLogger().setLevel(level)
 
     logging.getLogger("aiogram.event").setLevel(logging.DEBUG)
     logging.getLogger("aiogram.dispatcher").setLevel(logging.DEBUG)

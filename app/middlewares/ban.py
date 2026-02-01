@@ -4,7 +4,7 @@ import os
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,12 +57,7 @@ class BanMiddleware(BaseMiddleware):
         if _is_admin_id(tg_id):
             return await handler(event, data)
 
-        row = (
-            await session.execute(
-                select(User.is_admin, User.is_banned)
-                .where(User.tg_id == tg_id)
-            )
-        ).one_or_none()
+        row = (await session.execute(select(User.is_admin, User.is_banned).where(User.tg_id == tg_id))).one_or_none()
 
         if row is None:
             return await handler(event, data)

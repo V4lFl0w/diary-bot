@@ -2,7 +2,7 @@
 
 Revision ID: 4a83df83b3bb
 Revises: 49f6661d80cb
-Create Date: 
+Create Date:
 """
 
 from alembic import op
@@ -24,7 +24,12 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         sa.Column("kind", sa.String(length=16), nullable=False),
         sa.Column("local_date", sa.Date(), nullable=False),
-        sa.Column("payload", sa.JSON().with_variant(postgresql.JSONB(), "postgresql"), nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column(
+            "payload",
+            sa.JSON().with_variant(postgresql.JSONB(), "postgresql"),
+            nullable=False,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
     )
     op.create_index("ix_proactive_entries_user_id", "proactive_entries", ["user_id"])

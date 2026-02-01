@@ -5,6 +5,7 @@ Revises: b0b54fc02dab
 Create Date: 2025-12-08 23:59:03.654841
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -12,11 +13,10 @@ import sqlalchemy as sa
 from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
-revision: str = '8208f9e10222'
-down_revision: Union[str, Sequence[str], None] = 'b0b54fc02dab'
+revision: str = "8208f9e10222"
+down_revision: Union[str, Sequence[str], None] = "b0b54fc02dab"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
-
 
 
 def upgrade() -> None:
@@ -37,7 +37,6 @@ def upgrade() -> None:
 
     op.create_index("ix_user_tracks_tg_id", "user_tracks", ["tg_id"], unique=False)
     op.create_index("ix_user_tracks_user_id", "user_tracks", ["user_id"], unique=False)
-
 
 
 def downgrade() -> None:

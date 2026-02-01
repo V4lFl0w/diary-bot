@@ -1,16 +1,13 @@
 from __future__ import annotations
-
 from typing import Optional
-
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.services.features_v2 import require_feature_v2
-
 
 router = Router(name="meditations_v2")
 
@@ -20,6 +17,7 @@ FEATURE_PREMIUM_MEDITATIONS = "premium_meditations"
 
 
 # -------------------- lang helpers --------------------
+
 
 def _normalize_lang(code: Optional[str]) -> str:
     s = (code or "ru").strip().lower()
@@ -35,27 +33,27 @@ def _normalize_lang(code: Optional[str]) -> str:
 
 
 def _tr(lang: Optional[str], ru: str, uk: str, en: str) -> str:
-    l = _normalize_lang(lang)
-    return uk if l == "uk" else en if l == "en" else ru
+    loc = _normalize_lang(lang)
+    return uk if loc == "uk" else en if loc == "en" else ru
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (await session.execute(
-        select(User).where(User.tg_id == tg_id)
-    )).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 def _user_lang(user: Optional[User], tg_lang: Optional[str], fallback: Optional[str]) -> str:
-    return _normalize_lang(
-        getattr(user, "locale", None)
-        or getattr(user, "lang", None)
+    raw = (
+        (getattr(user, "locale", None) if user else None)
+        or (getattr(user, "lang", None) if user else None)
         or tg_lang
         or fallback
         or "ru"
     )
+    return _normalize_lang(raw)
 
 
 # -------------------- handlers --------------------
+
 
 @router.message(Command("meditation_long"))
 async def meditation_long_cmd(
@@ -73,14 +71,10 @@ async def meditation_long_cmd(
     """
 
     tg_lang = getattr(getattr(m, "from_user", None), "language_code", None)
-
     user = await _get_user(session, m.from_user.id)
     lang_code = _user_lang(user, tg_lang, lang)
-
     if not user:
-        await m.answer(
-            _tr(lang_code, "Нажми /start", "Натисни /start", "Press /start")
-        )
+        await m.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
         return
 
     ok = await require_feature_v2(

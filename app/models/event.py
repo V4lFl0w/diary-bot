@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
-from datetime import datetime, timezone
 import json
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Integer, BigInteger, Text, TIMESTAMP, ForeignKey, text, DateTime, JSON, Identity
+from sqlalchemy import TIMESTAMP, BigInteger, DateTime, ForeignKey, Identity, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import TypeDecorator, TEXT
+from sqlalchemy.types import TEXT, TypeDecorator
 
 from app.db import Base
 
@@ -20,6 +20,7 @@ class JSONText(TypeDecorator):
     SQLite не умеет биндинг dict/list напрямую -> храним как TEXT(JSON string).
     На Postgres этот тип НЕ будет использоваться (ниже стоит with_variant(JSONB, 'postgresql')).
     """
+
     impl = TEXT
     cache_ok = True
 
@@ -71,6 +72,4 @@ class Event(Base):
     tg_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     meta: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[str | None] = mapped_column(
-        TIMESTAMP, server_default=text("CURRENT_TIMESTAMP")
-    )
+    created_at: Mapped[str | None] = mapped_column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))
