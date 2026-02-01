@@ -130,27 +130,37 @@ def _policy_accepted(user: User | None) -> bool:
 
 
 @router.message(CommandStart())
-async def cmd_start(m: Message, session: AsyncSession, user: User) -> None:
+async def cmd_start(m: Message, session: AsyncSession, user: User | None = None) -> None:
     if not m.from_user:
         return
-    tg_id = m.from_user.id
-    # user приходит из UserSyncMiddleware (всегда существует)
+    tg_id = int(m.from_user.id)
+
+    # Fallback: если middleware не положил user, загрузим/создадим тут
+    if user is None:
+        from sqlalchemy import select
+
+        res = await session.execute(select(User).where(User.tg_id == tg_id))
+        user = res.scalar_one_or_none()
+        if user is None:
+            user = User(tg_id=tg_id)
+            session.add(user)
+
+    # user существует дальше всегда
     is_new = False
     try:
         ca = getattr(user, "created_at", None)
         if ca is not None:
             from datetime import timedelta
 
-            if ca.tzinfo is None:
+            if getattr(ca, "tzinfo", None) is None:
                 ca = ca.replace(tzinfo=timezone.utc)
             is_new = (datetime.now(timezone.utc) - ca) <= timedelta(seconds=30)
     except Exception:
         is_new = False
-    is_new = user is None
 
     # deep-link + defaults
     lang_dl, tz_dl = _parse_start_payload(m.text or "")
-    # create/update base fields
+
     changed = False
     if lang_dl and getattr(user, "locale", None) != lang_dl:
         user.locale = lang_dl
@@ -188,14 +198,10 @@ async def cmd_start(m: Message, session: AsyncSession, user: User) -> None:
     kb = get_main_kb(lang=lang, is_premium=is_premium, is_admin=is_admin_tg(tg_id))
 
     if not _policy_accepted(user):
-        # 1) явно показываем что бот живой + меню
         text = _TEXTS.get(lang, _TEXTS["ru"])["hello_need_privacy"]
         await m.answer(text, reply_markup=kb, parse_mode="HTML")
-
-        # 2) отдельным сообщением показываем политику (без "висяка")
         await privacy_soft_show(m, session)
         return
 
-    # normal start
     text = _TEXTS.get(lang, _TEXTS["ru"])["hello_ready"]
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
