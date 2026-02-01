@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-import os, re
+import os
+import re
 from typing import Optional
-from aiogram import Router, F
-from aiogram.filters import StateFilter, Command
-from aiogram.types import Message, CallbackQuery
-from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram import F, Router
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy import text as sql_text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.keyboards import get_main_kb
 from app.config import settings
+from app.keyboards import get_main_kb
+from app.utils.aiogram_guards import cb_reply
 
 router = Router()
+
 
 def _admin_ids():
     # settings.admin_ids может быть списком/строкой; также поддержим переменную окружения ADMINS="id1,id2"
@@ -26,15 +29,18 @@ def _admin_ids():
     ids |= {int(x) for x in re.findall(r"\d+", env)}
     return ids
 
+
 async def _reset_premium(session: AsyncSession, tg_id: int) -> int:
     q = sql_text("UPDATE users SET is_premium=0, premium_until=NULL WHERE tg_id=:tg")
     res = await session.execute(q, {"tg": tg_id})
     await session.commit()
     return res.rowcount or 0
 
+
 def _loc(lang: Optional[str]) -> str:
     l = (lang or getattr(settings, "default_locale", "ru"))[:2].lower()
-    return "uk" if l == "ua" else (l if l in {"ru","uk","en"} else "ru")
+    return "uk" if l == "ua" else (l if l in {"ru", "uk", "en"} else "ru")
+
 
 _MSG = {
     "ru": {
@@ -60,6 +66,7 @@ _MSG = {
     },
 }
 
+
 @router.message(Command("premium_reset"))
 async def premium_reset(m: Message, session: AsyncSession, lang: Optional[str] = None):
     loc = _loc(lang)
@@ -81,17 +88,24 @@ async def premium_reset(m: Message, session: AsyncSession, lang: Optional[str] =
         if target_tg == m.from_user.id:
             await m.answer(_MSG[loc]["done_self"], reply_markup=get_main_kb(loc))
         else:
-            await m.answer(_MSG[loc]["done_other"].format(tg=target_tg), reply_markup=get_main_kb(loc))
+            await m.answer(
+                _MSG[loc]["done_other"].format(tg=target_tg),
+                reply_markup=get_main_kb(loc),
+            )
     else:
         await m.answer(_MSG[loc]["no_change"], reply_markup=get_main_kb(loc))
 
+
 # На будущее: если добавишь инлайн-кнопку "premium:reset", этот хендлер тоже отработает
 @router.callback_query(F.data == "premium:reset")
-async def premium_reset_cb(c: CallbackQuery, session: AsyncSession, lang: Optional[str] = None):
+async def premium_reset_cb(
+    c: CallbackQuery, session: AsyncSession, lang: Optional[str] = None
+):
     loc = _loc(lang)
     await c.answer()
     changed = await _reset_premium(session, c.from_user.id)
-    await c.message.answer(
+    await cb_reply(
+        c,
         _MSG[loc]["done_self"] if changed else _MSG[loc]["no_change"],
         reply_markup=get_main_kb(loc),
     )

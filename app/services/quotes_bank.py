@@ -62,7 +62,15 @@ _BANK = {
         ],
     },
     "uk": {
-        "openers": ["Слухай.", "Ок.", "Дихаємо.", "Спокійно.", "По-людськи:", "Чесно:", "Без героїзму:"],
+        "openers": [
+            "Слухай.",
+            "Ок.",
+            "Дихаємо.",
+            "Спокійно.",
+            "По-людськи:",
+            "Чесно:",
+            "Без героїзму:",
+        ],
         "truths": [
             "тобі не потрібна мотивація — тобі потрібен старт",
             "не треба ідеалу — потрібен крок",
@@ -80,7 +88,14 @@ _BANK = {
             "відкрий те, що відкладаєш",
             "зроби найлегшу дію",
         ],
-        "finishes": ["і далі стане легше.", "і мозок увімкнеться по ходу.", "і ти знову в грі.", "і це вже контроль.", "і це — сила.", "і з’явиться опора."],
+        "finishes": [
+            "і далі стане легше.",
+            "і мозок увімкнеться по ходу.",
+            "і ти знову в грі.",
+            "і це вже контроль.",
+            "і це — сила.",
+            "і з’явиться опора.",
+        ],
         "one_liners": [
             "Дисципліна — це турбота про себе, а не покарання.",
             "Не чекай впевненості. Дія дає впевненість.",
@@ -89,7 +104,15 @@ _BANK = {
         ],
     },
     "en": {
-        "openers": ["Listen.", "Ok.", "Breathe.", "Easy.", "Human truth:", "Honestly:", "No hero mode:"],
+        "openers": [
+            "Listen.",
+            "Ok.",
+            "Breathe.",
+            "Easy.",
+            "Human truth:",
+            "Honestly:",
+            "No hero mode:",
+        ],
         "truths": [
             "you don’t need motivation — you need a start",
             "you don’t need perfection — you need a step",
@@ -107,7 +130,14 @@ _BANK = {
             "open what you’ve been avoiding",
             "do the easiest action",
         ],
-        "finishes": ["and it gets easier.", "and your brain kicks in while moving.", "and you’re back in the game.", "and that’s control.", "and that’s strength.", "and you’ll feel support."],
+        "finishes": [
+            "and it gets easier.",
+            "and your brain kicks in while moving.",
+            "and you’re back in the game.",
+            "and that’s control.",
+            "and that’s strength.",
+            "and you’ll feel support.",
+        ],
         "one_liners": [
             "Discipline is self-care, not punishment.",
             "Don’t wait for confidence. Action creates it.",

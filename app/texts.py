@@ -14,7 +14,6 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "lang_updated": "Готово. Язык обновлён.",
         "press_start": "Нажми /start",
         "main_hint": "Главное меню — внизу.",
-
         "menu_meditation": "🧘 Медитация",
         "menu_music": "🎵 Музыка",
         "btn_language": "🌐 Язык",
@@ -22,12 +21,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "btn_report": "🛠 Сообщить про баг",
         "btn_premium": "💎 Премиум",
         "btn_calories": "🔥 Калории",
-
         "meditations_intro": "🧘 Подборка коротких медитаций и дыхательных практик.",
         "music_intro": "🎵 Музыка для фокуса, сна и расслабления.",
         "med_choose": "Выбери режим медитации:",
         "music_choose": "Выбери плейлист:",
-
         "cal_send": "Напиши, что ты съел/выпил за раз, например: «{example}» — я посчитаю калории.",
         "cal_total": "Итого: {kcal} ккал (Б: {p} г, Ж: {f} г, У: {c} г).",
     },
@@ -41,7 +38,6 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "lang_updated": "Готово. Мову оновлено.",
         "press_start": "Натисни /start",
         "main_hint": "Головне меню — внизу.",
-
         "menu_meditation": "🧘 Медитація",
         "menu_music": "🎵 Музика",
         "btn_language": "🌐 Мова",
@@ -49,12 +45,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "btn_report": "🛠 Повідомити про баг",
         "btn_premium": "💎 Преміум",
         "btn_calories": "🔥 Калорії",
-
         "meditations_intro": "🧘 Добірка коротких медитацій та дихальних практик.",
         "music_intro": "🎵 Музика для фокусу, сну та розслаблення.",
         "med_choose": "Оберіть режим медитації:",
         "music_choose": "Виберіть плейлист:",
-
         "cal_send": "Напиши, що ти з'їв/випив за раз, наприклад: «{example}» — я порахую калорії.",
         "cal_total": "Разом: {kcal} ккал (Б: {p} г, Ж: {f} г, В: {c} г).",
     },
@@ -68,7 +62,6 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "lang_updated": "Done. Language updated.",
         "press_start": "Press /start",
         "main_hint": "Main menu is below.",
-
         "menu_meditation": "🧘 Meditation",
         "menu_music": "🎵 Music",
         "btn_language": "🌐 Language",
@@ -76,12 +69,10 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "btn_report": "🛠 Report a bug",
         "btn_premium": "💎 Premium",
         "btn_calories": "🔥 Calories",
-
         "meditations_intro": "🧘 Short meditations and breathing exercises.",
         "music_intro": "🎵 Music for focus, sleep and relaxation.",
         "med_choose": "Choose a meditation mode:",
         "music_choose": "Choose a playlist:",
-
         "cal_send": "Type what you ate / drank, e.g. “{example}” — I’ll calculate calories.",
         "cal_total": "Total: {kcal} kcal (P: {p} g, F: {f} g, C: {c} g).",
     },

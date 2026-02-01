@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -8,7 +9,9 @@ from app.services.analytics_v2 import log_event_v2
 
 
 def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
-    loc = (getattr(user, "locale", None) or getattr(user, "lang", None) or tg_lang or "ru").lower()
+    loc = (
+        getattr(user, "locale", None) or getattr(user, "lang", None) or tg_lang or "ru"
+    ).lower()
     if loc.startswith(("ua", "uk")):
         return "uk"
     if loc.startswith("en"):
@@ -17,7 +20,10 @@ def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
 
 
 def _is_premium_user(user: Optional[User]) -> bool:
-    return bool(user and (getattr(user, "is_premium", False) or getattr(user, "has_premium", False)))
+    return bool(
+        user
+        and (getattr(user, "is_premium", False) or getattr(user, "has_premium", False))
+    )
 
 
 async def log_ui(

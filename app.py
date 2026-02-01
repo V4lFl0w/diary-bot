@@ -1,4 +1,8 @@
-import os, json, sqlite3, base64, requests
+import os
+import json
+import sqlite3
+import base64
+import requests
 from datetime import datetime, date
 from fastapi import FastAPI, Request, Header, HTTPException, Query
 from fastapi.responses import RedirectResponse, HTMLResponse, PlainTextResponse, JSONResponse

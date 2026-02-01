@@ -4,7 +4,7 @@ import os
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from aiogram import BaseMiddleware
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +15,9 @@ from app.models.user import User
 def _is_admin_id(tg_id: int) -> bool:
     # settings.bot_admin_tg_id
     try:
-        if getattr(settings, "bot_admin_tg_id", None) and int(settings.bot_admin_tg_id) == int(tg_id):
+        if getattr(settings, "bot_admin_tg_id", None) and int(
+            settings.bot_admin_tg_id
+        ) == int(tg_id):
             return True
     except Exception:
         pass
@@ -59,8 +61,7 @@ class BanMiddleware(BaseMiddleware):
 
         row = (
             await session.execute(
-                select(User.is_admin, User.is_banned)
-                .where(User.tg_id == tg_id)
+                select(User.is_admin, User.is_banned).where(User.tg_id == tg_id)
             )
         ).one_or_none()
 

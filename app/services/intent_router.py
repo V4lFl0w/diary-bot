@@ -28,7 +28,9 @@ _WEATHER_KW = re.compile(
     r"\b(погод|прогноз|температур|осадк|ветер|дожд|снег|гисметео|meteofor)\b",
     re.IGNORECASE,
 )
-_WEATHER_TIME = re.compile(r"\b(сегодня|завтра|послезавтра|на\s*недел)\b", re.IGNORECASE)
+_WEATHER_TIME = re.compile(
+    r"\b(сегодня|завтра|послезавтра|на\s*недел)\b", re.IGNORECASE
+)
 
 _SHOP_KW = re.compile(
     r"\b(шмот|одежд|кросс|кед|куртк|джинс|футболк|худ|свитшот|размер|бренд|лук|стил)\b",
@@ -37,11 +39,13 @@ _SHOP_KW = re.compile(
 
 _YEAR = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
+
 @dataclass(frozen=True)
 class IntentResult:
     intent: Intent
     confidence: float
     reason: str
+
 
 def detect_intent(text: Optional[str], *, has_media: bool) -> IntentResult:
     if has_media:
@@ -52,7 +56,9 @@ def detect_intent(text: Optional[str], *, has_media: bool) -> IntentResult:
         return IntentResult(Intent.GENERAL, 0.5, "empty_text")
 
     # weather
-    if _WEATHER_KW.search(t) and (_WEATHER_TIME.search(t) or "во " in t.lower() or "в " in t.lower()):
+    if _WEATHER_KW.search(t) and (
+        _WEATHER_TIME.search(t) or "во " in t.lower() or "в " in t.lower()
+    ):
         return IntentResult(Intent.WEATHER, 0.9, "weather_keywords")
 
     # shop

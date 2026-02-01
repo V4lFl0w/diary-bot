@@ -16,6 +16,7 @@ _EP_TOKENS_RE = re.compile(
 _WS_RE = re.compile(r"\s+")
 _BAD_CHARS_RE = re.compile(r"[\t\r\n]+")
 
+
 def norm(q: str) -> str:
     """Soft normalize for web queries / candidate strings."""
     if not q:
@@ -25,6 +26,7 @@ def norm(q: str) -> str:
     q = _WS_RE.sub(" ", q)
     return q
 
+
 def strip_episode_tokens(q: str) -> str:
     """Remove SxxEyy/season/episode tokens to get a 'title core'."""
     q = norm(q)
@@ -33,6 +35,7 @@ def strip_episode_tokens(q: str) -> str:
     q2 = _EP_TOKENS_RE.sub("", q)
     q2 = _WS_RE.sub(" ", q2).strip(" -—:|")
     return q2.strip()
+
 
 def dedupe(items: Iterable[str]) -> List[str]:
     seen = set()

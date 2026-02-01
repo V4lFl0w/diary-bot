@@ -4,12 +4,11 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
 from app.models.payment import Payment, PaymentPlan, PaymentStatus
+from app.models.user import User
 from app.services.analytics_v2 import log_event_v2
-from app.services.subscriptions import activate_subscription_from_payment
 from app.services.pricing import get_spec
-
+from app.services.subscriptions import activate_subscription_from_payment
 
 PLAN_DAYS = {
     PaymentPlan.TRIAL: 1,
@@ -62,19 +61,25 @@ async def apply_payment_to_premium(
 
     # 1) базовая валидация
     if payment.status != PaymentStatus.PAID:
-        await _log_analytics_safe(session, user=None, payment=payment, result="skip_not_paid")
+        await _log_analytics_safe(
+            session, user=None, payment=payment, result="skip_not_paid"
+        )
         if commit:
             await session.commit()
         return False
 
     if not payment.user_id:
-        await _log_analytics_safe(session, user=None, payment=payment, result="skip_no_user")
+        await _log_analytics_safe(
+            session, user=None, payment=payment, result="skip_no_user"
+        )
         if commit:
             await session.commit()
         return False
 
     if payment.plan == PaymentPlan.TOPUP:
-        await _log_analytics_safe(session, user=None, payment=payment, result="skip_topup")
+        await _log_analytics_safe(
+            session, user=None, payment=payment, result="skip_topup"
+        )
         if commit:
             await session.commit()
         return False
@@ -82,7 +87,9 @@ async def apply_payment_to_premium(
     # 2) грузим user
     user = await session.get(User, payment.user_id)
     if not user:
-        await _log_analytics_safe(session, user=None, payment=payment, result="skip_user_not_found")
+        await _log_analytics_safe(
+            session, user=None, payment=payment, result="skip_user_not_found"
+        )
         if commit:
             await session.commit()
         return False
@@ -123,7 +130,9 @@ async def apply_payment_to_premium(
         else:
             days = PLAN_DAYS.get(payment.plan)
             if not days:
-                await _log_analytics_safe(session, user=user, payment=payment, result="skip_unknown_plan")
+                await _log_analytics_safe(
+                    session, user=user, payment=payment, result="skip_unknown_plan"
+                )
                 if commit:
                     await session.commit()
                 return False
@@ -132,8 +141,10 @@ async def apply_payment_to_premium(
                 session,
                 user,
                 payment,
-                plan=_val(payment.plan),     # "trial" / "month" / "year" / "quarter" (если придёт как строка)
-                duration_days=None,          # PLAN_DAYS_MAP решит по ключу или ставь days, если хочешь жёстко
+                plan=_val(
+                    payment.plan
+                ),  # "trial" / "month" / "year" / "quarter" (если придёт как строка)
+                duration_days=None,  # PLAN_DAYS_MAP решит по ключу или ставь days, если хочешь жёстко
                 auto_renew=False,
             )
             result = f"extended_{days}_days"

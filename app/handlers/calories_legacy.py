@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Set, Dict, Tuple
+from typing import Optional, Set
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -23,14 +23,17 @@ except Exception:
 try:
     from app.keyboards import is_calories_btn
 except Exception:
-    def is_calories_btn(_text: str) -> bool:  # type: ignore
+
+    def is_calories_btn(text: str, /) -> bool:  # type: ignore
         return False
+
 
 # кнопка "Политика" из меню (если есть)
 try:
     from app.keyboards import is_privacy_btn
 except Exception:
-    def is_privacy_btn(_text: str) -> bool:  # type: ignore
+
+    def is_privacy_btn(text: str, /) -> bool:  # type: ignore
         return False
 
 
@@ -44,11 +47,13 @@ SUPPORTED_LANGS = {"ru", "uk", "en"}
 
 # -------------------- FSM --------------------
 
+
 class CaloriesFSM(StatesGroup):
     waiting_input = State()
 
 
 # -------------------- i18n helpers --------------------
+
 
 def _normalize_lang(code: Optional[str]) -> str:
     c = (code or "ru").strip().lower()
@@ -69,10 +74,14 @@ def _tr(lang: Optional[str], ru: str, uk: str, en: str) -> str:
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
+    return (
+        await session.execute(select(User).where(User.tg_id == tg_id))
+    ).scalar_one_or_none()
 
 
-def _user_lang(user: Optional[User], fallback: Optional[str], tg_lang: Optional[str]) -> str:
+def _user_lang(
+    user: Optional[User], fallback: Optional[str], tg_lang: Optional[str]
+) -> str:
     return _normalize_lang(
         getattr(user, "locale", None)
         or getattr(user, "lang", None)
@@ -145,12 +154,35 @@ def _is_menu_text(text: Optional[str]) -> bool:
 # -------------------- food detector (для автодетекта) --------------------
 
 CAL_KEYS: Set[str] = {
-    "молок", "банан", "арахис", "арахіс", "греч", "гречк",
-    "яйц", "хлеб", "хліб", "сыр", "сир", "сосиск",
-    "куриц", "курк",
-    "milk", "banana", "peanut", "buckwheat", "egg",
-    "bread", "cheese", "sausage", "chicken",
-    "рис", "rice", "овся", "oat", "йогур", "yogurt",
+    "молок",
+    "банан",
+    "арахис",
+    "арахіс",
+    "греч",
+    "гречк",
+    "яйц",
+    "хлеб",
+    "хліб",
+    "сыр",
+    "сир",
+    "сосиск",
+    "куриц",
+    "курк",
+    "milk",
+    "banana",
+    "peanut",
+    "buckwheat",
+    "egg",
+    "bread",
+    "cheese",
+    "sausage",
+    "chicken",
+    "рис",
+    "rice",
+    "овся",
+    "oat",
+    "йогур",
+    "yogurt",
 }
 
 
@@ -177,6 +209,7 @@ def _strip_cmd_prefix(text: str) -> str:
 
 
 # -------------------- core text handler --------------------
+
 
 async def _handle_calories_text(
     message: Message,
@@ -243,6 +276,7 @@ async def _handle_calories_text(
 
 # -------------------- premium gate helper --------------------
 
+
 async def _require_photo_premium(
     message: Message,
     session: AsyncSession,
@@ -279,6 +313,7 @@ async def _require_photo_premium(
 
 
 # -------------------- entrypoints --------------------
+
 
 @router.message(Command("calories"))
 @router.message(Command("kcal"))
@@ -369,6 +404,7 @@ async def calories_cancel(
 
 # -------------------- режим ожидания --------------------
 
+
 @router.message(CaloriesFSM.waiting_input, F.text)
 async def calories_text_in_mode(
     message: Message,
@@ -406,7 +442,9 @@ async def calories_photo_in_mode(
     lang_code = _user_lang(user, lang, tg_lang)
 
     if not user:
-        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
+        await message.answer(
+            _tr(lang_code, "Нажми /start", "Натисни /start", "Press /start")
+        )
         return
 
     ok = await _require_photo_premium(
@@ -422,13 +460,13 @@ async def calories_photo_in_mode(
             "Скоро добавим распознавание продуктов на изображении.",
             "📸 Калорії з фото відкриті ✅\n\n"
             "Скоро додамо розпізнавання продуктів на зображенні.",
-            "📸 Photo calories unlocked ✅\n\n"
-            "We’ll add food recognition soon.",
+            "📸 Photo calories unlocked ✅\n\nWe’ll add food recognition soon.",
         )
     )
 
 
 # -------------------- free text autodetect --------------------
+
 
 @router.message(F.text.func(_looks_like_food))
 async def calories_free_text(
@@ -448,6 +486,7 @@ async def calories_free_text(
 
 
 # -------------------- photo with caption trigger --------------------
+
 
 @router.message(F.photo)
 async def calories_photo_caption(
@@ -475,7 +514,9 @@ async def calories_photo_caption(
     lang_code = _user_lang(user, lang, tg_lang)
 
     if not user:
-        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
+        await message.answer(
+            _tr(lang_code, "Нажми /start", "Натисни /start", "Press /start")
+        )
         return
 
     ok = await _require_photo_premium(
@@ -491,8 +532,7 @@ async def calories_photo_caption(
             "Скоро добавим распознавание продуктов на изображении.",
             "📸 Калорії з фото відкриті ✅\n\n"
             "Скоро додамо розпізнавання продуктів на зображенні.",
-            "📸 Photo calories unlocked ✅\n\n"
-            "We’ll add food recognition soon.",
+            "📸 Photo calories unlocked ✅\n\nWe’ll add food recognition soon.",
         )
     )
 

@@ -5,14 +5,16 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
-    ForeignKey,
-    String,
-    Integer,
-    Text,
     TIMESTAMP,
     CheckConstraint,
+    ForeignKey,
     Index,
+    Integer,
+    String,
+    Text,
     text,
+)
+from sqlalchemy import (
     Enum as SAEnum,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -58,15 +60,27 @@ class Payment(TimestampMixin, Base):
 
     # ✅ валидируем на уровне SQLAlchemy (в БД может быть CHECK/enum, зависит от миграций)
     provider: Mapped[PaymentProvider] = mapped_column(
-        SAEnum(PaymentProvider, name="payment_provider", values_callable=lambda x: [e.value for e in x]),
+        SAEnum(
+            PaymentProvider,
+            name="payment_provider",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     plan: Mapped[PaymentPlan] = mapped_column(
-        SAEnum(PaymentPlan, name="payment_plan", values_callable=lambda x: [e.value for e in x]),
+        SAEnum(
+            PaymentPlan,
+            name="payment_plan",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
     status: Mapped[PaymentStatus] = mapped_column(
-        SAEnum(PaymentStatus, name="payment_status", values_callable=lambda x: [e.value for e in x]),
+        SAEnum(
+            PaymentStatus,
+            name="payment_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
         default=PaymentStatus.PENDING,
     )
@@ -156,6 +170,7 @@ class Payment(TimestampMixin, Base):
 
     def mark_refunded(self) -> None:
         from datetime import datetime, timezone
+
         self.status = PaymentStatus.REFUNDED
         if hasattr(self, "refunded_at"):
             self.refunded_at = datetime.now(timezone.utc)

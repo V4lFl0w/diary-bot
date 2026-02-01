@@ -5,10 +5,13 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.event import Event
+
 
 def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
 
 async def log_admin_action(
     session: AsyncSession,
@@ -26,12 +29,15 @@ async def log_admin_action(
     if extra:
         payload.update(extra)
 
-    session.add(Event(
-        tg_id=int(admin_tg_id),
-        name=f"admin:{action}",
-        meta=json.dumps(payload, ensure_ascii=False),
-    ))
+    session.add(
+        Event(
+            tg_id=int(admin_tg_id),
+            name=f"admin:{action}",
+            meta=json.dumps(payload, ensure_ascii=False),
+        )
+    )
     await session.commit()
+
 
 # Backward-compatible alias (refund_flow imports this name)
 log_admin_audit = log_admin_action

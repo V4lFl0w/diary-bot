@@ -1,18 +1,11 @@
 from __future__ import annotations
 
 from app.services.media.query import _clean_tmdb_query, _normalize_tmdb_query
-
-from app.services.media.session import _extract_year
-
 from app.services.media.safety import _scrub_media_items
-
+from app.services.media.session import _extract_year
 from app.services.media_search import tmdb_search_multi
 
 # app/services/assistant.py
-
-
-
-
 
 
 def _dedupe_media(items: list[dict]) -> list[dict]:
@@ -31,6 +24,7 @@ def _dedupe_media(items: list[dict]) -> list[dict]:
         out.append(it)
     return out
 
+
 def _sort_media(items: list[dict]) -> list[dict]:
     def score(it: dict) -> float:
         try:
@@ -42,6 +36,7 @@ def _sort_media(items: list[dict]) -> list[dict]:
             return 0.0
 
     return sorted(items or [], key=score, reverse=True)
+
 
 async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
     """

@@ -1,31 +1,32 @@
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from app.services.nutrition import fetch_nutrition, NutritionError
+from app.services.nutrition import NutritionError, fetch_nutrition
 
 router = Router()
 
 TR = {
     "ru": {
-        "ask": "Напиши продукты одной строкой. Пример: \"200 г курицы, 100 г риса, яблоко\"",
+        "ask": 'Напиши продукты одной строкой. Пример: "200 г курицы, 100 г риса, яблоко"',
         "processing": "Считаю калории…",
         "result": "Суммарно: {cal} ккал\\nБ: {p} г, Ж: {f} г, У: {c} г",
         "error": "Не смог получить данные по калориям: {msg}",
     },
     "uk": {
-        "ask": "Напиши продукти одним рядком. Наприклад: \"200 г курки, 100 г рису, яблуко\"",
+        "ask": 'Напиши продукти одним рядком. Наприклад: "200 г курки, 100 г рису, яблуко"',
         "processing": "Рахую калорії…",
         "result": "Разом: {cal} ккал\\nБ: {p} г, Ж: {f} г, В: {c} г",
         "error": "Не вдалось отримати дані по калоріях: {msg}",
     },
     "en": {
-        "ask": "Write your foods in one line. Example: \"200 g chicken, 100 g rice, 1 apple\"",
+        "ask": 'Write your foods in one line. Example: "200 g chicken, 100 g rice, 1 apple"',
         "processing": "Calculating calories…",
         "result": "Total: {cal} kcal\\nP: {p} g, F: {f} g, C: {c} g",
         "error": "Could not get nutrition data: {msg}",
     },
 }
+
 
 def _t(lang: str, key: str, tr: dict, **kwargs) -> str:
     """Простой безопасный перевод для локальных _L10N:
@@ -36,9 +37,12 @@ def _t(lang: str, key: str, tr: dict, **kwargs) -> str:
         loc = "uk"
     tpl = tr.get(loc, tr.get("ru", {})).get(key, key)
     return tpl.format(**kwargs)
+
+
 @router.message(Command("calories"))
 async def calories_cmd(m: Message, lang: str):
     await m.answer(_t(lang, "ask", TR), parse_mode=None)
+
 
 @router.message(F.text.lower().contains("калор"))
 async def calories_text(m: Message, lang: str):

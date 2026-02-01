@@ -4,22 +4,26 @@ import contextlib
 import os
 from typing import Dict, Optional, Set
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.fsm.state import StatesGroup, State
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ForceReply
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import ForceReply, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
-from app.models.bug_report import BugReport
 from app.keyboards import get_main_kb, is_report_btn
+from app.models.bug_report import BugReport
+from app.models.user import User
+
 try:
     from app.handlers.admin import is_admin_tg
 except Exception:
-    def is_admin_tg(_: int) -> bool:
+
+    def is_admin_tg(tg_id: int, /) -> bool:
         return False
+
+
 from app.config import settings
 
 router = Router(name="report")
@@ -80,13 +84,15 @@ def _t(lang: str, key: str) -> str:
     return pack.get(key, TEXTS["ru"].get(key, key))
 
 
-def _user_lang(user: User | None, fallback: Optional[str]) -> str:
+def _user_lang(user: Optional[User], fallback: Optional[str]) -> str:
     return _normalize_lang(
-        (getattr(user, "locale", None)
-         or getattr(user, "lang", None)
-         or fallback
-         or getattr(settings, "default_locale", None)
-         or "ru")
+        (
+            getattr(user, "locale", None)
+            or getattr(user, "lang", None)
+            or fallback
+            or getattr(settings, "default_locale", None)
+            or "ru"
+        )
     )
 
 
@@ -144,8 +150,8 @@ async def ask_report(
 
     user = await _get_user(session, m.from_user.id)
     loc = _user_lang(user, lang)
-    is_premium = bool(getattr(user, "is_premium", False)) if user else False
-    is_admin = is_admin_tg(m.from_user.id)
+    bool(getattr(user, "is_premium", False)) if user else False
+    is_admin_tg(m.from_user.id)
 
     await state.set_state(ReportFSM.waiting_text)
     await m.answer(_t(loc, "ask"), reply_markup=ForceReply(selective=True))
@@ -180,7 +186,10 @@ async def cancel_report(
     is_admin = is_admin_tg(m.from_user.id)
 
     await state.clear()
-    await m.answer(_t(loc, "cancelled"), reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin))
+    await m.answer(
+        _t(loc, "cancelled"),
+        reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin),
+    )
 
 
 @router.message(ReportFSM.waiting_text, content_any)
@@ -200,7 +209,10 @@ async def save_report(
 
     if not user:
         await state.clear()
-        await m.answer(_t(loc, "start_first"), reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin))
+        await m.answer(
+            _t(loc, "start_first"),
+            reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin),
+        )
         return
 
     text = (m.text or m.caption or "").strip()
@@ -219,7 +231,9 @@ async def save_report(
     # уведомление админам
     admin_ids = _collect_admin_ids()
     if admin_ids:
-        uname = f"@{m.from_user.username}" if m.from_user.username else str(m.from_user.id)
+        uname = (
+            f"@{m.from_user.username}" if m.from_user.username else str(m.from_user.id)
+        )
         preview = (text[:800] + "…") if len(text) > 800 else text
 
         for admin_id in admin_ids:
@@ -236,7 +250,10 @@ async def save_report(
                 )
 
     await state.clear()
-    await m.answer(_t(loc, "saved"), reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin))
+    await m.answer(
+        _t(loc, "saved"),
+        reply_markup=get_main_kb(loc, is_premium=is_premium, is_admin=is_admin),
+    )
 
 
 __all__ = ["router"]

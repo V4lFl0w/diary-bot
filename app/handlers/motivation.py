@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 import random
-from datetime import datetime, timezone
+from datetime import timezone
 from typing import Optional
-
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
-from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
-from app.models.journal import JournalEntry
 from app.services.quotes_bank import generate_quote
 
 try:
@@ -32,15 +30,18 @@ BTN_STREAK = "🏆 Серия (дни)"
 BTN_BACK = "⬅️ Назад"
 
 OPEN_TRIGGERS = (
-    "🥇 Мотивация", "🥇 Мотивація", "🥇 Motivation",
-    "Мотивация", "Мотивація", "Motivation",
+    "🥇 Мотивация",
+    "🥇 Мотивація",
+    "🥇 Motivation",
+    "Мотивация",
+    "Мотивація",
+    "Motivation",
 )
 
 class MotStates(StatesGroup):
     waiting_support = State()
     waiting_jump = State()
     waiting_comeback = State()
-
 
 def _kb() -> ReplyKeyboardMarkup:
     rows = [
@@ -50,23 +51,25 @@ def _kb() -> ReplyKeyboardMarkup:
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
-
-
-
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
-
+    return (
+        await session.execute(select(User).where(User.tg_id == tg_id))
+    ).scalar_one_or_none()
 
 def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
-    loc = (getattr(user, "locale", None) or getattr(user, "lang", None) or tg_lang or "ru").lower()
+    raw = (
+        (getattr(user, "locale", None) or getattr(user, "lang", None))
+        if user is not None
+        else None
+    )
+    loc = (raw or tg_lang or "ru").lower()
     if loc.startswith(("ua", "uk")):
         return "uk"
     if loc.startswith("en"):
         return "en"
     return "ru"
 
-
-def _user_tz(user: Optional[User]):
+def _user_tz(user: User):
     tz_name = getattr(user, "tz", None) or "Europe/Kyiv"
     if ZoneInfo is None:
         return timezone.utc
@@ -74,7 +77,6 @@ def _user_tz(user: Optional[User]):
         return ZoneInfo(tz_name)
     except Exception:
         return timezone.utc
-
 
 def _t(lang: str, ru: str, uk: str, en: str) -> str:
     if lang == "uk":
@@ -87,77 +89,155 @@ def _t(lang: str, ru: str, uk: str, en: str) -> str:
 _SUPPORT_BANK = {
     "ru": {
         "openers": [
-            "Слышу тебя.", "Я рядом.", "Ок, я понял(а).", "Понял(а).", "Принял(а).", "Дышим.", "Стоп. Я тут.",
-            "Спасибо, что написал(а).", "Не один(одна). Я здесь.", "Я с тобой.", "Сейчас без героизма.", "По-человечески:"
+            "Слышу тебя.",
+            "Я рядом.",
+            "Ок, я понял(а).",
+            "Понял(а).",
+            "Принял(а).",
+            "Дышим.",
+            "Стоп. Я тут.",
+            "Спасибо, что написал(а).",
+            "Не один(одна). Я здесь.",
+            "Я с тобой.",
+            "Сейчас без героизма.",
+            "По-человечески:",
         ],
         "validate": [
-            "То, что ты это чувствуешь — нормально.", "Это не делает тебя слабым(ой).", "Это не приговор — это сигнал.",
-            "Тебя можно понять.", "С тобой всё ок — ты просто устал(а).", "Да, так бывает.", "Это реально может давить.",
-            "Ты не обязан(а) тащить в одиночку."
+            "То, что ты это чувствуешь — нормально.",
+            "Это не делает тебя слабым(ой).",
+            "Это не приговор — это сигнал.",
+            "Тебя можно понять.",
+            "С тобой всё ок — ты просто устал(а).",
+            "Да, так бывает.",
+            "Это реально может давить.",
+            "Ты не обязан(а) тащить в одиночку.",
         ],
         "reframe": [
-            "Нам не нужна идеальность — нам нужен один шаг.", "Не надо чинить всю жизнь — только ближайшие 2 минуты.",
-            "Сейчас важнее действие, чем настроение.", "Сначала маленькое — потом станет легче.",
-            "Мы не ускоряемся — мы стабилизируемся.", "Один микро-шаг возвращает контроль."
+            "Нам не нужна идеальность — нам нужен один шаг.",
+            "Не надо чинить всю жизнь — только ближайшие 2 минуты.",
+            "Сейчас важнее действие, чем настроение.",
+            "Сначала маленькое — потом станет легче.",
+            "Мы не ускоряемся — мы стабилизируемся.",
+            "Один микро-шаг возвращает контроль.",
         ],
         "micro": [
-            "Сделай вдох/выдох 3 раза.", "Поставь таймер на 2 минуты.", "Открой задачу, но ничего не делай 10 секунд — просто посмотри.",
-            "Убери одну помеху (закрой лишнюю вкладку/чат).", "Сядь ровно и расслабь плечи.", "Сделай глоток воды.",
-            "Напиши одно слово: что важнее всего прямо сейчас?"
+            "Сделай вдох/выдох 3 раза.",
+            "Поставь таймер на 2 минуты.",
+            "Открой задачу, но ничего не делай 10 секунд — просто посмотри.",
+            "Убери одну помеху (закрой лишнюю вкладку/чат).",
+            "Сядь ровно и расслабь плечи.",
+            "Сделай глоток воды.",
+            "Напиши одно слово: что важнее всего прямо сейчас?",
         ],
         "next": [
-            "Выбирай кнопку ниже 👇", "Какой вариант берём?", "Что тебе нужно сейчас больше всего?", "Давай выберем один вариант и пойдём.",
-            "Ок — выбираем следующий шаг.", "Дальше — только один пункт."
+            "Выбирай кнопку ниже 👇",
+            "Какой вариант берём?",
+            "Что тебе нужно сейчас больше всего?",
+            "Давай выберем один вариант и пойдём.",
+            "Ок — выбираем следующий шаг.",
+            "Дальше — только один пункт.",
         ],
     },
     "uk": {
         "openers": [
-            "Чую тебе.", "Я поруч.", "Ок, зрозумів(ла).", "Зрозумів(ла).", "Прийняв(ла).", "Дихаємо.", "Стоп. Я тут.",
-            "Дякую, що написав(ла).", "Ти не один(одна). Я тут.", "Я з тобою.", "Зараз без героїзму.", "По-людськи:"
+            "Чую тебе.",
+            "Я поруч.",
+            "Ок, зрозумів(ла).",
+            "Зрозумів(ла).",
+            "Прийняв(ла).",
+            "Дихаємо.",
+            "Стоп. Я тут.",
+            "Дякую, що написав(ла).",
+            "Ти не один(одна). Я тут.",
+            "Я з тобою.",
+            "Зараз без героїзму.",
+            "По-людськи:",
         ],
         "validate": [
-            "Те, що ти це відчуваєш — нормально.", "Це не робить тебе слабким(ою).", "Це не вирок — це сигнал.",
-            "Тебе можна зрозуміти.", "З тобою все ок — ти просто втомився(лась).", "Так буває.", "Це реально може тиснути.",
-            "Ти не мусиш тягнути сам(а)."
+            "Те, що ти це відчуваєш — нормально.",
+            "Це не робить тебе слабким(ою).",
+            "Це не вирок — це сигнал.",
+            "Тебе можна зрозуміти.",
+            "З тобою все ок — ти просто втомився(лась).",
+            "Так буває.",
+            "Це реально може тиснути.",
+            "Ти не мусиш тягнути сам(а).",
         ],
         "reframe": [
-            "Нам не потрібна ідеальність — потрібен один крок.", "Не треба лагодити все життя — лише найближчі 2 хвилини.",
-            "Зараз важливіша дія, ніж настрій.", "Спочатку маленьке — потім стане легше.",
-            "Ми не прискорюємось — ми стабілізуємось.", "Один мікро-крок повертає контроль."
+            "Нам не потрібна ідеальність — потрібен один крок.",
+            "Не треба лагодити все життя — лише найближчі 2 хвилини.",
+            "Зараз важливіша дія, ніж настрій.",
+            "Спочатку маленьке — потім стане легше.",
+            "Ми не прискорюємось — ми стабілізуємось.",
+            "Один мікро-крок повертає контроль.",
         ],
         "micro": [
-            "Зроби вдих/видих 3 рази.", "Постав таймер на 2 хвилини.", "Відкрий задачу й 10 секунд просто подивись — без дій.",
-            "Прибери одну перешкоду (закрий зайву вкладку/чат).", "Сядь рівно й розслаб плечі.", "Зроби ковток води.",
-            "Напиши одне слово: що найважливіше просто зараз?"
+            "Зроби вдих/видих 3 рази.",
+            "Постав таймер на 2 хвилини.",
+            "Відкрий задачу й 10 секунд просто подивись — без дій.",
+            "Прибери одну перешкоду (закрий зайву вкладку/чат).",
+            "Сядь рівно й розслаб плечі.",
+            "Зроби ковток води.",
+            "Напиши одне слово: що найважливіше просто зараз?",
         ],
         "next": [
-            "Обирай кнопку нижче 👇", "Який варіант беремо?", "Що тобі потрібно зараз найбільше?", "Обираємо один варіант і йдемо.",
-            "Ок — обираємо наступний крок.", "Далі — лише один пункт."
+            "Обирай кнопку нижче 👇",
+            "Який варіант беремо?",
+            "Що тобі потрібно зараз найбільше?",
+            "Обираємо один варіант і йдемо.",
+            "Ок — обираємо наступний крок.",
+            "Далі — лише один пункт.",
         ],
     },
     "en": {
         "openers": [
-            "I hear you.", "I’m here.", "Ok, got you.", "Got it.", "Accepted.", "Breathe.", "Pause. I’m here.",
-            "Thanks for saying it.", "You’re not alone — I’m here.", "I’m with you.", "No hero mode right now.", "Human truth:"
+            "I hear you.",
+            "I’m here.",
+            "Ok, got you.",
+            "Got it.",
+            "Accepted.",
+            "Breathe.",
+            "Pause. I’m here.",
+            "Thanks for saying it.",
+            "You’re not alone — I’m here.",
+            "I’m with you.",
+            "No hero mode right now.",
+            "Human truth:",
         ],
         "validate": [
-            "Feeling this is normal.", "This doesn’t make you weak.", "It’s not a sentence — it’s a signal.",
-            "It makes sense.", "You’re not broken — you’re tired.", "Yeah, it happens.", "This can genuinely feel heavy.",
-            "You don’t have to carry it alone."
+            "Feeling this is normal.",
+            "This doesn’t make you weak.",
+            "It’s not a sentence — it’s a signal.",
+            "It makes sense.",
+            "You’re not broken — you’re tired.",
+            "Yeah, it happens.",
+            "This can genuinely feel heavy.",
+            "You don’t have to carry it alone.",
         ],
         "reframe": [
-            "We don’t need perfection — we need one step.", "Don’t fix your whole life — just the next 2 minutes.",
-            "Action matters more than mood right now.", "Start small — it gets easier.",
-            "We’re not rushing — we’re stabilizing.", "One micro-step brings control back."
+            "We don’t need perfection — we need one step.",
+            "Don’t fix your whole life — just the next 2 minutes.",
+            "Action matters more than mood right now.",
+            "Start small — it gets easier.",
+            "We’re not rushing — we’re stabilizing.",
+            "One micro-step brings control back.",
         ],
         "micro": [
-            "Take 3 slow breaths.", "Set a 2-minute timer.", "Open the task and just look at it for 10 seconds — no action.",
-            "Remove one blocker (close one tab/chat).", "Relax your shoulders.", "Drink a sip of water.",
-            "Write one word: what matters most right now?"
+            "Take 3 slow breaths.",
+            "Set a 2-minute timer.",
+            "Open the task and just look at it for 10 seconds — no action.",
+            "Remove one blocker (close one tab/chat).",
+            "Relax your shoulders.",
+            "Drink a sip of water.",
+            "Write one word: what matters most right now?",
         ],
         "next": [
-            "Pick a button below 👇", "Which option do we take?", "What do you need most right now?", "Let’s pick one option and move.",
-            "Ok — choose the next step.", "Next — only one item."
+            "Pick a button below 👇",
+            "Which option do we take?",
+            "What do you need most right now?",
+            "Let’s pick one option and move.",
+            "Ok — choose the next step.",
+            "Next — only one item.",
         ],
     },
 }
@@ -185,9 +265,9 @@ def generate_support(lang: str, user_text: str, *, seed: int | None = None) -> s
 
     # user_text аккуратно вставляем (не всегда первым)
     if lang == "en":
-        echo = f'“{user_text}”'
+        echo = f"“{user_text}”"
     else:
-        echo = f'«{user_text}»'
+        echo = f"«{user_text}»"
 
     # иногда ставим echo в начале, иногда — в середине (ещё вариативность)
     if rnd.random() < 0.5:
@@ -196,28 +276,25 @@ def generate_support(lang: str, user_text: str, *, seed: int | None = None) -> s
         line1 = f"{opener} {validate}"
 
     # итоговый текст
-    return (
-        f"{line1}\n\n"
-        f"{validate}\n"
-        f"{reframe}\n\n"
-        f"{micro}\n\n"
-        f"{nxt}"
-    )
-# ---- /support infinite combinatorics ----
+    return f"{line1}\n\n{validate}\n{reframe}\n\n{micro}\n\n{nxt}"
 
+# ---- /support infinite combinatorics ----
 
 @router.message(Command("cancel"))
 async def motivation_cancel(m: Message, state: FSMContext):
+    cur = await state.get_state()
+    if not cur or not cur.startswith("MotStates:"):
+        return  # не наша отмена
+
     await state.clear()
     # Возвращаем меню мотивации
     await m.answer("Ок, отменил. Выбирай кнопку ниже 👇", reply_markup=_kb())
 
-
 def _is_motivation_open(text: str) -> bool:
-    t = (text or '').strip().lower()
+    t = (text or "").strip().lower()
     # убираем ведущие эмодзи/символы
-    t = t.lstrip('🥇🔥⭐️✅⚡️⚡🏅 ').strip()
-    return t in {'мотивация','мотивація','motivation'}
+    t = t.lstrip("🥇🔥⭐️✅⚡️⚡🏅 ").strip()
+    return t in {"мотивация", "мотивація", "motivation"}
 
 @router.message(F.text.func(_is_motivation_open))
 async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
@@ -225,7 +302,9 @@ async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
         return
     await state.clear()
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     text = _t(
         lang,
@@ -245,11 +324,14 @@ async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
 
     await m.answer(text, reply_markup=_kb())
 
-
 @router.message(F.text == BTN_SUPPORT)
-async def motivation_support_start(m: Message, session: AsyncSession, state: FSMContext):
+async def motivation_support_start(
+    m: Message, session: AsyncSession, state: FSMContext
+):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     await state.set_state(MotStates.waiting_support)
     await m.answer(
@@ -261,11 +343,14 @@ async def motivation_support_start(m: Message, session: AsyncSession, state: FSM
         )
     )
 
-
 @router.message(MotStates.waiting_support, F.text)
-async def motivation_support_reply(m: Message, session: AsyncSession, state: FSMContext):
+async def motivation_support_reply(
+    m: Message, session: AsyncSession, state: FSMContext
+):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     txt = (m.text or "").strip()
     await state.clear()
@@ -273,11 +358,12 @@ async def motivation_support_reply(m: Message, session: AsyncSession, state: FSM
     msg = generate_support(lang, txt)
     await m.answer(msg, reply_markup=_kb())
 
-
 @router.message(F.text == BTN_JUMP)
 async def motivation_jump_start(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     await state.set_state(MotStates.waiting_jump)
     await m.answer(
@@ -298,11 +384,12 @@ async def motivation_jump_start(m: Message, session: AsyncSession, state: FSMCon
         )
     )
 
-
 @router.message(MotStates.waiting_jump, F.text)
 async def motivation_jump_reply(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     task = (m.text or "").strip()
     await state.clear()
@@ -326,11 +413,12 @@ async def motivation_jump_reply(m: Message, session: AsyncSession, state: FSMCon
         reply_markup=_kb(),
     )
 
-
 @router.message(F.text.casefold().in_({"готово", "done"}))
 async def motivation_done(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     await m.answer(
         _t(
@@ -357,11 +445,12 @@ async def motivation_done(m: Message, session: AsyncSession):
         reply_markup=_kb(),
     )
 
-
 @router.message(F.text.casefold().in_({"еще 15", "ещё 15", "another 15"}))
 async def motivation_more_15(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     await m.answer(
         _t(
@@ -372,11 +461,12 @@ async def motivation_more_15(m: Message, session: AsyncSession):
         )
     )
 
-
 @router.message(F.text.casefold().in_({"стоп", "stop"}))
 async def motivation_stop(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     await m.answer(
         _t(
@@ -388,11 +478,14 @@ async def motivation_stop(m: Message, session: AsyncSession):
         reply_markup=_kb(),
     )
 
-
 @router.message(F.text == BTN_COMEBACK)
-async def motivation_comeback_start(m: Message, session: AsyncSession, state: FSMContext):
+async def motivation_comeback_start(
+    m: Message, session: AsyncSession, state: FSMContext
+):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     await state.set_state(MotStates.waiting_comeback)
     await m.answer(
@@ -413,11 +506,14 @@ async def motivation_comeback_start(m: Message, session: AsyncSession, state: FS
         )
     )
 
-
 @router.message(MotStates.waiting_comeback, F.text)
-async def motivation_comeback_reply(m: Message, session: AsyncSession, state: FSMContext):
+async def motivation_comeback_reply(
+    m: Message, session: AsyncSession, state: FSMContext
+):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     focus = (m.text or "").strip()
     await state.clear()
@@ -438,12 +534,12 @@ async def motivation_comeback_reply(m: Message, session: AsyncSession, state: FS
         reply_markup=_kb(),
     )
 
-
-
 @router.message(F.text == BTN_STREAK)
 async def motivation_streak(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     streak = 0
     if user is not None and hasattr(user, "proactive_streak"):
@@ -472,11 +568,12 @@ async def motivation_streak(m: Message, session: AsyncSession):
 @router.message(F.text == BTN_QUOTE)
 async def motivation_quote(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(
+        user, getattr(m.from_user, "language_code", None) if m.from_user else None
+    )
 
     # “бесконечность”: каждый раз новая комбинация
     await m.answer(generate_quote(lang))
-
 
 @router.message(F.text == BTN_BACK)
 async def motivation_back(m: Message):

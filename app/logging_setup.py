@@ -11,7 +11,9 @@ _chat_id: ContextVar[int | None] = ContextVar("chat_id", default=None)
 _update_id: ContextVar[int | None] = ContextVar("update_id", default=None)
 
 
-def set_log_context(tg_id: int | None = None, chat_id: int | None = None, update_id: int | None = None) -> None:
+def set_log_context(
+    tg_id: int | None = None, chat_id: int | None = None, update_id: int | None = None
+) -> None:
     _tg_id.set(tg_id)
     _chat_id.set(chat_id)
     _update_id.set(update_id)
@@ -21,7 +23,6 @@ def clear_log_context() -> None:
     _tg_id.set(None)
     _chat_id.set(None)
     _update_id.set(None)
-
 
 
 class JsonFormatter(logging.Formatter):
@@ -62,7 +63,6 @@ def setup_logging():
         return record
 
     logging.setLogRecordFactory(record_factory)
-
 
     level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)

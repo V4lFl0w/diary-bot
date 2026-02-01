@@ -1,0 +1,34 @@
+{
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "basic",
+  "venvPath": ".",
+  "venv": ".venv",
+  "include": ["app"],
+  "exclude": [
+    "**/*/.backup_*/**",
+    "**/.backup_*/**",
+    "**/.mypy_cache",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+    "**/.venv",
+    "**/_TRASH_*/**",
+    "**/__pycache__",
+    "**/_media_debug_pack/**",
+    "**/backups_*/**",
+    "**/migrations/**",
+    "**/node_modules",
+    "**/tools/**",
+    "**/tools/snapshots/**"
+  ],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": ["."],
+      "reportOptionalMemberAccess": "none",
+      "reportAttributeAccessIssue": "none",
+      "reportGeneralTypeIssues": "none"
+    }
+  ],
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": "none"
+}

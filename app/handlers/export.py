@@ -1,22 +1,21 @@
 from __future__ import annotations
 
+import gzip
 import io
 import json
-import gzip
 from datetime import datetime, timezone
 from typing import Optional
-
 from aiogram import Router
-from aiogram.filters import StateFilter, Command
-from aiogram.types import Message, BufferedInputFile
+from aiogram.filters import Command
+from aiogram.types import BufferedInputFile, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.user import User
+from app.models.bug_report import BugReport  # ВАЖНО: используем BugReport
 from app.models.journal import JournalEntry
 from app.models.reminder import Reminder
-from app.models.bug_report import BugReport  # ВАЖНО: используем BugReport
+from app.models.user import User
 
 router = Router()
 
@@ -36,7 +35,7 @@ _L10N = {
 }
 
 
-def _t(lang: str, key: str, fallback: dict) -> str:
+def _t(lang: Optional[str], key: str, fallback: dict) -> str:
     """Простой безопасный перевод для локальных _L10N:
     без зависимостей от _BAD_I18N и app.i18n.
     """
@@ -44,6 +43,8 @@ def _t(lang: str, key: str, fallback: dict) -> str:
     if loc == "ua":
         loc = "uk"
     return fallback.get(loc, fallback.get("ru", key))
+
+
 def _ser_dt(dt: Optional[datetime]) -> Optional[str]:
     """ISO8601 UTC, безопасно для naive/aware дат."""
     if not dt:
@@ -55,11 +56,16 @@ def _ser_dt(dt: Optional[datetime]) -> Optional[str]:
 
 @router.message(Command("export"))
 async def export_data(m: Message, session: AsyncSession):
+    if not m.from_user:
+        return
+
     # На проде можно выключать экспорт флагом
     if not settings.enable_exporter:
         # пытаемся показать на языке пользователя
         user_lang = getattr(getattr(m, "from_user", None), "language_code", None)
-        return await m.answer(_t(user_lang, "export_disabled", _L10N["export_disabled"]))
+        return await m.answer(
+            _t(user_lang, "export_disabled", _L10N["export_disabled"])
+        )
 
     # Ищем пользователя по Telegram ID
     user = (
@@ -71,24 +77,40 @@ async def export_data(m: Message, session: AsyncSession):
 
     # Забираем все данные пользователя
     entries = (
-        await session.execute(
-            select(JournalEntry)
-            .where(JournalEntry.user_id == user.id)
-            .order_by(JournalEntry.id)
+        (
+            await session.execute(
+                select(JournalEntry)
+                .where(JournalEntry.user_id == user.id)
+                .order_by(JournalEntry.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     reminders = (
-        await session.execute(
-            select(Reminder).where(Reminder.user_id == user.id).order_by(Reminder.id)
+        (
+            await session.execute(
+                select(Reminder)
+                .where(Reminder.user_id == user.id)
+                .order_by(Reminder.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     reports = (
-        await session.execute(
-            select(BugReport).where(BugReport.user_id == user.id).order_by(BugReport.id)
+        (
+            await session.execute(
+                select(BugReport)
+                .where(BugReport.user_id == user.id)
+                .order_by(BugReport.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     payload = {
         "user": {

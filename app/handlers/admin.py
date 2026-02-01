@@ -3,33 +3,37 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any, Iterable, Tuple
+from typing import Dict, Iterable, Tuple, Optional
 
-from aiogram import Router, F
-from aiogram.filters import Command
-from aiogram.types import (
-    Message,
-    CallbackQuery,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
-)
+from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-
-from sqlalchemy import select, func, text as sql_text, update
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
+from sqlalchemy import func, select, update
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.user import User
 from app.models.llm_usage import LLMUsage
-
-from app.services.admin_audit import log_admin_action
 from app.models.subscription import Subscription
-from app.services.subscriptions import get_current_subscription, sync_user_premium_flags
-from app.services.subscriptions import utcnow  # если нет — скажи, я под твой проект путь подстрою
+from app.models.user import User
+from app.services.admin_audit import log_admin_action
+from app.services.subscriptions import (
+    get_current_subscription,
+    sync_user_premium_flags,
+    utcnow,
+)  # если нет — скажи, я под твой проект путь подстрою
 
 # Если модель аналитики существует — используем её (ORM)
+from app.utils.aiogram_guards import cb_reply
+
 try:
     from app.models.event import AnalyticsEvent
 except Exception:  # pragma: no cover
@@ -214,6 +218,7 @@ TXT: Dict[str, Dict[str, str]] = {
 
 # -------------------- i18n --------------------
 
+
 def _normalize_lang(code: str | None) -> str:
     s = (code or "ru").strip().lower()
     if s.startswith(("ua", "uk")):
@@ -225,13 +230,14 @@ def _normalize_lang(code: str | None) -> str:
     return "ru"
 
 
-def _tr(l: str | None, key: str) -> str:
-    l2 = _normalize_lang(l)
+def _tr(lang: str | None, key: str) -> str:
+    lang2 = _normalize_lang(lang)
     block = TXT.get(key, {})
-    return block.get(l2) or block.get("ru") or key
+    return block.get(lang2) or block.get("ru") or key
 
 
 # -------------------- admin menu helper (ReplyKeyboard) --------------------
+
 
 def is_admin_btn(text: str) -> bool:
     t = (text or "").strip().lower()
@@ -247,9 +253,12 @@ def is_admin_btn(text: str) -> bool:
 
 # -------------------- admin check (единый) --------------------
 
+
 def _is_admin_by_settings(tg_id: int) -> bool:
     try:
-        return bool(getattr(settings, "bot_admin_tg_id", None)) and int(settings.bot_admin_tg_id) == int(tg_id)
+        return bool(getattr(settings, "bot_admin_tg_id", None)) and int(
+            settings.bot_admin_tg_id
+        ) == int(tg_id)
     except Exception:
         return False
 
@@ -265,7 +274,7 @@ def _is_admin_by_env(tg_id: int) -> bool:
         return False
 
 
-def is_admin(tg_id: int, user: Optional[User] = None) -> bool:
+def is_admin(tg_id: int, user: User | None = None) -> bool:
     # 1) флаг в базе
     if user is not None and bool(getattr(user, "is_admin", False)):
         return True
@@ -284,19 +293,21 @@ def is_admin_tg(tg_id: int) -> bool:
 
 # -------------------- db helpers --------------------
 
-async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
+
+async def _get_user(session: AsyncSession, tg_id: int) -> User | None:
     q = (
         select(User)
         .where(User.tg_id == tg_id)
         .execution_options(populate_existing=True)
     )
-    return (await session.execute(q)).scalar_one_or_none()
+    res = await session.execute(q)
+    return res.scalars().one_or_none()
 
 
-def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
+def _user_lang(user: User | None, tg_lang: Optional[str]) -> str:
     raw = (
-        getattr(user, "locale", None)
-        or getattr(user, "lang", None)
+        (getattr(user, "locale", None) if user else None)
+        or (getattr(user, "lang", None) if user else None)
         or tg_lang
         or getattr(settings, "default_locale", None)
         or "ru"
@@ -306,31 +317,55 @@ def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
 
 # -------------------- UI --------------------
 
-def _admin_kb(l: str) -> InlineKeyboardMarkup:
+
+def _admin_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=_tr(l, "btn_self"), callback_data="admin:premium_self")],
             [
-                InlineKeyboardButton(text=_tr(l, "btn_give"), callback_data="admin:premium_user"),
-                InlineKeyboardButton(text=_tr(l, "btn_reset"), callback_data="admin:premium_reset"),
-            ],
-            [InlineKeyboardButton(text=_tr(l, "btn_analytics"), callback_data="admin:analytics_7d")],
-            [
-                InlineKeyboardButton(text=_tr(l, "btn_users"), callback_data="admin:users_7d"),
-                InlineKeyboardButton(text=_tr(l, "btn_users_all"), callback_data="admin:users_all"),
+                InlineKeyboardButton(
+                    text=_tr(lang, "btn_self"), callback_data="admin:premium_self"
+                )
             ],
             [
-                InlineKeyboardButton(text=_tr(l, "btn_find_user"), callback_data="admin:user_find"),
+                InlineKeyboardButton(
+                    text=_tr(lang, "btn_give"), callback_data="admin:premium_user"
+                ),
+                InlineKeyboardButton(
+                    text=_tr(lang, "btn_reset"), callback_data="admin:premium_reset"
+                ),
             ],
             [
-                InlineKeyboardButton(text=_tr(l, "btn_ban"), callback_data="admin:ban"),
-                InlineKeyboardButton(text=_tr(l, "btn_unban"), callback_data="admin:unban"),
+                InlineKeyboardButton(
+                    text=_tr(lang, "btn_analytics"), callback_data="admin:analytics_7d"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=_tr(lang, "btn_users"), callback_data="admin:users_7d"
+                ),
+                InlineKeyboardButton(
+                    text=_tr(lang, "btn_users_all"), callback_data="admin:users_all"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=_tr(lang, "btn_find_user"), callback_data="admin:user_find"
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=_tr(lang, "btn_ban"), callback_data="admin:ban"
+                ),
+                InlineKeyboardButton(
+                    text=_tr(lang, "btn_unban"), callback_data="admin:unban"
+                ),
             ],
         ]
     )
 
 
 # -------------------- FSM --------------------
+
 
 class AdminStates(StatesGroup):
     wait_give_id = State()
@@ -356,12 +391,15 @@ VALUE_EVENTS = {
     "premium_click",
 }
 
+
 def _is_system_event(name: str) -> bool:
     n = (name or "").strip().lower()
     return (n in SYSTEM_EVENTS) or n.startswith(("test_", "system_"))
 
 
-def _take_top(rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3) -> list[Tuple[str, int]]:
+def _take_top(
+    rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3
+) -> list[Tuple[str, int]]:
     out: list[Tuple[str, int]] = []
     for e, c in rows:
         if e in allowed:
@@ -373,17 +411,23 @@ def _take_top(rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3
 
 # -------------------- premium ops --------------------
 
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 CB_GIVE_TIER = "give_tier:"  # admin:give_tier:<user_id>:<tier>
 
-def _kb_give_tier(l: str, user_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="💎 BASIC", callback_data=f"{CB_GIVE_TIER}{user_id}:basic"),
-            InlineKeyboardButton(text="👑 PRO", callback_data=f"{CB_GIVE_TIER}{user_id}:pro"),
+
+def _kb_give_tier(lang: str, user_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💎 BASIC", callback_data=f"{CB_GIVE_TIER}{user_id}:basic"
+                ),
+                InlineKeyboardButton(
+                    text="👑 PRO", callback_data=f"{CB_GIVE_TIER}{user_id}:pro"
+                ),
+            ]
         ]
-    ])
+    )
 
 
 def _apply_premium(user: User, hours: int = 24) -> None:
@@ -420,8 +464,6 @@ def _reset_premium(user: User) -> None:
         setattr(user, "premium_plan", "basic")
     except Exception:
         pass
-
-
 
     if hasattr(user, "premium_until"):
         try:
@@ -483,7 +525,10 @@ def _is_banned(user: User) -> bool:
 
 # -------------------- entrypoints --------------------
 
-async def _show_admin_panel(m: Message, session: AsyncSession, state: FSMContext) -> None:
+
+async def _show_admin_panel(
+    m: Message, session: AsyncSession, state: FSMContext
+) -> None:
     if not m.from_user:
         return
     user = await _get_user(session, m.from_user.id)
@@ -492,9 +537,9 @@ async def _show_admin_panel(m: Message, session: AsyncSession, state: FSMContext
 
     await state.clear()
 
-    l = _user_lang(user, getattr(m.from_user, "language_code", None))
-    text = f"{_tr(l, 'title')}\n\n{_tr(l, 'list')}"
-    await m.answer(text, reply_markup=_admin_kb(l))
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None))
+    text = f"{_tr(lang, 'title')}\n\n{_tr(lang, 'list')}"
+    await m.answer(text, reply_markup=_admin_kb(lang))
 
 
 @router.message(Command("admin"))
@@ -509,8 +554,11 @@ async def admin_btn_open(m: Message, session: AsyncSession, state: FSMContext) -
 
 # -------------------- callbacks --------------------
 
+
 @router.callback_query(F.data.startswith("admin:"))
-async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+async def on_admin_cb(
+    c: CallbackQuery, session: AsyncSession, state: FSMContext
+) -> None:
     me = await _get_user(session, c.from_user.id)
     if not is_admin(c.from_user.id, me):
         try:
@@ -524,13 +572,13 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
     except TelegramBadRequest:
         pass
 
-    l = _user_lang(me, getattr(c.from_user, "language_code", None))
+    lang = _user_lang(me, getattr(c.from_user, "language_code", None))
     action = (c.data or "").split("admin:", 1)[1].strip()
 
     # --- give self ---
     if action == "premium_self":
         if not me:
-            me = User(tg_id=c.from_user.id, locale=l, lang=l)
+            me = User(tg_id=c.from_user.id, locale=lang, lang=lang)
             session.add(me)
             await session.flush()
 
@@ -543,24 +591,24 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             admin_tg_id=c.from_user.id,
             action="premium_self",
             target_tg_id=c.from_user.id,
-)
+        )
 
         if c.message:
-            await c.message.answer(_tr(l, "done_self"))
+            await cb_reply(c, _tr(lang, "done_self"))
         return
 
     # --- give user ---
     if action == "premium_user":
         await state.set_state(AdminStates.wait_give_id)
         if c.message:
-            await c.message.answer(_tr(l, "ask_id_give"))
+            await cb_reply(c, _tr(lang, "ask_id_give"))
         return
 
     # --- reset user ---
     if action == "premium_reset":
         await state.set_state(AdminStates.wait_reset_id)
         if c.message:
-            await c.message.answer(_tr(l, "ask_id_reset"))
+            await cb_reply(c, _tr(lang, "ask_id_reset"))
         return
 
     # --- analytics (7d dashboard) ---
@@ -577,6 +625,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 )
             ).all()
 
+            raw_rows = [tuple(r) for r in raw_rows]
             active_users = (
                 await session.execute(
                     select(func.count(func.distinct(AnalyticsEvent.user_id)))
@@ -598,6 +647,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 )
             ).all()
 
+            raw_rows = [tuple(r) for r in raw_rows]
             active_users = (
                 await session.execute(
                     sql_text(
@@ -610,11 +660,13 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             ).scalar_one()
 
         # фильтр системных
-        rows: list[Tuple[str, int]] = [(str(e), int(cnt)) for (e, cnt) in raw_rows if not _is_system_event(str(e))]
+        rows = [
+            (str(e), int(cnt)) for (e, cnt) in raw_rows if not _is_system_event(str(e))
+        ]
 
         if not rows:
             if c.message:
-                await c.message.answer(_tr(l, "analytics_empty"))
+                await cb_reply(c, _tr(lang, "analytics_empty"))
             return
 
         top_value = _take_top(rows, VALUE_EVENTS, limit=3)
@@ -625,7 +677,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
         rest = [(e, cnt) for (e, cnt) in rows if (e, cnt) not in top_value][:10]
 
         lines = [
-            _tr(l, "analytics_title"),
+            _tr(lang, "analytics_title"),
             f"• active_users_7d: {int(active_users or 0)}",
             "",
             "🏆 Top-3:",
@@ -692,7 +744,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 "🧠 LLM usage (7d):",
                 f"• requests: {int(n or 0)}",
                 f"• tokens: {int(total or 0)} (in {int(inp or 0)} / out {int(out or 0)})",
-                f"• cost: ${float(cost or 0)/1_000_000:.4f}",
+                f"• cost: ${float(cost or 0) / 1_000_000:.4f}",
             ]
 
             q2 = (
@@ -712,7 +764,9 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             if top:
                 lines += ["", "Топ LLM (feature:model):"]
                 for feature, model, req, tok, cost in top:
-                    lines.append(f"• {feature}:{model} — {int(req)} req | {int(tok)} tok | ${float(cost or 0)/1_000_000:.4f}")
+                    lines.append(
+                        f"• {feature}:{model} — {int(req)} req | {int(tok)} tok | ${float(cost or 0) / 1_000_000:.4f}"
+                    )
         except Exception:
             # не ломаем админку из-за аналитики
             try:
@@ -721,11 +775,9 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 pass
             lines += ["", "🧠 LLM usage (7d): (нет данных)"]
 
-
         if c.message:
-            await c.message.answer("\n".join(lines))
+            await cb_reply(c, "\n".join(lines))
         return
-
 
     # --- users all (latest) ---
     if action == "users_all":
@@ -747,35 +799,46 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             )
         ).all()
 
+        rows = [tuple(r) for r in rows]
         if not rows:
             if c.message:
-                await c.message.answer("Users: empty")
+                await cb_reply(c, "Users: empty")
             return
 
         now = datetime.now(timezone.utc)
         lines = ["👥 Users (ALL): (latest 60)"]
-        for tg_id, uid, username, loc, langx, last_seen_at, is_prem, prem_until, prem_plan in rows:
+        for (
+            tg_id,
+            uid,
+            username,
+            loc,
+            langx,
+            last_seen_at,
+            is_prem,
+            prem_until,
+            prem_plan,
+        ) in rows:
             prem_by_time = False
             try:
                 if prem_until is not None:
                     pu = prem_until
-                    if getattr(pu, 'tzinfo', None) is None:
+                    if getattr(pu, "tzinfo", None) is None:
                         pu = pu.replace(tzinfo=timezone.utc)
                     prem_by_time = pu > now
             except Exception:
                 prem_by_time = False
 
-            prem_flag = '💎' if prem_by_time else ''
-            uname = (username or '').strip().lstrip('@')
+            prem_flag = "💎" if prem_by_time else ""
+            uname = (username or "").strip().lstrip("@")
             link = f"https://t.me/{uname}" if uname else f"tg://user?id={tg_id}"
-            loc2 = (loc or langx or '-')
+            loc2 = loc or langx or "-"
             lines.append(
                 f"• {prem_flag} tg_id={tg_id} | user_id={uid} | @{uname or '-'} | plan={prem_plan} | "
                 f"is_premium_flag={bool(is_prem)} | premium_until={prem_until} | last_seen={last_seen_at} | {loc2} | {link}"
             )
 
         if c.message:
-            await c.message.answer("\n".join(lines))
+            await cb_reply(c, "\n".join(lines))
         return
 
     # --- users active 7d ---
@@ -798,6 +861,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                     {"since": since.isoformat()},
                 )
             ).all()
+            rows = [tuple(r) for r in rows]
         else:
             rows = (
                 await session.execute(
@@ -817,15 +881,26 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                     .join(AnalyticsEvent, AnalyticsEvent.user_id == User.id)
                     .where(AnalyticsEvent.ts >= since)
                     .where(AnalyticsEvent.user_id.is_not(None))
-                    .group_by(User.tg_id, User.id, User.username, User.locale, User.lang, User.last_seen_at, User.is_premium, User.premium_until, User.premium_plan)
+                    .group_by(
+                        User.tg_id,
+                        User.id,
+                        User.username,
+                        User.locale,
+                        User.lang,
+                        User.last_seen_at,
+                        User.is_premium,
+                        User.premium_until,
+                        User.premium_plan,
+                    )
                     .order_by(func.max(AnalyticsEvent.ts).desc())
                     .limit(30)
                 )
             ).all()
 
+            rows = [tuple(r) for r in rows]
         if not rows:
             if c.message:
-                await c.message.answer(_tr(l, "users_empty"))
+                await cb_reply(c, _tr(lang, "users_empty"))
             return
 
         lines = ["👥 Active users (7d):"]
@@ -835,26 +910,46 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
         for row in rows:
             # поддержим оба формата: tuple или RowMapping
             if isinstance(row, (tuple, list)):
-                tg_id, uid, username, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_ts, cnt = row
+                (
+                    tg_id,
+                    uid,
+                    username,
+                    loc,
+                    langx,
+                    last_seen_at,
+                    is_prem,
+                    prem_until,
+                    prem_plan,
+                    last_ts,
+                    cnt,
+                ) = row
             else:
-                tg_id = row[0]; uid = row[1]; username = row[2]; loc = row[3]; langx = row[4]
-                last_seen_at = row[5]; is_prem = row[6]; prem_until = row[7]; prem_plan = row[8]
-                last_ts = row[9]; cnt = row[10]
+                tg_id = row[0]
+                uid = row[1]
+                username = row[2]
+                loc = row[3]
+                langx = row[4]
+                last_seen_at = row[5]
+                is_prem = row[6]
+                prem_until = row[7]
+                prem_plan = row[8]
+                last_ts = row[9]
+                cnt = row[10]
 
             prem_by_time = False
             try:
                 if prem_until is not None:
                     pu = prem_until
-                    if getattr(pu, 'tzinfo', None) is None:
+                    if getattr(pu, "tzinfo", None) is None:
                         pu = pu.replace(tzinfo=timezone.utc)
                     prem_by_time = pu > now
             except Exception:
                 prem_by_time = False
 
-            prem_flag = '💎' if prem_by_time else ''
-            uname = (username or '').strip().lstrip('@')
+            prem_flag = "💎" if prem_by_time else ""
+            uname = (username or "").strip().lstrip("@")
             link = f"https://t.me/{uname}" if uname else f"tg://user?id={tg_id}"
-            loc2 = (loc or langx or '-')
+            loc2 = loc or langx or "-"
 
             lines.append(
                 f"• {prem_flag} tg_id={tg_id} | user_id={uid} | @{uname or '-'} | plan={prem_plan} | "
@@ -862,31 +957,32 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             )
 
         if c.message:
-            await c.message.answer("\n".join(lines))
+            await cb_reply(c, "\n".join(lines))
         return
 
     # --- find user card ---
     if action == "user_find":
         await state.set_state(AdminStates.wait_find_id)
         if c.message:
-            await c.message.answer(_tr(l, "ask_id_find"))
+            await cb_reply(c, _tr(lang, "ask_id_find"))
         return
 
     # --- ban/unban ---
     if action == "ban":
         await state.set_state(AdminStates.wait_ban_id)
         if c.message:
-            await c.message.answer(_tr(l, "ask_id_ban"))
+            await cb_reply(c, _tr(lang, "ask_id_ban"))
         return
 
     if action == "unban":
         await state.set_state(AdminStates.wait_unban_id)
         if c.message:
-            await c.message.answer(_tr(l, "ask_id_unban"))
+            await cb_reply(c, _tr(lang, "ask_id_unban"))
         return
 
 
 # -------------------- FSM steps --------------------
+
 
 @router.message(AdminStates.wait_give_id)
 async def on_give_id(m: Message, session: AsyncSession, state: FSMContext) -> None:
@@ -895,34 +991,38 @@ async def on_give_id(m: Message, session: AsyncSession, state: FSMContext) -> No
         await state.clear()
         return
 
-    l = _user_lang(me, getattr(m.from_user, "language_code", None))
+    lang = _user_lang(me, getattr(m.from_user, "language_code", None))
 
     try:
         tg_id = int((m.text or "").strip())
     except Exception:
-        await m.answer(_tr(l, "bad_id"))
+        await m.answer(_tr(lang, "bad_id"))
         return
 
     user = await _get_user(session, tg_id)
     if not user:
-        await m.answer(_tr(l, "user_not_found"))
+        await m.answer(_tr(lang, "user_not_found"))
         await state.clear()
         return
-    await m.answer("Выбери, какой Premium выдать:", reply_markup=_kb_give_tier(l, user.id))
+    await m.answer(
+        "Выбери, какой Premium выдать:", reply_markup=_kb_give_tier(lang, user.id)
+    )
     return
 
 
 @router.callback_query(F.data.startswith(CB_GIVE_TIER))
-async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+async def on_give_tier(
+    c: CallbackQuery, session: AsyncSession, state: FSMContext
+) -> None:
     me = await _get_user(session, c.from_user.id)
     if not is_admin(c.from_user.id, me):
         await state.clear()
         await c.answer("not allowed", show_alert=True)
         return
 
-    l = _user_lang(me, getattr(c.from_user, "language_code", None))
+    lang = _user_lang(me, getattr(c.from_user, "language_code", None))
 
-    raw = (c.data or "")[len(CB_GIVE_TIER):]
+    raw = (c.data or "")[len(CB_GIVE_TIER) :]
     try:
         user_id_str, tier = raw.split(":", 1)
         user_id = int(user_id_str)
@@ -937,7 +1037,7 @@ async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContex
 
     user = await session.get(User, user_id)
     if not user:
-        await c.answer(_tr(l, "user_not_found"), show_alert=True)
+        await c.answer(_tr(lang, "user_not_found"), show_alert=True)
         return
 
     now = utcnow()
@@ -951,13 +1051,13 @@ async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContex
             base_from = now
         existing_sub.expires_at = base_from + timedelta(days=1)  # 24h
         existing_sub.auto_renew = False
-        existing_sub.plan = tier   # 'basic' или 'pro'
+        existing_sub.plan = tier  # 'basic' или 'pro'
         existing_sub.source = "admin"
         session.add(existing_sub)
     else:
         sub = Subscription(
             user_id=user.id,
-            plan=tier,              # 'basic' или 'pro'
+            plan=tier,  # 'basic' или 'pro'
             status="active",
             started_at=now,
             expires_at=now + timedelta(days=1),
@@ -983,9 +1083,11 @@ async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContex
     except Exception:
         pass
 
-    await c.message.answer(f"Done ✅ Premium {tier.upper()} granted to the user.")
+    await cb_reply(c, f"Done ✅ Premium {tier.upper()} granted to the user.")
     await c.answer()
     await state.clear()
+
+
 @router.message(AdminStates.wait_reset_id)
 async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> None:
     # safety: если в сессии до этого был exception во flush/commit — чистим состояние
@@ -999,17 +1101,17 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
         await state.clear()
         return
 
-    l = _user_lang(me, getattr(m.from_user, "language_code", None))
+    lang = _user_lang(me, getattr(m.from_user, "language_code", None))
 
     try:
         tg_id = int((m.text or "").strip())
     except Exception:
-        await m.answer(_tr(l, "bad_id"))
+        await m.answer(_tr(lang, "bad_id"))
         return
 
     user = await _get_user(session, tg_id)
     if not user:
-        await m.answer(_tr(l, "user_not_found"))
+        await m.answer(_tr(lang, "user_not_found"))
         await state.clear()
         return
 
@@ -1052,8 +1154,9 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
             pass
         raise
 
-    await m.answer(_tr(l, "done_reset"))
+    await m.answer(_tr(lang, "done_reset"))
     await state.clear()
+
 
 @router.message(AdminStates.wait_find_id)
 async def on_find_id(m: Message, session: AsyncSession, state: FSMContext) -> None:
@@ -1062,17 +1165,17 @@ async def on_find_id(m: Message, session: AsyncSession, state: FSMContext) -> No
         await state.clear()
         return
 
-    l = _user_lang(me, getattr(m.from_user, "language_code", None))
+    lang = _user_lang(me, getattr(m.from_user, "language_code", None))
 
     try:
         tg_id = int((m.text or "").strip())
     except Exception:
-        await m.answer(_tr(l, "bad_id"))
+        await m.answer(_tr(lang, "bad_id"))
         return
 
     u = await _get_user(session, tg_id)
     if not u:
-        await m.answer(_tr(l, "user_not_found"))
+        await m.answer(_tr(lang, "user_not_found"))
         await state.clear()
         return
 
@@ -1092,24 +1195,29 @@ async def on_find_id(m: Message, session: AsyncSession, state: FSMContext) -> No
 
     is_prem = bool(getattr(u, "is_premium", False)) or prem_until_ok
 
-    text = "\n".join([
-        _tr(l, "user_card_title"),
-        f"• tg_id: {tg_id}",
-        f"• link: {link}",
-        f"• user_id: {getattr(u, 'id', '-')}",
-        f"• username: @{getattr(u, 'username', '')}" if getattr(u, "username", None) else "• username: -",
-        f"• locale: {getattr(u, 'locale', '-')}",
-        f"• tz: {getattr(u, 'tz', '-')}",
-        f"• last_seen_at: {getattr(u, 'last_seen_at', None)}",
-        f"• is_admin: {bool(getattr(u, 'is_admin', False))}",
-        f"• premium_plan: {getattr(u, 'premium_plan', 'basic') or 'basic'}",
-        f"• is_premium: {is_prem}",
-        f"• premium_until: {getattr(u, 'premium_until', None)}",
-        f"• banned: {_is_banned(u)}",
-    ])
+    text = "\n".join(
+        [
+            _tr(lang, "user_card_title"),
+            f"• tg_id: {tg_id}",
+            f"• link: {link}",
+            f"• user_id: {getattr(u, 'id', '-')}",
+            f"• username: @{getattr(u, 'username', '')}"
+            if getattr(u, "username", None)
+            else "• username: -",
+            f"• locale: {getattr(u, 'locale', '-')}",
+            f"• tz: {getattr(u, 'tz', '-')}",
+            f"• last_seen_at: {getattr(u, 'last_seen_at', None)}",
+            f"• is_admin: {bool(getattr(u, 'is_admin', False))}",
+            f"• premium_plan: {getattr(u, 'premium_plan', 'basic') or 'basic'}",
+            f"• is_premium: {is_prem}",
+            f"• premium_until: {getattr(u, 'premium_until', None)}",
+            f"• banned: {_is_banned(u)}",
+        ]
+    )
 
     await m.answer(text)
     await state.clear()
+
 
 @router.message(AdminStates.wait_ban_id)
 async def on_ban_id(m: Message, session: AsyncSession, state: FSMContext) -> None:
@@ -1118,28 +1226,28 @@ async def on_ban_id(m: Message, session: AsyncSession, state: FSMContext) -> Non
         await state.clear()
         return
 
-    l = _user_lang(me, getattr(m.from_user, "language_code", None))
+    lang = _user_lang(me, getattr(m.from_user, "language_code", None))
 
     try:
         tg_id = int((m.text or "").strip())
     except Exception:
-        await m.answer(_tr(l, "bad_id"))
+        await m.answer(_tr(lang, "bad_id"))
         return
 
     u = await _get_user(session, tg_id)
     if not u:
-        await m.answer(_tr(l, "user_not_found"))
+        await m.answer(_tr(lang, "user_not_found"))
         await state.clear()
         return
 
     if not _ban_supported(u):
-        await m.answer(_tr(l, "ban_unavailable"))
+        await m.answer(_tr(lang, "ban_unavailable"))
         await state.clear()
         return
 
     ok = _set_ban(u, True)
     if not ok:
-        await m.answer(_tr(l, "ban_unavailable"))
+        await m.answer(_tr(lang, "ban_unavailable"))
         await state.clear()
         return
 
@@ -1154,7 +1262,7 @@ async def on_ban_id(m: Message, session: AsyncSession, state: FSMContext) -> Non
         target_tg_id=tg_id,
     )
 
-    await m.answer(_tr(l, "ban_done"))
+    await m.answer(_tr(lang, "ban_done"))
     await state.clear()
 
 
@@ -1165,28 +1273,28 @@ async def on_unban_id(m: Message, session: AsyncSession, state: FSMContext) -> N
         await state.clear()
         return
 
-    l = _user_lang(me, getattr(m.from_user, "language_code", None))
+    lang = _user_lang(me, getattr(m.from_user, "language_code", None))
 
     try:
         tg_id = int((m.text or "").strip())
     except Exception:
-        await m.answer(_tr(l, "bad_id"))
+        await m.answer(_tr(lang, "bad_id"))
         return
 
     u = await _get_user(session, tg_id)
     if not u:
-        await m.answer(_tr(l, "user_not_found"))
+        await m.answer(_tr(lang, "user_not_found"))
         await state.clear()
         return
 
     if not _ban_supported(u):
-        await m.answer(_tr(l, "ban_unavailable"))
+        await m.answer(_tr(lang, "ban_unavailable"))
         await state.clear()
         return
 
     ok = _set_ban(u, False)
     if not ok:
-        await m.answer(_tr(l, "ban_unavailable"))
+        await m.answer(_tr(lang, "ban_unavailable"))
         await state.clear()
         return
 
@@ -1201,7 +1309,7 @@ async def on_unban_id(m: Message, session: AsyncSession, state: FSMContext) -> N
         target_tg_id=tg_id,
     )
 
-    await m.answer(_tr(l, "unban_done"))
+    await m.answer(_tr(lang, "unban_done"))
     await state.clear()
 
 

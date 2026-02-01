@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 
+
 async def is_policy_accepted(session: AsyncSession | None, tg_id: int) -> bool:
     if session is None:
         return False

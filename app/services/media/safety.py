@@ -3,10 +3,6 @@ from __future__ import annotations
 # app/services/assistant.py
 
 
-
-
-
-
 _EXPLICIT_OVERVIEW_WORDS = (
     # EN
     "sex",
@@ -41,9 +37,11 @@ _EXPLICIT_OVERVIEW_WORDS = (
     "desnuda",
 )
 
+
 def _is_explicit_text(t: str) -> bool:
     tl = (t or "").lower()
     return any(w in tl for w in _EXPLICIT_OVERVIEW_WORDS)
+
 
 def _scrub_media_item(it: dict) -> dict:
     # do not mutate original dict aggressively
@@ -57,12 +55,14 @@ def _scrub_media_item(it: dict) -> dict:
         it["overview"] = ""
     return it
 
+
 def _is_explicit_title(item: dict) -> bool:
     try:
         title = str(item.get("title") or item.get("name") or "")
     except Exception:
         return False
     return _is_explicit_text(title)
+
 
 def _scrub_media_items(items: list[dict]) -> list[dict]:
     out = []

@@ -1,5 +1,6 @@
 
-import sys, struct, io, re
+import sys
+import struct
 def parse_po(po_text:str):
     msgs = {}
     msgid = None

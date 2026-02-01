@@ -1,10 +1,10 @@
 # app/services/reminders.py
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
@@ -13,9 +13,8 @@ except Exception:  # fallback-стаб, чтобы не падать
     croniter = None  # type: ignore
 
 # Модели
-from app.models.user import User
 from app.models.reminder import Reminder
-
+from app.models.user import User
 
 # ---------- i18n мини-набор ----------
 _TEXT = {

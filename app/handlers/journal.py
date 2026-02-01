@@ -1,49 +1,79 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, cast
+from typing import cast, Optional
 
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
+from sqlalchemy import func, select
+from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text as sql_text
 
-from app.models.user import User
-from app.models.journal import JournalEntry
 from app.keyboards import (
     get_main_kb,
-    is_journal_add_btn,
     is_history_btn,
+    is_journal_add_btn,
+    is_range_btn,
+    is_search_btn,
+    is_stats_btn,
     is_today_btn,
     is_week_btn,
-    is_search_btn,
-    is_range_btn,
-    is_stats_btn,
 )
+from app.models.journal import JournalEntry
+from app.models.user import User
 
 # premium trial hook (мягкий, не ломаем если модуля нет)
+# premium trial hook (shim; always returns bool)
 try:
-    from app.handlers.premium import maybe_grant_trial
+    from app.handlers.premium import maybe_grant_trial as _maybe_grant_trial  # type: ignore
 except Exception:
-    async def maybe_grant_trial(*a, **k):
+    _maybe_grant_trial = None  # type: ignore
+
+
+async def maybe_grant_trial(*a, **k) -> bool:
+    """Safe wrapper: imported func may return None/bool."""
+    fn = _maybe_grant_trial
+    if not fn:
+        return False
+    try:
+        res = await fn(*a, **k)
+        return bool(res) if res is not None else False
+    except Exception:
         return False
 
 # feature-gates
+# feature-gates (shim; always returns bool)
 try:
-    from app.services.features_v2 import require_feature_v2
+    from app.services.features_v2 import require_feature_v2 as _require_feature_v2  # type: ignore
 except Exception:
-    async def require_feature_v2(*a, **k):
-        return True
+    _require_feature_v2 = None  # type: ignore
 
+
+async def require_feature_v2(*a, **k) -> bool:
+    """Safe wrapper: imported func should return bool, but keep it robust."""
+    fn = _require_feature_v2
+    if not fn:
+        return True
+    try:
+        res = await fn(*a, **k)
+        return bool(res)
+    except Exception:
+        return True
 
 router = Router(name="journal")
 
 
 class JournalFSM(StatesGroup):
     waiting_text = State()
+
 
 class JournalSearch(StatesGroup):
     waiting_query = State()
@@ -71,10 +101,10 @@ def _normalize_lang(code: Optional[str]) -> str:
 
 
 def _tr(lang: Optional[str], ru: str, uk: str, en: str) -> str:
-    l = _normalize_lang(lang)
-    if l == "uk":
+    lng = _normalize_lang(lang)
+    if lng == "uk":
         return uk
-    if l == "en":
+    if lng == "en":
         return en
     return ru
 
@@ -87,10 +117,7 @@ async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
 
 def _user_lang(user: Optional[User], fallback: Optional[str]) -> str:
     raw = (
-        getattr(user, "locale", None)
-        or getattr(user, "lang", None)
-        or fallback
-        or "ru"
+        getattr(user, "locale", None) or getattr(user, "lang", None) or fallback or "ru"
     )
     return _normalize_lang(str(raw))
 
@@ -99,10 +126,11 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _user_tz(user: Optional[User]):
+def _user_tz(user: User):
     tz_name = getattr(user, "tz", None) or "Europe/Kyiv"
     try:
         from zoneinfo import ZoneInfo
+
         return ZoneInfo(tz_name)
     except Exception:
         return timezone.utc
@@ -135,6 +163,7 @@ def _is_premium_user(user: Optional[User]) -> bool:
             # поддержка "YYYY-MM-DD HH:MM:SS.ffffff"
             pu = pu.replace("Z", "+00:00").replace(" ", "T", 1)
             from datetime import datetime as _dt
+
             pu = _dt.fromisoformat(pu)
 
         if getattr(pu, "tzinfo", None) is None:
@@ -149,7 +178,8 @@ def _is_premium_user(user: Optional[User]) -> bool:
 try:
     from app.handlers.admin import is_admin_tg  # type: ignore
 except Exception:  # pragma: no cover
-    def is_admin_tg(_: int) -> bool:
+
+    def is_admin_tg(tg_id: int, /) -> bool:
         return False
 
 
@@ -171,7 +201,9 @@ def _is_admin_user(user: Optional[User], tg_id: Optional[int] = None) -> bool:
         return False
 
 
-def _main_kb_for(user: Optional[User], lang: str, *, tg_id: Optional[int] = None, is_premium=None):
+def _main_kb_for(
+    user: Optional[User], lang: str, *, tg_id: Optional[int] = None, is_premium=None
+):
     """
     Безопасный вызов get_main_kb:
     - премиум считаем по _is_premium_user(user)
@@ -209,6 +241,7 @@ def _policy_ok(user: Optional[User]) -> bool:
 
 
 # -------------------- базовые команды/кнопки --------------------
+
 
 @router.message(Command("journal"))
 @router.message(F.text.func(is_journal_add_btn))
@@ -305,7 +338,9 @@ async def journal_save(
                 "Потрібно прийняти політику: натисни 🔒 Політика",
                 "You need to accept the policy: tap 🔒 Privacy",
             ),
-            reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id, is_premium=is_premium),
+            reply_markup=_main_kb_for(
+                user, loc, tg_id=m.from_user.id, is_premium=is_premium
+            ),
         )
         return
 
@@ -353,11 +388,14 @@ async def journal_save(
             "Quick actions are in the menu.\n"
             "Premium expands: search, ranges, extended history and stats.",
         ),
-        reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id, is_premium=is_premium),
+        reply_markup=_main_kb_for(
+            user, loc, tg_id=m.from_user.id, is_premium=is_premium
+        ),
     )
 
 
 # -------------------- stats --------------------
+
 
 @router.message(Command("stats"))
 @router.message(F.text.func(is_stats_btn))
@@ -370,7 +408,6 @@ async def journal_stats(
         return
     user = await _get_user(session, m.from_user.id)
     loc = _user_lang(user, lang)
-
 
     is_admin = _is_admin_user(user, tg_id=m.from_user.id)
     if not user:
@@ -411,10 +448,35 @@ async def journal_stats(
         ).scalar_one_or_none()
 
         if has_analytics:
-            cols = [r[1] for r in (await session.execute(sql_text("PRAGMA table_info(analytics_events);"))).all()]
-            col_tg = "tg_id" if "tg_id" in cols else ("user_id" if "user_id" in cols else None)
-            col_name = "name" if "name" in cols else ("event" if "event" in cols else ("event_name" if "event_name" in cols else None))
-            col_created = "created_at" if "created_at" in cols else ("ts" if "ts" in cols else ("created" if "created" in cols else None))
+            cols = [
+                r[1]
+                for r in (
+                    await session.execute(
+                        sql_text("PRAGMA table_info(analytics_events);")
+                    )
+                ).all()
+            ]
+            col_tg = (
+                "tg_id"
+                if "tg_id" in cols
+                else ("user_id" if "user_id" in cols else None)
+            )
+            col_name = (
+                "name"
+                if "name" in cols
+                else (
+                    "event"
+                    if "event" in cols
+                    else ("event_name" if "event_name" in cols else None)
+                )
+            )
+            col_created = (
+                "created_at"
+                if "created_at" in cols
+                else (
+                    "ts" if "ts" in cols else ("created" if "created" in cols else None)
+                )
+            )
 
             if col_tg and col_name and col_created:
                 active_7d = (
@@ -459,7 +521,6 @@ async def journal_stats(
                             block.append(f"• {n}: {c}")
 
                 if is_admin:
-
                     parts.append("\n".join(block))
     except Exception:
         try:
@@ -494,11 +555,11 @@ async def journal_stats(
             mp = {str(n): int(c) for (n, c) in rows}
             if is_admin:
                 parts.append(
-                "🎁 Trial (7d):\n"
-                f"• trial_click: {mp.get('trial_click', 0)}\n"
-                f"• trial_granted: {mp.get('trial_granted', 0)}\n"
-                f"• trial_denied: {mp.get('trial_denied', 0)}"
-            )
+                    "🎁 Trial (7d):\n"
+                    f"• trial_click: {mp.get('trial_click', 0)}\n"
+                    f"• trial_granted: {mp.get('trial_granted', 0)}\n"
+                    f"• trial_denied: {mp.get('trial_denied', 0)}"
+                )
     except Exception:
         try:
             await session.rollback()
@@ -515,7 +576,6 @@ async def journal_stats(
         # покажем ошибку прямо в телегу, чтобы не гадать
         await m.answer("❌ /stats send failed: " + repr(e))
         raise
-
 
 
 @router.message(Command("today"))
@@ -580,6 +640,7 @@ async def journal_today(
 
 # -------------------- history --------------------
 
+
 @router.message(Command("history"))
 @router.message(F.text.func(is_history_btn))
 async def journal_history(
@@ -614,10 +675,20 @@ async def journal_history(
 
     await _render_history(m, session, user, loc, offset=0, limit=limit, edit=False)
 
+
 # -------------------- history ui --------------------
 
 
-async def _render_history(m: Message, session: AsyncSession, user: User, loc: str, *, offset: int, limit: int, edit: bool) -> None:
+async def _render_history(
+    m: Message,
+    session: AsyncSession,
+    user: User,
+    loc: str,
+    *,
+    offset: int,
+    limit: int,
+    edit: bool,
+) -> None:
     total = (
         await session.execute(
             select(func.count())
@@ -669,9 +740,9 @@ async def _render_history(m: Message, session: AsyncSession, user: User, loc: st
 
     header = _tr(
         loc,
-        f"🕘 История ({offset+1}-{min(offset+limit,total)} из {total})",
-        f"🕘 Історія ({offset+1}-{min(offset+limit,total)} із {total})",
-        f"🕘 History ({offset+1}-{min(offset+limit,total)} of {total})",
+        f"🕘 История ({offset + 1}-{min(offset + limit, total)} из {total})",
+        f"🕘 Історія ({offset + 1}-{min(offset + limit, total)} із {total})",
+        f"🕘 History ({offset + 1}-{min(offset + limit, total)} of {total})",
     )
 
     kb = _history_kb(offset=offset, limit=limit, total=total, loc=loc)
@@ -710,7 +781,9 @@ def _history_kb(offset: int, limit: int, total: int, loc: str) -> InlineKeyboard
 
 
 @router.callback_query(F.data.startswith("journal:history:"))
-async def cb_journal_history(call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None):
+async def cb_journal_history(
+    call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None
+):
     if not call.from_user:
         return
 
@@ -732,12 +805,16 @@ async def cb_journal_history(call: CallbackQuery, session: AsyncSession, lang: O
 
     msg = cast(Message, call.message)
 
-    await _render_history(msg, session, user, loc, offset=offset, limit=limit, edit=True)
+    await _render_history(
+        msg, session, user, loc, offset=offset, limit=limit, edit=True
+    )
     await call.answer()
 
 
 @router.callback_query(F.data.startswith("journal:open:"))
-async def cb_journal_open(call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None):
+async def cb_journal_open(
+    call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None
+):
     if not call.from_user:
         return
 
@@ -754,10 +831,17 @@ async def cb_journal_open(call: CallbackQuery, session: AsyncSession, lang: Opti
         await call.answer()
         return
 
-    q = select(JournalEntry).where(JournalEntry.user_id == user.id, JournalEntry.id == entry_id).limit(1)
+    q = (
+        select(JournalEntry)
+        .where(JournalEntry.user_id == user.id, JournalEntry.id == entry_id)
+        .limit(1)
+    )
     entry = (await session.execute(q)).scalar_one_or_none()
     if not entry:
-        await call.answer(_tr(loc, "Запись не найдена.", "Запис не знайдено.", "Entry not found."), show_alert=True)
+        await call.answer(
+            _tr(loc, "Запись не найдена.", "Запис не знайдено.", "Entry not found."),
+            show_alert=True,
+        )
         return
 
     tz = _user_tz(user)
@@ -781,9 +865,10 @@ async def cb_journal_open(call: CallbackQuery, session: AsyncSession, lang: Opti
     await call.answer()
 
 
-
 @router.message(F.text.regexp(r"^/open_(\d+)$"))
-async def journal_open_cmd(m: Message, session: AsyncSession, lang: Optional[str] = None):
+async def journal_open_cmd(
+    m: Message, session: AsyncSession, lang: Optional[str] = None
+):
     if not m.from_user:
         return
     user = await _get_user(session, m.from_user.id)
@@ -794,15 +879,22 @@ async def journal_open_cmd(m: Message, session: AsyncSession, lang: Optional[str
         return
 
     import re as _re
+
     mm = _re.match(r"^/open_(\d+)$", (m.text or "").strip())
     if not mm:
         return
     entry_id = int(mm.group(1))
 
-    q = select(JournalEntry).where(JournalEntry.user_id == user.id, JournalEntry.id == entry_id).limit(1)
+    q = (
+        select(JournalEntry)
+        .where(JournalEntry.user_id == user.id, JournalEntry.id == entry_id)
+        .limit(1)
+    )
     entry = (await session.execute(q)).scalar_one_or_none()
     if not entry:
-        await m.answer(_tr(loc, "Запись не найдена.", "Запис не знайдено.", "Entry not found."))
+        await m.answer(
+            _tr(loc, "Запись не найдена.", "Запис не знайдено.", "Entry not found.")
+        )
         return
 
     tz = _user_tz(user)
@@ -826,6 +918,7 @@ async def journal_open_cmd(m: Message, session: AsyncSession, lang: Optional[str
 
 
 # -------------------- search --------------------
+
 
 @router.message(Command("search"))
 async def journal_search_cmd(
@@ -852,7 +945,14 @@ async def journal_search_cmd(
 
     parts = (m.text or "").split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
-        await m.answer(_tr(loc, "Формат: /search слово", "Формат: /search слово", "Format: /search word"))
+        await m.answer(
+            _tr(
+                loc,
+                "Формат: /search слово",
+                "Формат: /search слово",
+                "Format: /search word",
+            )
+        )
         return
 
     await _run_journal_search(m, session, user, loc, parts[1].strip())
@@ -881,7 +981,14 @@ async def journal_search_btn(
         return
 
     await state.set_state(JournalSearch.waiting_query)
-    await m.answer(_tr(loc, "Введи слово или фразу для поиска.", "Введи слово або фразу для пошуку.", "Type a word or phrase to search."))
+    await m.answer(
+        _tr(
+            loc,
+            "Введи слово или фразу для поиска.",
+            "Введи слово або фразу для пошуку.",
+            "Type a word or phrase to search.",
+        )
+    )
 
 
 @router.message(JournalSearch.waiting_query)
@@ -906,13 +1013,22 @@ async def journal_search_query(
 
     query_text = (m.text or "").strip()
     if not query_text:
-        await m.answer(_tr(loc, "Пустой запрос. Напиши слово.", "Порожній запит. Напиши слово.", "Empty query. Type a word."))
+        await m.answer(
+            _tr(
+                loc,
+                "Пустой запрос. Напиши слово.",
+                "Порожній запит. Напиши слово.",
+                "Empty query. Type a word.",
+            )
+        )
         return
 
     await _run_journal_search(m, session, user, loc, query_text)
 
 
-async def _run_journal_search(m: Message, session: AsyncSession, user: User, loc: str, query_text: str) -> None:
+async def _run_journal_search(
+    m: Message, session: AsyncSession, user: User, loc: str, query_text: str
+) -> None:
     # экранируем %, _, \ чтобы LIKE не ломался
     q_raw = query_text.strip()
     q_esc = q_raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -928,7 +1044,14 @@ async def _run_journal_search(m: Message, session: AsyncSession, user: User, loc
     rows = (await session.execute(q)).scalars().all()
 
     if not rows:
-        await m.answer(_tr(loc, "Ничего не нашёл по запросу.", "Нічого не знайшов за запитом.", "No matches found."))
+        await m.answer(
+            _tr(
+                loc,
+                "Ничего не нашёл по запросу.",
+                "Нічого не знайшов за запитом.",
+                "No matches found.",
+            )
+        )
         return
 
     tz = _user_tz(user)
@@ -949,6 +1072,7 @@ async def _run_journal_search(m: Message, session: AsyncSession, user: User, loc
 
 
 # -------------------- range --------------------
+
 
 @router.message(Command("range"))
 @router.message(F.text.func(is_range_btn))
@@ -985,7 +1109,9 @@ async def journal_range(
 
     try:
         start = datetime.fromisoformat(parts[1]).replace(tzinfo=timezone.utc)
-        end = datetime.fromisoformat(parts[2]).replace(tzinfo=timezone.utc) + timedelta(days=1)
+        end = datetime.fromisoformat(parts[2]).replace(tzinfo=timezone.utc) + timedelta(
+            days=1
+        )
     except Exception:
         await m.answer(
             _tr(
@@ -1036,11 +1162,14 @@ async def journal_range(
             "Записи за выбранный период:",
             "Записи за вибраний період:",
             "Entries for the selected period:",
-        ) + "\n\n" + "\n".join(lines)
+        )
+        + "\n\n"
+        + "\n".join(lines)
     )
 
 
 # -------------------- week --------------------
+
 
 @router.message(Command("week"))
 @router.message(F.text.func(is_week_btn))

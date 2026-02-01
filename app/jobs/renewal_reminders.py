@@ -1,24 +1,24 @@
 from __future__ import annotations
-from app.urls import public_pay_url
 
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from aiogram import Bot
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.config import settings
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.services.subscriptions import (
-    get_subscriptions_for_renewal_reminders,
+    EV_EXPIRES_TODAY,
+    EV_RENEW_1D,
+    EV_RENEW_3D,
     _already_notified,
+    get_subscriptions_for_renewal_reminders,
     log_event,
     utcnow,
-    EV_RENEW_3D,
-    EV_RENEW_1D,
-    EV_EXPIRES_TODAY,
 )
+from app.urls import public_pay_url
+
 
 def _normalize_lang(code: str | None) -> str:
     l = (code or "ru").strip().lower()
@@ -39,10 +39,12 @@ def _stars_label(lang: str) -> str:
 
 
 def _pay_kb_job(lang: str, tg_id: int):
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     loc = _normalize_lang(lang)
-    pay_text = {"ru": "Оплатить картой", "uk": "Оплатити карткою", "en": "Pay by card"}[loc]
+    pay_text = {"ru": "Оплатить картой", "uk": "Оплатити карткою", "en": "Pay by card"}[
+        loc
+    ]
 
     rows = []
 
@@ -50,9 +52,12 @@ def _pay_kb_job(lang: str, tg_id: int):
     if pay_link:
         rows.append([InlineKeyboardButton(text=pay_text, url=pay_link)])
 
-    rows.append([InlineKeyboardButton(text=_stars_label(loc), callback_data="pay_stars")])
+    rows.append(
+        [InlineKeyboardButton(text=_stars_label(loc), callback_data="pay_stars")]
+    )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 def _msg(lang: str, key: str, date_str: str) -> str:
     l = _normalize_lang(lang)
@@ -82,7 +87,9 @@ async def run_renewal_reminders(
     *,
     now: Optional[datetime] = None,
 ) -> None:
-    now_dt = utcnow() if now is None else now  # если захочешь подставлять время в тестах
+    now_dt = (
+        utcnow() if now is None else now
+    )  # если захочешь подставлять время в тестах
 
     buckets = await get_subscriptions_for_renewal_reminders(session, now=now_dt)
 
@@ -109,7 +116,6 @@ async def run_renewal_reminders(
         text = _msg(lang, event_name, date_str)
 
         # показываем оплату (и cancel-кнопка сама появится, если is_premium=True — но тут нам не важно)
-        from app.config import settings
         kb = _pay_kb_job(lang, u.tg_id)
 
         try:

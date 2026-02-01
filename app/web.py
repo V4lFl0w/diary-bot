@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+
 from app.http import router as http_router
 from app.payments.now import router as now_router
 

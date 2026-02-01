@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple
 
 import httpx
-
 
 API_URL = "https://api.api-ninjas.com/v1/nutrition"
 API_ENV_PRIMARY = "NINJAS_API_KEY"

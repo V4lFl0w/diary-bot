@@ -61,6 +61,7 @@ def _lens_clean_candidate(s: str) -> str:
 
     return base.strip()
 
+
 def _lens_bad_candidate(s: str) -> bool:
     """
     Lens часто возвращает:
@@ -121,6 +122,7 @@ def _lens_bad_candidate(s: str) -> bool:
 
     return False
 
+
 def _lens_score_candidate(raw: str) -> int:
     """
     Higher is better.
@@ -144,9 +146,9 @@ def _lens_score_candidate(raw: str) -> int:
 
     # explicit (YEAR)
     if re.search(r"\(\s*(19\d{2}|20\d{2})\s*\)", s):
-            score += 40
+        score += 40
     if re.search(r"\b(19\d{2}|20\d{2})\b", s):
-            score += 25
+        score += 25
 
     # word count preference
     words = re.findall(r"[A-Za-zА-Яа-яЁёІіЇїЄє0-9'’\-]+", s)
@@ -176,6 +178,7 @@ def _lens_score_candidate(raw: str) -> int:
         score -= 120
 
     return score
+
 
 def _pick_best_lens_candidates(lens_cands: list[str], *, limit: int = 12) -> list[str]:
     """

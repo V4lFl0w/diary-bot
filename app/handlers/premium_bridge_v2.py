@@ -1,8 +1,6 @@
 from __future__ import annotations
-
-from typing import Optional, Any
-
-from aiogram import Router, F
+from typing import Optional
+from aiogram import F, Router
 from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +21,7 @@ async def open_premium_cb(
     try:
         # пробуем использовать твой основной модуль премиума
         from app.handlers.premium import cmd_premium  # type: ignore
+
         await c.answer()
         # cmd_premium уже умеет строить меню и брать locale
         await cmd_premium(c.message, session, lang)  # type: ignore[arg-type]

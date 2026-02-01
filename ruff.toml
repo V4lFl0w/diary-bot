@@ -1,0 +1,10 @@
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W"]
+ignore = []
+
+[lint.per-file-ignores]
+"app.py" = ["E701", "E702", "E401"]
+"scripts_msgfmt.py" = ["E701", "E702", "E741", "E401", "F401"]

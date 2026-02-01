@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional, Set, Dict
+from typing import Dict, Optional, Set
 
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -12,6 +12,7 @@ from app.models.user import User
 try:
     from app.services.subscriptions import sync_user_premium_flags
 except Exception:  # pragma: no cover
+
     async def sync_user_premium_flags(*_a, **_kw):
         return None
 
@@ -24,13 +25,10 @@ except Exception:  # pragma: no cover
 BASIC_FEATURES: Set[str] = {
     # journal
     "journal_basic",
-
     # reminders
     "remind_basic",
-
     # calories (text)
     "calories_text",
-
     # медитации/музыка базовые
     "meditations_basic",
     "music_basic",
@@ -44,7 +42,6 @@ PREMIUM_FEATURES: Set[str] = {
     "premium_playlists",
     "premium_stats",
     "premium_helper",
-
     # journal расширения
     "journal_search",
     "journal_range",
@@ -52,10 +49,8 @@ PREMIUM_FEATURES: Set[str] = {
     # ⚠️ важно: в хендлере журнала используется ключ "journal_stats"
     # добавляем как отдельный канон (чтобы не ломать вызовы)
     "journal_stats",
-
     # calories
     "calories_photo",
-
     # admin/analytics (если подключишь роутер)
     "admin_panel",
     "analytics_dashboard",
@@ -67,15 +62,12 @@ FEATURE_ALIASES: Dict[str, str] = {
     "premium_journal_search": "journal_search",
     "premium_journal_range": "journal_range",
     "premium_journal_history_extended": "journal_history_extended",
-
     # stats aliases (чтобы /stats не поплыл)
     "journal_stats": "journal_stats",  # явный канон
     "premium_journal_stats": "journal_stats",
     "stats_extended": "journal_stats",
-
     # calories aliases
     "premium_calories_photo": "calories_photo",
-
     # если где-то в коде остались такие названия
     "journal_history_plus": "journal_history_extended",
 }
@@ -126,6 +118,7 @@ def _detect_lang(user: Optional[User], m: Optional[Message] = None) -> str:
 # ---------------------------------------------------------------------
 # CORE
 # ---------------------------------------------------------------------
+
 
 def resolve_feature(feature: str) -> str:
     key = (feature or "").strip()

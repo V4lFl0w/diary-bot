@@ -15,50 +15,51 @@ API_ENV_FALLBACK = "NUTRITION_API_KEY"
 FALLBACK: Dict[str, Dict[str, float]] = {
     "молок": dict(kcal=60, p=3.2, f=3.2, c=4.7),
     "milk": dict(kcal=60, p=3.2, f=3.2, c=4.7),
-
     "банан": dict(kcal=89, p=1.1, f=0.3, c=23.0),
     "banana": dict(kcal=89, p=1.1, f=0.3, c=23.0),
-
     "арахис": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "арахіс": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "peanut": dict(kcal=567, p=26.0, f=49.0, c=16.0),
     "peanuts": dict(kcal=567, p=26.0, f=49.0, c=16.0),
-
     "греч": dict(kcal=343, p=13.3, f=3.4, c=71.5),
     "гречк": dict(kcal=343, p=13.3, f=3.4, c=71.5),
     "buckwheat": dict(kcal=343, p=13.3, f=3.4, c=71.5),
-
     "яйц": dict(kcal=143, p=13.0, f=10.0, c=1.1),
     "egg": dict(kcal=143, p=13.0, f=10.0, c=1.1),
     "eggs": dict(kcal=143, p=13.0, f=10.0, c=1.1),
-
     "хлеб": dict(kcal=250, p=9.0, f=3.0, c=49.0),
     "хліб": dict(kcal=250, p=9.0, f=3.0, c=49.0),
     "bread": dict(kcal=250, p=9.0, f=3.0, c=49.0),
-
     "сыр": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "сир": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "cheese": dict(kcal=350, p=26.0, f=27.0, c=3.0),
-
     "сосиск": dict(kcal=300, p=12.0, f=27.0, c=2.0),
     "sausage": dict(kcal=300, p=12.0, f=27.0, c=2.0),
-
     "куриц": dict(kcal=190, p=29.0, f=7.0, c=0.0),
     "курк": dict(kcal=190, p=29.0, f=7.0, c=0.0),
     "chicken": dict(kcal=190, p=29.0, f=7.0, c=0.0),
-
     "свинин": dict(kcal=260, p=26.0, f=18.0, c=0.0),
     "шашлык": dict(kcal=250, p=22.0, f=18.0, c=0.0),
     "мяс": dict(kcal=230, p=23.0, f=15.0, c=0.0),
 }
 
 PIECE_GRAMS: Dict[str, int] = {
-    "яйц": 50, "egg": 50, "eggs": 50,
-    "банан": 120, "banana": 120,
-    "хлеб": 30, "хліб": 30, "bread": 30,
-    "сыр": 30, "сир": 30, "cheese": 30,
-    "сосиск": 50, "sausage": 50,
-    "куриц": 80, "курк": 80, "chicken": 80,
+    "яйц": 50,
+    "egg": 50,
+    "eggs": 50,
+    "банан": 120,
+    "banana": 120,
+    "хлеб": 30,
+    "хліб": 30,
+    "bread": 30,
+    "сыр": 30,
+    "сир": 30,
+    "cheese": 30,
+    "сосиск": 50,
+    "sausage": 50,
+    "куриц": 80,
+    "курк": 80,
+    "chicken": 80,
 }
 
 CAL_KEYS = list(FALLBACK.keys())
@@ -144,12 +145,19 @@ def _sum_totals(items: List[Dict[str, Any]]) -> Dict[str, float]:
 
 
 def _all_zero(res: Dict[str, float]) -> bool:
-    return (res.get("kcal", 0) or 0) == 0 and (res.get("p", 0) or 0) == 0 and (res.get("f", 0) or 0) == 0 and (res.get("c", 0) or 0) == 0
+    return (
+        (res.get("kcal", 0) or 0) == 0
+        and (res.get("p", 0) or 0) == 0
+        and (res.get("f", 0) or 0) == 0
+        and (res.get("c", 0) or 0) == 0
+    )
 
 
 async def _call_api(query: str, key: str) -> List[Dict[str, Any]]:
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(API_URL, params={"query": query}, headers={"X-Api-Key": key})
+        resp = await client.get(
+            API_URL, params={"query": query}, headers={"X-Api-Key": key}
+        )
 
     resp.raise_for_status()
     data = resp.json()
@@ -186,7 +194,7 @@ async def _fetch_from_api(raw: str) -> Dict[str, float]:
                 status = e.response.status_code if e.response else 0
                 last_err = e
                 if status in (429, 500, 502, 503, 504):
-                    await __import__("asyncio").sleep(0.6 * (2 ** attempt))
+                    await __import__("asyncio").sleep(0.6 * (2**attempt))
                     continue
                 break
             except Exception as e:

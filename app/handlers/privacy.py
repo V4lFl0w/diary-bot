@@ -3,28 +3,28 @@ from __future__ import annotations
 import contextlib
 import logging
 from datetime import datetime, timezone
-from typing import Optional, Dict, Tuple
-
-from aiogram import Router, F
+from typing import Dict, Optional, Tuple, cast
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import (
-    Message,
     CallbackQuery,
-    InlineKeyboardMarkup,
     InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
+from app.utils.aiogram_guards import cb_reply, is_message
 from sqlalchemy import select
 from sqlalchemy import text as sql_text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.keyboards import get_main_kb, is_privacy_btn
 from app.models.user import User
-
 # ✅ единая логика админа
 try:
     from app.handlers.admin import is_admin_tg
 except Exception:
-    def is_admin_tg(_: int) -> bool:
+
+    def is_admin_tg(tg_id: int, /) -> bool:
         return False
 
 
@@ -111,18 +111,20 @@ NO_TXT = {
 
 # -------------------- lang --------------------
 
+
 def _norm_lang(code: str | None) -> str:
-    l = (code or "ru").strip().lower()
-    if l.startswith(("ua", "uk")):
+    lang = (code or "ru").strip().lower()
+    if lang.startswith(("ua", "uk")):
         return "uk"
-    if l.startswith("en"):
+    if lang.startswith("en"):
         return "en"
-    if l.startswith("ru"):
+    if lang.startswith("ru"):
         return "ru"
     return "ru"
 
 
 # -------------------- schema guard --------------------
+
 
 async def _ensure_cols(session: AsyncSession) -> None:
     """
@@ -143,6 +145,7 @@ async def _ensure_cols(session: AsyncSession) -> None:
 
 
 # -------------------- db helpers --------------------
+
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
     return (
@@ -218,12 +221,15 @@ async def _fetch_flags(session: AsyncSession, tg_id: int) -> Tuple[bool, bool]:
     is_premium — по модели
     """
     user = await _get_user(session, tg_id)
-    is_admin = is_admin_tg(tg_id) or bool(getattr(user, "is_admin", False) if user else False)
+    is_admin = is_admin_tg(tg_id) or bool(
+        getattr(user, "is_admin", False) if user else False
+    )
     is_premium = _premium_active(user)
     return is_admin, is_premium
 
 
 # -------------------- keyboards --------------------
+
 
 def _soft_kb(lang: str) -> InlineKeyboardMarkup:
     label = {
@@ -255,14 +261,15 @@ def _policy_kb(lang: str) -> InlineKeyboardMarkup:
 
 # -------------------- публичные show-функции --------------------
 
+
 async def privacy_soft_show(
     m: Message,
     session: AsyncSession,
     lang: Optional[str] = None,
 ) -> None:
     tg_lang = lang or getattr(m.from_user, "language_code", None)
-    l = await _fetch_lang(session, m.from_user.id, tg_lang)
-    await m.answer(SOFT_INTRO.get(l, SOFT_INTRO["ru"]), reply_markup=_soft_kb(l))
+    lang = await _fetch_lang(session, m.from_user.id, tg_lang)
+    await m.answer(SOFT_INTRO.get(lang, SOFT_INTRO["ru"]), reply_markup=_soft_kb(lang))
 
 
 async def privacy_show(
@@ -271,10 +278,9 @@ async def privacy_show(
     lang: Optional[str] = None,
 ) -> None:
     tg_lang = lang or getattr(m.from_user, "language_code", None)
-    l = await _fetch_lang(session, m.from_user.id, tg_lang)
-
-    text = POLICY_TXT.get(l, POLICY_TXT["ru"])
-    kb = _policy_kb(l)
+    lang = await _fetch_lang(session, m.from_user.id, tg_lang)
+    text = POLICY_TXT.get(lang, POLICY_TXT["ru"])
+    kb = _policy_kb(lang)
 
     await m.answer(
         text,
@@ -285,6 +291,7 @@ async def privacy_show(
 
 # -------------------- commands --------------------
 
+
 @router.message(Command("privacy"))
 @router.message(Command("policy"))
 @router.message(F.text.func(is_privacy_btn))
@@ -294,13 +301,25 @@ async def privacy_cmd(m: Message, session: AsyncSession) -> None:
 
 # -------------------- callbacks --------------------
 
+
 @router.callback_query(F.data == CB_PRIVACY_OPEN)
 async def privacy_open_cb(c: CallbackQuery, session: AsyncSession) -> None:
     if not c.message:
         return
 
-    fake_msg: Message = c.message
-    await privacy_show(fake_msg, session, lang=getattr(c.from_user, "language_code", None))
+    lang = await _fetch_lang(
+        session, c.from_user.id, getattr(c.from_user, "language_code", None)
+    )
+
+    if is_message(c.message):
+        await privacy_show(cast(Message, c.message), session, lang=lang)
+    else:
+        await c.bot.send_message(
+            c.from_user.id,
+            POLICY_TXT.get(lang, POLICY_TXT["ru"]),
+            reply_markup=_policy_kb(lang),
+            parse_mode="Markdown",
+        )
 
     with contextlib.suppress(Exception):
         await c.answer()
@@ -312,11 +331,12 @@ async def privacy_agree(c: CallbackQuery, session: AsyncSession) -> None:
         return
 
     await _ensure_cols(session)
-
-    l = await _fetch_lang(session, c.from_user.id, getattr(c.from_user, "language_code", None))
+    lang = await _fetch_lang(
+        session, c.from_user.id, getattr(c.from_user, "language_code", None)
+    )
 
     try:
-        user = await _get_or_create_user(session, c.from_user.id, l)
+        user = await _get_or_create_user(session, c.from_user.id, lang)
 
         with contextlib.suppress(Exception):
             user.policy_accepted = True  # type: ignore[attr-defined]
@@ -332,10 +352,11 @@ async def privacy_agree(c: CallbackQuery, session: AsyncSession) -> None:
 
     is_admin, is_premium = await _fetch_flags(session, c.from_user.id)
 
-    kb = get_main_kb(l, is_premium=is_premium, is_admin=is_admin)
+    kb = get_main_kb(lang, is_premium=is_premium, is_admin=is_admin)
 
-    await c.message.answer(
-        OK_TXT.get(l, OK_TXT["ru"]),
+    await cb_reply(
+        c,
+        OK_TXT.get(lang, OK_TXT["ru"]),
         reply_markup=kb,
     )
 
@@ -349,11 +370,12 @@ async def privacy_disagree(c: CallbackQuery, session: AsyncSession) -> None:
         return
 
     await _ensure_cols(session)
-
-    l = await _fetch_lang(session, c.from_user.id, getattr(c.from_user, "language_code", None))
+    lang = await _fetch_lang(
+        session, c.from_user.id, getattr(c.from_user, "language_code", None)
+    )
 
     try:
-        user = await _get_or_create_user(session, c.from_user.id, l)
+        user = await _get_or_create_user(session, c.from_user.id, lang)
 
         with contextlib.suppress(Exception):
             user.policy_accepted = False  # type: ignore[attr-defined]
@@ -368,9 +390,10 @@ async def privacy_disagree(c: CallbackQuery, session: AsyncSession) -> None:
 
     # после отказа НЕ показываем главное меню,
     # чтобы не вводить в заблуждение — только мягкий возврат
-    await c.message.answer(
-        NO_TXT.get(l, NO_TXT["ru"]),
-        reply_markup=_soft_kb(l),
+    await cb_reply(
+        c,
+        NO_TXT.get(lang, NO_TXT["ru"]),
+        reply_markup=_soft_kb(lang),
     )
 
     with contextlib.suppress(Exception):
@@ -379,12 +402,13 @@ async def privacy_disagree(c: CallbackQuery, session: AsyncSession) -> None:
 
 # -------------------- delete data --------------------
 
+
 @router.message(Command("delete_data"))
 async def delete_data_cmd(m: Message, session: AsyncSession) -> None:
     await _ensure_cols(session)
 
     tg_id = m.from_user.id
-    l = _norm_lang(getattr(m.from_user, "language_code", None))
+    lang = _norm_lang(getattr(m.from_user, "language_code", None))
 
     user = await _get_user(session, tg_id)
     user_db_id = getattr(user, "id", None) if user else None
@@ -435,7 +459,7 @@ async def delete_data_cmd(m: Message, session: AsyncSession) -> None:
             "ru": "Готово. Твои данные удалены ✅\nЕсли захочешь вернуться — просто начни заново с /start.",
             "uk": "Готово. Твої дані видалено ✅\nЯкщо захочеш повернутись — почни з /start.",
             "en": "Done. Your data has been deleted ✅\nIf you want to return — start again with /start.",
-        }.get(l, "Done ✅")
+        }.get(lang, "Done ✅")
     )
 
 

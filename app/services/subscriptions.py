@@ -1,26 +1,25 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
+from app.models.event import AnalyticsEvent
 from app.models.payment import Payment
 from app.models.subscription import Subscription
-from app.models.event import AnalyticsEvent
-from datetime import timedelta
-from sqlalchemy import and_, or_, func
-
+from app.models.user import User
 
 # -------------------------------------------------
 # Время
 # -------------------------------------------------
 
+
 def utcnow() -> datetime:
     """Текущий момент в UTC."""
     return datetime.now(timezone.utc)
+
 
 def ensure_utc(dt: datetime) -> datetime:
     """
@@ -35,6 +34,7 @@ def ensure_utc(dt: datetime) -> datetime:
 # -------------------------------------------------
 # Аналитика
 # -------------------------------------------------
+
 
 async def log_event(
     session: AsyncSession,
@@ -58,6 +58,7 @@ async def log_event(
 # Утилиты подписки
 # -------------------------------------------------
 
+
 async def get_active_subscription(
     session: AsyncSession,
     user_id: int,
@@ -77,13 +78,11 @@ async def get_active_subscription(
         select(Subscription).where(
             Subscription.user_id == user_id,
             Subscription.status == "active",
-            (
-                (Subscription.expires_at.is_(None)) |
-                (Subscription.expires_at > now)
-            ),
+            ((Subscription.expires_at.is_(None)) | (Subscription.expires_at > now)),
         )
     )
     return res.scalar_one_or_none()
+
 
 async def get_current_subscription(
     session: AsyncSession,
@@ -100,10 +99,7 @@ async def get_current_subscription(
         .where(
             Subscription.user_id == user_id,
             Subscription.status.in_(("active", "canceled")),
-            (
-                (Subscription.expires_at.is_(None)) |
-                (Subscription.expires_at > now)
-            ),
+            ((Subscription.expires_at.is_(None)) | (Subscription.expires_at > now)),
         )
         .order_by(Subscription.expires_at.desc().nullsfirst())
         .limit(1)
@@ -142,11 +138,11 @@ async def sync_user_premium_flags(
         user.is_premium = True
         # update tier from subscription plan (basic_/pro_)
         try:
-            p = str(getattr(sub, 'plan', '') or '').lower()
-            if p == 'pro' or p.startswith('pro_'):
-                user.premium_plan = 'pro'
-            elif p == 'basic' or p.startswith('basic_'):
-                user.premium_plan = 'free'
+            p = str(getattr(sub, "plan", "") or "").lower()
+            if p == "pro" or p.startswith("pro_"):
+                user.premium_plan = "pro"
+            elif p == "basic" or p.startswith("basic_"):
+                user.premium_plan = "free"
         except Exception:
             pass
     else:
@@ -160,14 +156,15 @@ async def sync_user_premium_flags(
         else:
             # lifetime (premium_until=None) или ещё не истёкший ручной премиум — не трогаем
             # Но если план завис на pro без активного премиума — чиним
-            if (str(getattr(user, "premium_plan", "") or "").lower() == "pro") and (not bool(getattr(user, "is_premium", False))):
+            if (str(getattr(user, "premium_plan", "") or "").lower() == "pro") and (
+                not bool(getattr(user, "is_premium", False))
+            ):
                 user.premium_plan = "free"
         session.add(user)
         return
     session.add(user)
     # commit — снаружи
 
-from datetime import timezone, datetime
 
 def _as_aware_utc(dt: datetime | None) -> datetime | None:
     if dt is None:
@@ -225,13 +222,14 @@ def _is_lifetime_plan(plan: str) -> bool:
 # Создание/продление подписки из платежа
 # -------------------------------------------------
 
+
 async def activate_subscription_from_payment(
     session: AsyncSession,
     user: User,
     payment: Payment,
     *,
     plan: Optional[str] = None,
-    duration_days: Optional[int] = None,   # лучше None, чтобы PLAN_DAYS_MAP решал сам
+    duration_days: Optional[int] = None,  # лучше None, чтобы PLAN_DAYS_MAP решал сам
     auto_renew: bool = False,
 ) -> Subscription:
     now = utcnow()
@@ -263,7 +261,7 @@ async def activate_subscription_from_payment(
                 auto_renew=False,
                 source=payment.provider,
             )
-            session.add(sub) 
+            session.add(sub)
 
         event_name = "sub_renewed" if was_existing else "sub_activated"
 
@@ -337,9 +335,11 @@ async def activate_subscription_from_payment(
     await sync_user_premium_flags(session, user, now=now)
     return sub
 
+
 # -------------------------------------------------
 # Отмена подписки (отключить автопродление)
 # -------------------------------------------------
+
 
 async def cancel_active_subscription(
     session: AsyncSession,
@@ -374,10 +374,12 @@ async def cancel_active_subscription(
     await sync_user_premium_flags(session, user, now=now)
     return True
 
+
 # какие события будем логировать
 EV_RENEW_3D = "sub_renew_remind_3d"
 EV_RENEW_1D = "sub_renew_remind_1d"
 EV_EXPIRES_TODAY = "sub_expires_today"
+
 
 async def _already_notified(
     session: AsyncSession,
@@ -390,11 +392,13 @@ async def _already_notified(
     Дедуп: если событие уже логировали недавно — не шлём повторно.
     """
     res = await session.execute(
-        select(AnalyticsEvent.id).where(
+        select(AnalyticsEvent.id)
+        .where(
             AnalyticsEvent.user_id == user_id,
             AnalyticsEvent.event == event,
             AnalyticsEvent.ts >= since,
-        ).limit(1)
+        )
+        .limit(1)
     )
     return res.first() is not None
 
@@ -415,7 +419,9 @@ async def get_subscriptions_for_renewal_reminders(
     # только те, у которых expires_at задан и ещё не истекли "давно"
     # (lifetime с expires_at=None не трогаем)
     base_q = select(Subscription).where(
-        Subscription.status.in_(("active", "canceled")),  # canceled = авто-реню офф, но доступ может быть активен
+        Subscription.status.in_(
+            ("active", "canceled")
+        ),  # canceled = авто-реню офф, но доступ может быть активен
         Subscription.expires_at.is_not(None),
         Subscription.expires_at > (now - timedelta(days=1)),  # чтобы "сегодня" поймать
     )

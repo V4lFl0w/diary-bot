@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Iterable, Tuple
+from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import select, func, desc, and_
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.event import AnalyticsEvent
-
 
 # что НЕ показываем в админ-дашборде (но в БД можно хранить)
 HIDDEN_EVENTS = {"test_event"}
@@ -111,7 +110,12 @@ async def get_recent_visitors_7d(
     """
     since = _since(7)
     q = (
-        select(AnalyticsEvent.user_id, AnalyticsEvent.ts, AnalyticsEvent.event, AnalyticsEvent.props)
+        select(
+            AnalyticsEvent.user_id,
+            AnalyticsEvent.ts,
+            AnalyticsEvent.event,
+            AnalyticsEvent.props,
+        )
         .where(AnalyticsEvent.ts >= since)
         .where(AnalyticsEvent.user_id.isnot(None))
         .where(AnalyticsEvent.event.in_(("user_start", "user_seen")))

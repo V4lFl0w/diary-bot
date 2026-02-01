@@ -1,32 +1,44 @@
 from __future__ import annotations
 
-from aiogram import Router, F
-from aiogram.types import Message
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text as sql_text
+from typing import Optional
 
-from app.models.user import User
-from app.keyboards import get_main_kb, is_language_btn
+from aiogram import F, Router
+from aiogram.types import Message
+from sqlalchemy import select
+from sqlalchemy import text as sql_text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.i18n import t
+from app.keyboards import get_main_kb, is_language_btn
+from app.models.user import User
 
 router = Router()
 
 ALIASES = {
-    "ru": "ru", "rus": "ru", "ру": "ru", "рус": "ru", "русский": "ru",
+    "ru": "ru",
+    "rus": "ru",
+    "ру": "ru",
+    "рус": "ru",
+    "русский": "ru",
     "російська": "ru",
-    "uk": "uk", "ua": "uk", "ук": "uk", "укр": "uk", "українська": "uk",
+    "uk": "uk",
+    "ua": "uk",
+    "ук": "uk",
+    "укр": "uk",
+    "українська": "uk",
     "украинский": "uk",
-    "en": "en", "eng": "en", "англ": "en", "английский": "en",
-    "англійська": "en", "english": "en",
+    "en": "en",
+    "eng": "en",
+    "англ": "en",
+    "английский": "en",
+    "англійська": "en",
+    "english": "en",
 }
 
 
-def _safe_loc(user: User | None, tg_lang: str | None = None) -> str:
+def _safe_loc(user: Optional[User], tg_lang: str | None = None) -> str:
     raw = (
-        getattr(user, "locale", None)
-        or getattr(user, "lang", None)
-        or tg_lang
-        or "ru"
+        getattr(user, "locale", None) or getattr(user, "lang", None) or tg_lang or "ru"
     )
     s = str(raw).lower().strip()
     if s.startswith(("ua", "uk")):
@@ -38,7 +50,7 @@ def _safe_loc(user: User | None, tg_lang: str | None = None) -> str:
     return "ru"
 
 
-def _is_admin(user: User | None, tg_id: int) -> bool:
+def _is_admin(user: Optional[User], tg_id: int) -> bool:
     # 1) если у тебя есть поле is_admin
     if user and bool(getattr(user, "is_admin", False)):
         return True
@@ -46,6 +58,7 @@ def _is_admin(user: User | None, tg_id: int) -> bool:
     # 2) если у тебя есть список админов в конфиге
     try:
         from app.config import settings as cfg
+
         ids = getattr(cfg, "admin_ids", None)
         if ids and tg_id in set(ids):
             return True
@@ -54,6 +67,7 @@ def _is_admin(user: User | None, tg_id: int) -> bool:
 
     # 3) fallback через env
     import os
+
     raw = os.getenv("ADMIN_IDS", "")
     if raw:
         try:
@@ -66,11 +80,13 @@ def _is_admin(user: User | None, tg_id: int) -> bool:
     return False
 
 
-def _is_premium(user: User | None) -> bool:
+def _is_premium(user: Optional[User]) -> bool:
     # подстрой под свою модель
     if not user:
         return False
-    return bool(getattr(user, "is_premium", False) or getattr(user, "premium_until", None))
+    return bool(
+        getattr(user, "is_premium", False) or getattr(user, "premium_until", None)
+    )
 
 
 @router.message(

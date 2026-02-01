@@ -16,42 +16,47 @@ Flow:
 
 from datetime import datetime, timezone
 from typing import Optional
-
-from aiogram import Router, F
+from aiogram import F, Router
 from aiogram.types import (
     CallbackQuery,
-    Message,
     LabeledPrice,
+    Message,
     PreCheckoutQuery,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.payment import Payment, PaymentPlan, PaymentProvider, PaymentStatus
 from app.models.user import User
-from app.models.payment import Payment, PaymentStatus, PaymentProvider, PaymentPlan
-from app.services.subscriptions import activate_subscription_from_payment, log_event
 from app.services.pricing import get_spec
+from app.services.subscriptions import activate_subscription_from_payment, log_event
+from app.utils.aiogram_guards import cb_reply
 
 # main kb (optional)
 try:
     from app.keyboards import get_main_kb  # type: ignore
 except Exception:  # pragma: no cover
+
     def get_main_kb(lang: str, is_premium: bool = False, is_admin: bool = False):
         return None
+
 
 # reply-keyboard button detector (optional)
 try:
     from app.keyboards import is_premium_stars_btn  # type: ignore
 except Exception:  # pragma: no cover
+
     def is_premium_stars_btn(_: str) -> bool:
         return False
+
 
 # admin checker (optional)
 try:
     from app.handlers.admin import is_admin_tg  # type: ignore
 except Exception:  # pragma: no cover
-    def is_admin_tg(_: int) -> bool:
+
+    def is_admin_tg(tg_id: int, /) -> bool:
         return False
 
 
@@ -62,7 +67,9 @@ CB_PAY_STARS = "pay_stars"
 CB_STARS_BUY_PREFIX = "stars:buy:"
 
 # pricing
-PREMIUM_STARS_PLAN = PaymentPlan.MONTH  # must match your plan mapping in subscriptions service
+PREMIUM_STARS_PLAN = (
+    PaymentPlan.MONTH
+)  # must match your plan mapping in subscriptions service
 
 
 def _utcnow() -> datetime:
@@ -78,7 +85,7 @@ def _normalize_lang(code: Optional[str]) -> str:
     return "ru"
 
 
-def _lang_of(user: Optional[User], obj: Message | CallbackQuery) -> str:
+def _lang_of(user: User, obj: Message | CallbackQuery) -> str:
     if user:
         if getattr(user, "locale", None):
             return _normalize_lang(user.locale)
@@ -157,21 +164,29 @@ async def pay_premium_with_stars(c: CallbackQuery, session: AsyncSession) -> Non
         return
 
     user = await _get_or_create_user(session, c.from_user.id)
-    lang = _lang_of(user, c)
+    _lang_of(user, c)
 
     # показываем выбор пакета
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     def btn(text: str, sku: str) -> InlineKeyboardButton:
-        return InlineKeyboardButton(text=text, callback_data=f"{CB_STARS_BUY_PREFIX}{sku}")
+        return InlineKeyboardButton(
+            text=text, callback_data=f"{CB_STARS_BUY_PREFIX}{sku}"
+        )
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Basic • Month", "basic_month"), btn("Pro • Month", "pro_month")],
-        [btn("Basic • Quarter", "basic_quarter"), btn("Pro • Quarter", "pro_quarter")],
-        [btn("Basic • Year", "basic_year"), btn("Pro • Year", "pro_year")],
-    ])
-    await c.message.answer("⭐ Выбери пакет Stars:", reply_markup=kb)
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [btn("Basic • Month", "basic_month"), btn("Pro • Month", "pro_month")],
+            [
+                btn("Basic • Quarter", "basic_quarter"),
+                btn("Pro • Quarter", "pro_quarter"),
+            ],
+            [btn("Basic • Year", "basic_year"), btn("Pro • Year", "pro_year")],
+        ]
+    )
+    await cb_reply(c, "⭐ Выбери пакет Stars:", reply_markup=kb)
     await c.answer()
+
 
 @router.message(F.text.func(is_premium_stars_btn))
 async def pay_premium_with_stars_from_text(m: Message, session: AsyncSession) -> None:
@@ -187,7 +202,6 @@ async def pay_premium_with_stars_from_text(m: Message, session: AsyncSession) ->
             pass
 
     await pay_premium_with_stars(_FakeCallback(), session=session)
-
 
 
 @router.callback_query(F.data.startswith(CB_STARS_BUY_PREFIX))
@@ -209,7 +223,9 @@ async def buy_stars_package(c: CallbackQuery, session: AsyncSession) -> None:
         "quarter": PaymentPlan.QUARTER,
         "year": PaymentPlan.YEAR,
     }
-    plan_enum = period_to_plan.get((spec.period or "").strip().lower(), PaymentPlan.MONTH)
+    plan_enum = period_to_plan.get(
+        (spec.period or "").strip().lower(), PaymentPlan.MONTH
+    )
 
     user = await _get_or_create_user(session, c.from_user.id)
     lang = _lang_of(user, c)
@@ -218,14 +234,16 @@ async def buy_stars_package(c: CallbackQuery, session: AsyncSession) -> None:
         user_id=user.id,
         provider=PaymentProvider.STARS,
         plan=plan_enum,
-        amount_cents=int(spec.stars),   # для XTR храним кол-во звёзд тут
+        amount_cents=int(spec.stars),  # для XTR храним кол-во звёзд тут
         currency="XTR",
         sku=sku,
-        payload=str({"sku": sku, "tier": spec.tier, "period": spec.period, "days": spec.days}),
+        payload=str(
+            {"sku": sku, "tier": spec.tier, "period": spec.period, "days": spec.days}
+        ),
         status=PaymentStatus.PENDING,
     )
     session.add(payment)
-    await session.flush()   # чтобы точно получить id без сюрпризов
+    await session.flush()  # чтобы точно получить id без сюрпризов
     await session.commit()
 
     prices = [LabeledPrice(label="XTR", amount=int(spec.stars))]
@@ -240,6 +258,7 @@ async def buy_stars_package(c: CallbackQuery, session: AsyncSession) -> None:
         prices=prices,
     )
     await c.answer()
+
 
 @router.pre_checkout_query()
 async def process_pre_checkout(q: PreCheckoutQuery) -> None:
@@ -309,7 +328,11 @@ async def on_successful_payment_stars(m: Message, session: AsyncSession) -> None
 
         lang = _lang_of(user, m) if user else "ru"
         is_admin = is_admin_tg(m.from_user.id) if m.from_user else False
-        kb = get_main_kb(lang, is_premium=True, is_admin=is_admin) if get_main_kb else None
+        kb = (
+            get_main_kb(lang, is_premium=True, is_admin=is_admin)
+            if get_main_kb
+            else None
+        )
         await m.answer(_success_text(lang), reply_markup=kb)
         return
 
@@ -343,10 +366,9 @@ async def on_successful_payment_stars(m: Message, session: AsyncSession) -> None
         user=user,
         payment=payment,
         plan=(payment.plan or PREMIUM_STARS_PLAN),  # enum: TRIAL/MONTH/QUARTER/YEAR
-        duration_days=duration,                      # реальная длительность из SKU
+        duration_days=duration,  # реальная длительность из SKU
         auto_renew=False,
     )
-
 
     # analytics
     await log_event(
@@ -375,7 +397,6 @@ async def on_successful_payment_stars(m: Message, session: AsyncSession) -> None
             "tg_charge_id": sp.telegram_payment_charge_id,
         },
     )
-
 
     await session.commit()
 

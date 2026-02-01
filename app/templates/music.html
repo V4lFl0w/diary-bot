@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>DiaryBot • Music</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin:0; font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial; background:#0b0f19; color:#e8eefc; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 24px 18px 40px; }
+    .card { background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.10); border-radius: 16px; padding: 16px; box-shadow: 0 8px 30px rgba(0,0,0,.25); }
+    h1 { font-size: 22px; margin: 0 0 10px; }
+    p { margin: 0 0 14px; opacity: .9; line-height: 1.35; }
+    .grid { display:grid; grid-template-columns: 1fr; gap: 10px; }
+    .btn { display:flex; align-items:center; justify-content:space-between; gap:10px;
+      padding: 14px 14px; border-radius: 14px; text-decoration:none; color:inherit;
+      background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
+    }
+    .btn:hover { background: rgba(255,255,255,.10); }
+    .tag { font-size: 12px; opacity: .75; }
+    .footer { margin-top: 14px; font-size: 12px; opacity: .7; }
+    code { background: rgba(255,255,255,.08); padding: 2px 6px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>🎵 Music</h1>
+      <p>Фундамент готов. В боте: <code>/music</code> → поиск → превью → сохранить.</p>
+
+      <div class="grid">
+        <a class="btn" href="/pay"><span>💎 Премиум</span><span class="tag">оплата</span></a>
+        <a class="btn" href="https://t.me/"><span>🤖 Открыть бота</span><span class="tag">Telegram</span></a>
+      </div>
+
+      <div class="footer">
+        Дальше расширим: пагинация, категории, “моё/из поиска”, веб-плейлист, удаление.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
