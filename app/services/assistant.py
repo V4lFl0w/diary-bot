@@ -645,7 +645,7 @@ async def run_assistant(
                 return MEDIA_NOT_FOUND_REPLY_RU
             return (
                 build_media_context(opts)
-                + "\n\n👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.\nЕсли кнопок нет — ответь цифрой."
+                + "\n\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить"
             )
         # 2) Build query (new query vs follow-up hint)# 2) Merge уточнение with previous query
         # 2) Build query (new query vs follow-up hint)
@@ -1199,54 +1199,208 @@ async def run_assistant_vision(
     items: list[dict] = []
     used_query = ""
 
-    # Try TMDb for each candidate
-    for q in cand_list:
-        if not _good_tmdb_cand(q):
-            continue
-        _d("vision.tmdb.try", q=q)  # DBG_VISION_TMBD_TRY_V2
+    # Try TMDb for candidates (parallel + scoring)
+    import asyncio as _asyncio
+    import re as _re
 
+    def _norm_title(x: str) -> str:
+        x = (x or '').lower().strip()
+        x = _re.sub(r"[^\w\s]+", " ", x, flags=_re.U)
+        x = _re.sub(r"\s+", " ", x).strip()
+        return x
+
+    def _score_item(item: dict, q: str) -> float:
+        # vote_average + bonus for title similarity
         try:
-            q = _normalize_tmdb_query(q)
-            items = await _tmdb_best_effort(q, limit=5)
-            items = [i for i in items if not i.get("adult")]
+            vote = float(item.get('vote_average') or 0.0)
         except Exception:
-            items = []
-        if items:
-            used_query = q
+            vote = 0.0
+
+        t = _norm_title(item.get('title') or item.get('name') or '')
+        qn = _norm_title(q)
+        bonus = 0.0
+        if t and qn:
+            # простая метрика: пересечение слов + префикс
+            tw = set(t.split())
+            qw = set(qn.split())
+            inter = len(tw & qw)
+            bonus += min(2.0, inter * 0.35)
+            if t.startswith(qn) or qn.startswith(t):
+                bonus += 1.25
+        # лёгкий бонус за наличие постера (чаще норм тайтл)
+        if (item.get('poster_path') or '').strip():
+            bonus += 0.25
+        return vote + bonus
+
+    # ограничим параллелизм, чтобы не словить 429
+    _sem = _asyncio.Semaphore(4)
+
+    async def _tmdb_try(q: str):
+        if not _good_tmdb_cand(q):
+            return (q, [])
+        async with _sem:
             try:
-                top = items[0]
-                _d(
-                    "vision.tmdb.hit",
-                    used_query=used_query,
-                    top_title=(top.get("title") or top.get("name")),
-                    top_year=top.get("year"),
-                    top_type=top.get("media_type"),
-                )
+                qq = _normalize_tmdb_query(q)
+                items = await _tmdb_best_effort(qq, limit=5)
+                return (q, items or [])
             except Exception:
-                pass
-            break
+                return (q, [])
 
-    # WEB fallback (only if still empty)
-    if (not items) and cand_list:
+    # гоняем пачку кандидатов параллельно
+    _cands = list(cand_list or [])[:14]
+    tasks = [_tmdb_try(q) for q in _cands]
+    results = await _asyncio.gather(*tasks, return_exceptions=False) if tasks else []
+
+    # выбираем TOP-3 среди всех результатов (одна карточка, 1 фото максимум)
+    best = None
+    best_rows = []  # list[(score, q, item)]
+    seen_ids = set()
+
+    for q, items in results:
+        for it in (items or [])[:8]:
+            tid = it.get("id")
+            if tid is None:
+                continue
+            if tid in seen_ids:
+                continue
+            seen_ids.add(tid)
+            sc = _score_item(it, q)
+            best_rows.append((sc, q, it))
+
+    best_rows.sort(key=lambda x: x[0], reverse=True)
+    top = best_rows[:3]
+
+    def _short_overview(it: dict, max_len: int = 130) -> str:
         try:
-            q0 = cand_list[0]
-            use_serp = bool(os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY"))
-            cands, tag = await web_to_tmdb_candidates(q0, use_serpapi=use_serp)
+            t = (it.get("overview") or "").strip()
+        except Exception:
+            t = ""
+        if not t:
+            return ""
+        t = _re.sub(r"\s+", " ", t).strip()
+        return (t[: max_len - 1] + "…") if len(t) > max_len else t
 
-            for c in cands:
+    def _tmdb_item_url(it: dict) -> str:
+        mid = it.get("id")
+        mt = (it.get("media_type") or "").strip() or ("tv" if it.get("name") else "movie")
+        if not mid:
+            return ""
+        return f"https://www.themoviedb.org/{mt}/{mid}"
+
+    def _item_title(it: dict) -> str:
+        return (it.get("title") or it.get("name") or "").strip()
+
+    def _item_year(it: dict) -> str:
+        dt = (it.get("release_date") or it.get("first_air_date") or "").strip()
+        return dt[:4] if len(dt) >= 4 else ""
+
+    if top:
+        # sticky media mode
+        try:
+            if user is not None:
+                setattr(user, "assistant_mode", "media")
+                setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
+                if session:
+                    await session.commit()
+        except Exception:
+            pass
+
+        used_query = top[0][1]  # query лучшего
+        top_items = [row[2] for row in top]
+
+        # сохраняем именно ТОП-3, чтобы выбор 1/2/3 работал дальше
+        uid = _media_uid(user)
+        if uid:
+            _media_set(uid, used_query, top_items)
+
+        TMDB_IMG = "https://image.tmdb.org/t/p/w342"
+        poster_url = ""
+        try:
+            pp = (top_items[0].get("poster_path") or "").strip()
+            poster_url = f"{TMDB_IMG}{pp}" if pp else ""
+        except Exception:
+            poster_url = ""
+
+        place_emoji = ["🥇", "🥈", "🥉"]
+        out = []
+        out.append("🎬 Я собрал ТОП-3 совпадения (рейтинг):")
+        out.append("")
+
+        for i, it in enumerate(top_items):
+            title = _item_title(it)
+            year = _item_year(it)
+            mt = (it.get("media_type") or "").strip() or ("tv" if it.get("name") else "movie")
+
+            mt_ru = "сериал" if mt == "tv" else "фильм"
+
+            ov = _short_overview(it, 130)
+            url = _tmdb_item_url(it)
+
+            line = f"{place_emoji[i]} {title}"
+            if year:
+                line += f" ({year})"
+            line += f" — {mt_ru}"
+            out.append(line)
+
+            if ov:
+                out.append(f"Коротко: {ov}")
+
+            # 🥇 — один постер через 🖼
+            if i == 0 and poster_url:
+                out.append(f"🖼 {poster_url}")
+            else:
+                # 🥈🥉 — только ссылка (без 🖼), чтобы не спамить фотками
+                if url:
+                    out.append(f"TMDb: {url}")
+
+            out.append("")
+
+        out.append("Кнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить")
+        reply = "\n".join(out).strip()
+
+        if img_key:
+            _vision_cache_set(img_key, reply)
+        return reply
+
+    # если ничего не нашли — падаем ниже на WEB fallback
+    # If parallel TMDb gave no best — do WEB pipeline fallback (extract real title -> TMDb)
+    if not best:
+        try:
+            # 1) no-SerpAPI first
+            cands, tag = await web_to_tmdb_candidates(cand_list[0], use_serpapi=False)
+            _d('vision.web.cands', use_serpapi=False, tag=tag, n=len(cands or []), sample=(cands or [])[:5])
+            for c in (cands or [])[:12]:
                 if _is_bad_media_query(c):
                     continue
                 c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
-                c = _normalize_tmdb_query(c)
                 if not _good_tmdb_cand(c):
                     continue
                 items = await _tmdb_best_effort(c, limit=5)
-                items = [i for i in items if not i.get("adult")]
+                items = [i for i in (items or []) if not i.get('adult')]
                 if items:
                     used_query = c
                     break
         except Exception:
-            items = []
+            pass
+
+        # 2) SerpAPI only if key exists and still nothing
+        if not items and (os.getenv('SERPAPI_API_KEY') or os.getenv('SERPAPI_KEY')):
+            try:
+                cands, tag = await web_to_tmdb_candidates(cand_list[0], use_serpapi=True)
+                _d('vision.web.cands_serp', use_serpapi=True, tag=tag, n=len(cands or []), sample=(cands or [])[:5])
+                for c in (cands or [])[:12]:
+                    if _is_bad_media_query(c):
+                        continue
+                    c = _tmdb_sanitize_query(_normalize_tmdb_query(c))
+                    if not _good_tmdb_cand(c):
+                        continue
+                    items = await _tmdb_best_effort(c, limit=5)
+                    items = [i for i in (items or []) if not i.get('adult')]
+                    if items:
+                        used_query = c
+                        break
+            except Exception:
+                pass
 
     if items:
         if user is not None:

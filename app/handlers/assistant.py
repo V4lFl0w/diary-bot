@@ -92,6 +92,29 @@ async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMCon
 _POSTER_RE = re.compile(r"(?m)^\s*🖼\s+(https?://\S+)\s*$")
 _MEDIA_KNOBS_LINE = "\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить"
 
+# service может возвращать не "Кнопки:", а "👉 Нажми кнопку..."
+_MEDIA_KNOBS_LINE2 = "\n\n👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.\nЕсли кнопок нет — ответь цифрой."
+
+def _strip_media_knobs(text: str) -> str:
+    if not isinstance(text, str):
+        return str(text)
+    t = text
+    t = t.replace(_MEDIA_KNOBS_LINE, "")
+    t = t.replace(_MEDIA_KNOBS_LINE2, "")
+    return t.strip()
+
+def _needs_media_kb(text: str) -> bool:
+    if not isinstance(text, str):
+        return False
+    t = text
+    # триггеры, которые точно означают "должны быть кнопки"
+    return (
+        "Кнопки:" in t
+        or "Нажми кнопку" in t
+        or ("✅ Это оно" in t and "🔁" in t and "🧩" in t)
+        or "Если кнопок нет" in t
+    )
+
 
 def _extract_poster_url(text: str) -> tuple[Optional[str], str]:
     if not text:
@@ -343,30 +366,6 @@ async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) 
     )
 
 
-@router.callback_query(F.data == "open_premium")
-async def open_premium_from_inline(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
-    await state.clear()
-
-    user = await _get_user(session, cb.from_user.id)
-
-    # determine lang best-effort
-    lang = _normalize_lang(getattr(cb.from_user, "language_code", None))
-    if user:
-        lang = _normalize_lang((getattr(user, "lang", None) or getattr(user, "locale", None) or lang))
-
-    is_premium = _has_premium(user)
-    if cb.message:
-        await cb.message.answer(
-            "💎 Премиум",
-            reply_markup=get_premium_menu_kb(lang, is_premium=is_premium),
-        )
-        try:
-            await cb.message.edit_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-
-    await cb.answer()
-
 
 # =============== EXIT ===============
 
@@ -470,8 +469,8 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
         except Exception:
             pass
 
-    if isinstance(reply, str) and "Кнопки:" in reply:
-        clean = reply.replace(_MEDIA_KNOBS_LINE, "")
+    if isinstance(reply, str) and _needs_media_kb(reply):
+        clean = _strip_media_knobs(reply)
         poster_url, clean2 = _extract_poster_url(clean)
         if poster_url:
             await m.answer_photo(
@@ -651,8 +650,8 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
         await call.answer()
         return
 
-    if isinstance(reply, str) and "Кнопки:" in reply:
-        clean = reply.replace(_MEDIA_KNOBS_LINE, "")
+    if isinstance(reply, str) and _needs_media_kb(reply):
+        clean = _strip_media_knobs(reply)
         poster_url, clean2 = _extract_poster_url(clean)
         try:
             await state.update_data(_media_last_query=prompt, _media_last_lang=lang)

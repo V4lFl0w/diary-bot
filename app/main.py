@@ -22,6 +22,7 @@ from app.config import settings
 from app.db import Base, engine
 from app.db import async_session as SessionLocal
 from app.handlers import export
+from app.handlers import premium_bridge_v2
 from app.handlers.proactive_checkin import router as proactive_checkin_router
 from app.logging_setup import setup_logging
 from app.middlewares.ban import BanMiddleware
@@ -333,6 +334,7 @@ def build_dispatcher() -> Dispatcher:
 
     # ----- роутеры -----
     dp.include_router(premium.router)
+    dp.include_router(premium_bridge_v2.router)
     dp.include_router(premium_reset.router)
     dp.include_router(refund_ui.router)
     dp.include_router(payments_stars.router)
