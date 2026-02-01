@@ -155,9 +155,7 @@ def _all_zero(res: Dict[str, float]) -> bool:
 
 async def _call_api(query: str, key: str) -> List[Dict[str, Any]]:
     async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(
-            API_URL, params={"query": query}, headers={"X-Api-Key": key}
-        )
+        resp = await client.get(API_URL, params={"query": query}, headers={"X-Api-Key": key})
 
     resp.raise_for_status()
     data = resp.json()

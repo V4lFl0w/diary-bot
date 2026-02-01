@@ -42,9 +42,7 @@ def _pay_kb_job(lang: str, tg_id: int):
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     loc = _normalize_lang(lang)
-    pay_text = {"ru": "Оплатить картой", "uk": "Оплатити карткою", "en": "Pay by card"}[
-        loc
-    ]
+    pay_text = {"ru": "Оплатить картой", "uk": "Оплатити карткою", "en": "Pay by card"}[loc]
 
     rows = []
 
@@ -52,9 +50,7 @@ def _pay_kb_job(lang: str, tg_id: int):
     if pay_link:
         rows.append([InlineKeyboardButton(text=pay_text, url=pay_link)])
 
-    rows.append(
-        [InlineKeyboardButton(text=_stars_label(loc), callback_data="pay_stars")]
-    )
+    rows.append([InlineKeyboardButton(text=_stars_label(loc), callback_data="pay_stars")])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -87,9 +83,7 @@ async def run_renewal_reminders(
     *,
     now: Optional[datetime] = None,
 ) -> None:
-    now_dt = (
-        utcnow() if now is None else now
-    )  # если захочешь подставлять время в тестах
+    now_dt = utcnow() if now is None else now  # если захочешь подставлять время в тестах
 
     buckets = await get_subscriptions_for_renewal_reminders(session, now=now_dt)
 

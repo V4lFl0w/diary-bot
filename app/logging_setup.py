@@ -11,9 +11,7 @@ _chat_id: ContextVar[int | None] = ContextVar("chat_id", default=None)
 _update_id: ContextVar[int | None] = ContextVar("update_id", default=None)
 
 
-def set_log_context(
-    tg_id: int | None = None, chat_id: int | None = None, update_id: int | None = None
-) -> None:
+def set_log_context(tg_id: int | None = None, chat_id: int | None = None, update_id: int | None = None) -> None:
     _tg_id.set(tg_id)
     _chat_id.set(chat_id)
     _update_id.set(update_id)

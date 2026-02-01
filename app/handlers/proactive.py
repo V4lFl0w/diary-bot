@@ -346,13 +346,9 @@ def _t(lang: str, key: str) -> str:
 def _mode_label(lang: str, mode: int) -> str:
     lang = _norm_lang(lang)
     if lang == "uk":
-        return {0: "Вимкнено", 1: "Ранок", 2: "Вечір", 3: "Ранок + Вечір"}.get(
-            mode, "—"
-        )
+        return {0: "Вимкнено", 1: "Ранок", 2: "Вечір", 3: "Ранок + Вечір"}.get(mode, "—")
     if lang == "en":
-        return {0: "Off", 1: "Morning", 2: "Evening", 3: "Morning + Evening"}.get(
-            mode, "—"
-        )
+        return {0: "Off", 1: "Morning", 2: "Evening", 3: "Morning + Evening"}.get(mode, "—")
     return {0: "Выключено", 1: "Утро", 2: "Вечер", 3: "Утро + Вечер"}.get(mode, "—")
 
 
@@ -362,9 +358,7 @@ class ProactiveStates(StatesGroup):
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 def _fmt_time(v: Union[None, dtime, str]) -> str:
@@ -502,9 +496,7 @@ def proactive_kb(u: User, lang: str):
 
 
 async def _render_to_message(m: Message, u: User, lang: str):
-    await m.answer(
-        _screen_text(u, lang), reply_markup=proactive_kb(u, lang), parse_mode=None
-    )
+    await m.answer(_screen_text(u, lang), reply_markup=proactive_kb(u, lang), parse_mode=None)
 
 
 async def _render_edit(msg: Any, u: User, lang: str):
@@ -541,16 +533,12 @@ async def proactive_cmd(m: Message, session: AsyncSession):
             parse_mode=None,
         )
         return
-    lang = _user_lang(
-        u, fallback=_norm_lang(getattr(m.from_user, "language_code", "ru"))
-    )
+    lang = _user_lang(u, fallback=_norm_lang(getattr(m.from_user, "language_code", "ru")))
     await _render_to_message(m, u, lang)
 
 
 # ВАЖНО: menus.py вызывает show_proactive_screen(m, session, lang)
-async def show_proactive_screen(
-    message: Message, session: AsyncSession, lang: str = "ru", *_a, **_k
-):
+async def show_proactive_screen(message: Message, session: AsyncSession, lang: str = "ru", *_a, **_k):
     if not message.from_user:
         return
     u = await _get_user(session, message.from_user.id)
@@ -571,9 +559,7 @@ async def proactive_mode(cb: CallbackQuery, session: AsyncSession):
         await cb.answer(" /start ")
         return
 
-    lang = _user_lang(
-        u, fallback=_norm_lang(getattr(cb.from_user, "language_code", "ru"))
-    )
+    lang = _user_lang(u, fallback=_norm_lang(getattr(cb.from_user, "language_code", "ru")))
 
     cur = _current_mode(u)
     idx = _MODE_CYCLE.index(cur) if cur in _MODE_CYCLE else 0
@@ -619,17 +605,13 @@ async def proactive_cancel(message: Message, session: AsyncSession, state: FSMCo
 
 
 @router.message(ProactiveStates.waiting_time)
-async def proactive_time_input(
-    message: Message, session: AsyncSession, state: FSMContext
-):
+async def proactive_time_input(message: Message, session: AsyncSession, state: FSMContext):
     if not message.from_user:
         return
 
     u = await _get_user(session, message.from_user.id)
     lang = (
-        _user_lang(
-            u, fallback=_norm_lang(getattr(message.from_user, "language_code", "ru"))
-        )
+        _user_lang(u, fallback=_norm_lang(getattr(message.from_user, "language_code", "ru")))
         if u
         else _norm_lang(getattr(message.from_user, "language_code", "ru"))
     )

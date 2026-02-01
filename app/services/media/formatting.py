@@ -182,9 +182,7 @@ def _format_media_ranked(
 
     # ✅ если title явно совпал — считаем это уверенным результатом
     try:
-        if is_strong_title_match(query, best_title) or (
-            best_orig and is_strong_title_match(query, best_orig)
-        ):
+        if is_strong_title_match(query, best_title) or (best_orig and is_strong_title_match(query, best_orig)):
             best_sc = max(best_sc, 0.72)
             best_why = "точное совпадение по названию"
     except Exception:
@@ -195,9 +193,7 @@ def _format_media_ranked(
     y = best.get("year") or "—"
     r = best.get("vote_average") or "—"
     kind = (best.get("media_type") or "").strip()
-    kind_ru = (
-        "сериал" if kind == "tv" else "фильм" if kind == "movie" else (kind or "медиа")
-    )
+    kind_ru = "сериал" if kind == "tv" else "фильм" if kind == "movie" else (kind or "медиа")
 
     ov = _short_overview(best)
 
@@ -211,18 +207,10 @@ def _format_media_ranked(
             yy = it.get("year") or "—"
             rr = it.get("vote_average") or "—"
             kk = (it.get("media_type") or "").strip()
-            kk_ru = (
-                "сериал"
-                if kk == "tv"
-                else "фильм"
-                if kk == "movie"
-                else (kk or "медиа")
-            )
+            kk_ru = "сериал" if kk == "tv" else "фильм" if kk == "movie" else (kk or "медиа")
             out.append(f"{i}) {tt} ({yy}) — {kk_ru} · ⭐ {rr} · {why}")
         out.append("")
-        out.append(
-            "🧩 Уточни 1 деталь: год / актёр / страна / серия-эпизод / что происходит в сцене."
-        )
+        out.append("🧩 Уточни 1 деталь: год / актёр / страна / серия-эпизод / что происходит в сцене.")
         out.append("👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.")
         out.append("Если кнопок нет — можешь ответить цифрой 1–3.")
         return "\n".join(out)
@@ -242,13 +230,7 @@ def _format_media_ranked(
             yy = it.get("year") or "—"
             rr = it.get("vote_average") or "—"
             kk = (it.get("media_type") or "").strip()
-            kk_ru = (
-                "сериал"
-                if kk == "tv"
-                else "фильм"
-                if kk == "movie"
-                else (kk or "медиа")
-            )
+            kk_ru = "сериал" if kk == "tv" else "фильм" if kk == "movie" else (kk or "медиа")
             out2.append(f"{i}) {tt} ({yy}) — {kk_ru} · ⭐ {rr}")
 
     out2.append("")
@@ -264,9 +246,7 @@ def _format_one_media(item: dict) -> str:
     overview = (item.get("overview") or "").strip()
     rating = item.get("vote_average", None)
     kind = (item.get("media_type") or "").strip()
-    kind_ru = (
-        "сериал" if kind == "tv" else "фильм" if kind == "movie" else kind or "медиа"
-    )
+    kind_ru = "сериал" if kind == "tv" else "фильм" if kind == "movie" else kind or "медиа"
 
     line = f"🎬 {title}"
     if year:

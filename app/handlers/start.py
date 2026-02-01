@@ -49,10 +49,7 @@ _TEXTS = {
             "Сначала прими <b>🔒 Политику</b> — это займёт 10 секунд.\n"
             "Главное меню — внизу."
         ),
-        "hello_ready": (
-            "С возвращением! Можешь писать запись командой /journal.\n"
-            "Главное меню — внизу."
-        ),
+        "hello_ready": ("С возвращением! Можешь писать запись командой /journal.\nГлавное меню — внизу."),
     },
     "uk": {
         "hello_need_privacy": (
@@ -60,20 +57,13 @@ _TEXTS = {
             "Спочатку прийми <b>🔒 Політику</b> — це займе 10 секунд.\n"
             "Головне меню — внизу."
         ),
-        "hello_ready": (
-            "З поверненням! Можеш писати запис командою /journal.\n"
-            "Головне меню — внизу."
-        ),
+        "hello_ready": ("З поверненням! Можеш писати запис командою /journal.\nГоловне меню — внизу."),
     },
     "en": {
         "hello_need_privacy": (
-            "Hi! This is a journal assistant.\n"
-            "First accept <b>🔒 Privacy</b> — takes 10 seconds.\n"
-            "Main menu is below."
+            "Hi! This is a journal assistant.\nFirst accept <b>🔒 Privacy</b> — takes 10 seconds.\nMain menu is below."
         ),
-        "hello_ready": (
-            "Welcome back! You can write an entry with /journal.\nMain menu is below."
-        ),
+        "hello_ready": ("Welcome back! You can write an entry with /journal.\nMain menu is below."),
     },
 }
 
@@ -136,10 +126,7 @@ def _calc_premium(user: User | None) -> bool:
 def _policy_accepted(user: User | None) -> bool:
     if False:
         return False
-    return bool(
-        getattr(user, "consent_accepted_at", None)
-        or getattr(user, "policy_accepted", False)
-    )
+    return bool(getattr(user, "consent_accepted_at", None) or getattr(user, "policy_accepted", False))
 
 
 @router.message(CommandStart())
@@ -196,9 +183,7 @@ async def cmd_start(m: Message, session: AsyncSession, user: User) -> None:
 
     await session.commit()
 
-    lang = _norm_locale(
-        getattr(user, "locale", None) or getattr(user, "lang", None) or "ru"
-    )
+    lang = _norm_locale(getattr(user, "locale", None) or getattr(user, "lang", None) or "ru")
     is_premium = _calc_premium(user)
     kb = get_main_kb(lang=lang, is_premium=is_premium, is_admin=is_admin_tg(tg_id))
 

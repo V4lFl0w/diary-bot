@@ -27,10 +27,7 @@ class LogContextMiddleware(BaseMiddleware):
                     chat_id = event.message.chat.id if event.message.chat else None
                 elif event.callback_query and event.callback_query.from_user:
                     tg_id = event.callback_query.from_user.id
-                    if (
-                        event.callback_query.message
-                        and event.callback_query.message.chat
-                    ):
+                    if event.callback_query.message and event.callback_query.message.chat:
                         chat_id = event.callback_query.message.chat.id
             except Exception:
                 pass

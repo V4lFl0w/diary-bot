@@ -2,8 +2,9 @@
 
 Revision ID: 5f6f8f49b718
 Revises: d8d1968672cf
-Create Date: 
+Create Date:
 """
+
 from __future__ import annotations
 
 from alembic import op

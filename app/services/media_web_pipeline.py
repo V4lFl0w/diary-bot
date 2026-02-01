@@ -88,9 +88,7 @@ def _dedupe(seq: List[str]) -> List[str]:
     return out
 
 
-_SEASON_EP_RE = re.compile(
-    r"(?i)\b(season|s)\s*(\d{1,2})\b.*\b(episode|e)\s*(\d{1,3})\b"
-)
+_SEASON_EP_RE = re.compile(r"(?i)\b(season|s)\s*(\d{1,2})\b.*\b(episode|e)\s*(\d{1,3})\b")
 
 
 def _strip_episode_tokens(q: str) -> str:
@@ -101,9 +99,7 @@ def _strip_episode_tokens(q: str) -> str:
     return _norm(q2)
 
 
-def _http_json(
-    url: str, headers: dict | None = None, timeout: int = 10
-) -> dict | list | None:
+def _http_json(url: str, headers: dict | None = None, timeout: int = 10) -> dict | list | None:
     req = urllib.request.Request(
         url,
         headers=(headers or {})
@@ -328,9 +324,7 @@ def _extract_known_titles(s: str) -> List[str]:
         out.append("9-1-1")
 
     # "Aisha Hinds - Actress" -> "Aisha Hinds"
-    m = re.match(
-        r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s*-\s*(actor|actress)\b", s2, flags=re.I
-    )
+    m = re.match(r"^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\s*-\s*(actor|actress)\b", s2, flags=re.I)
     if m:
         out.append(m.group(1).strip())
 
@@ -375,9 +369,7 @@ def _clean_lens_candidates(raw: List[str], limit: int = 15) -> List[str]:
     return cleaned[:limit]
 
 
-def _serpapi_lens_candidates(
-    image_url: str, limit: int = 8, hl: str = "ru"
-) -> List[str]:
+def _serpapi_lens_candidates(image_url: str, limit: int = 8, hl: str = "ru") -> List[str]:
     """
     SerpAPI Google Lens: по публичному URL картинки достаём кандидаты названий
     (visual_matches titles + related_content queries).
@@ -385,9 +377,7 @@ def _serpapi_lens_candidates(
     key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
     image_url = _norm(image_url)
     if _DEBUG:
-        _LOG.info(
-            "SERPAPI LENS CALL url=%r limit=%s has_key=%s", image_url, limit, bool(key)
-        )
+        _LOG.info("SERPAPI LENS CALL url=%r limit=%s has_key=%s", image_url, limit, bool(key))
     if not key or not image_url:
         return []
 
@@ -506,15 +496,11 @@ async def image_bytes_to_tmdb_candidates(
             _LOG.warning("media_web_pipeline: Spaces upload failed: %r", e)
         return [], "spaces_upload_fail"
 
-    cands, tag = await image_to_tmdb_candidates(
-        public_url, use_serpapi_lens=use_serpapi_lens, hl=hl
-    )
+    cands, tag = await image_to_tmdb_candidates(public_url, use_serpapi_lens=use_serpapi_lens, hl=hl)
     return cands, f"{tag}+spaces"
 
 
-async def web_to_tmdb_candidates(
-    query: str, use_serpapi: bool = False
-) -> Tuple[List[str], str]:
+async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple[List[str], str]:
     q = _norm(query)
     if not q:
         return [], "empty_query"
@@ -558,9 +544,7 @@ async def web_to_tmdb_candidates(
     for wq in wiki_qs:
         if not wq:
             continue
-        for t in _wiki_opensearch(wq, lang="ru", limit=5) + _wiki_opensearch(
-            wq, lang="en", limit=5
-        ):
+        for t in _wiki_opensearch(wq, lang="ru", limit=5) + _wiki_opensearch(wq, lang="en", limit=5):
             t2 = _norm(t)
             if not t2:
                 continue

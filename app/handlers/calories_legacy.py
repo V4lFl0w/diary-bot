@@ -74,21 +74,11 @@ def _tr(lang: Optional[str], ru: str, uk: str, en: str) -> str:
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
-def _user_lang(
-    user: Optional[User], fallback: Optional[str], tg_lang: Optional[str]
-) -> str:
-    return _normalize_lang(
-        getattr(user, "locale", None)
-        or getattr(user, "lang", None)
-        or fallback
-        or tg_lang
-        or "ru"
-    )
+def _user_lang(user: Optional[User], fallback: Optional[str], tg_lang: Optional[str]) -> str:
+    return _normalize_lang(getattr(user, "locale", None) or getattr(user, "lang", None) or fallback or tg_lang or "ru")
 
 
 # -------------------- menu text guard --------------------
@@ -375,12 +365,9 @@ async def calories_button_prompt(
     await message.answer(
         _tr(
             lang_code,
-            "Кидай список еды одним сообщением или фото.\n"
-            "Пример: «250 мл молока, банан, 40 г арахиса»",
-            "Кидай список їжі одним повідомленням або фото.\n"
-            "Приклад: «250 мл молока, банан, 40 г арахісу»",
-            "Send your food list in one message or a photo.\n"
-            "Example: “250ml milk, 1 banana, 40g peanuts”",
+            "Кидай список еды одним сообщением или фото.\nПример: «250 мл молока, банан, 40 г арахиса»",
+            "Кидай список їжі одним повідомленням або фото.\nПриклад: «250 мл молока, банан, 40 г арахісу»",
+            "Send your food list in one message or a photo.\nExample: “250ml milk, 1 banana, 40g peanuts”",
         )
     )
 
@@ -397,9 +384,7 @@ async def calories_cancel(
     lang_code = _user_lang(user, lang, tg_lang)
 
     await state.clear()
-    await message.answer(
-        _tr(lang_code, "Ок, отменил.", "Ок, скасував.", "Ok, cancelled.")
-    )
+    await message.answer(_tr(lang_code, "Ок, отменил.", "Ок, скасував.", "Ok, cancelled."))
 
 
 # -------------------- режим ожидания --------------------
@@ -442,24 +427,18 @@ async def calories_photo_in_mode(
     lang_code = _user_lang(user, lang, tg_lang)
 
     if not user:
-        await message.answer(
-            _tr(lang_code, "Нажми /start", "Натисни /start", "Press /start")
-        )
+        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
         return
 
-    ok = await _require_photo_premium(
-        message, session, user, lang_code, source="calories_waiting_input"
-    )
+    ok = await _require_photo_premium(message, session, user, lang_code, source="calories_waiting_input")
     if not ok:
         return
 
     await message.answer(
         _tr(
             lang_code,
-            "📸 Калории по фото открыты ✅\n\n"
-            "Скоро добавим распознавание продуктов на изображении.",
-            "📸 Калорії з фото відкриті ✅\n\n"
-            "Скоро додамо розпізнавання продуктів на зображенні.",
+            "📸 Калории по фото открыты ✅\n\nСкоро добавим распознавание продуктов на изображении.",
+            "📸 Калорії з фото відкриті ✅\n\nСкоро додамо розпізнавання продуктів на зображенні.",
             "📸 Photo calories unlocked ✅\n\nWe’ll add food recognition soon.",
         )
     )
@@ -514,24 +493,18 @@ async def calories_photo_caption(
     lang_code = _user_lang(user, lang, tg_lang)
 
     if not user:
-        await message.answer(
-            _tr(lang_code, "Нажми /start", "Натисни /start", "Press /start")
-        )
+        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
         return
 
-    ok = await _require_photo_premium(
-        message, session, user, lang_code, source="photo_caption_trigger"
-    )
+    ok = await _require_photo_premium(message, session, user, lang_code, source="photo_caption_trigger")
     if not ok:
         return
 
     await message.answer(
         _tr(
             lang_code,
-            "📸 Калории по фото открыты ✅\n\n"
-            "Скоро добавим распознавание продуктов на изображении.",
-            "📸 Калорії з фото відкриті ✅\n\n"
-            "Скоро додамо розпізнавання продуктів на зображенні.",
+            "📸 Калории по фото открыты ✅\n\nСкоро добавим распознавание продуктов на изображении.",
+            "📸 Калорії з фото відкриті ✅\n\nСкоро додамо розпізнавання продуктів на зображенні.",
             "📸 Photo calories unlocked ✅\n\nWe’ll add food recognition soon.",
         )
     )

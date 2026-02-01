@@ -27,17 +27,9 @@ async def require_policy(
     if not tg_id:
         return True
 
-    user: User | None = (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    user: User | None = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
-    policy_ok = bool(
-        user
-        and (
-            getattr(user, "policy_accepted", False)
-            or getattr(user, "consent_accepted_at", None)
-        )
-    )
+    policy_ok = bool(user and (getattr(user, "policy_accepted", False) or getattr(user, "consent_accepted_at", None)))
 
     if policy_ok:
         return True

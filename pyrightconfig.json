@@ -18,7 +18,9 @@
     "**/migrations/**",
     "**/node_modules",
     "**/tools/**",
-    "**/tools/snapshots/**"
+    "**/tools/snapshots/**",
+    ".backup_*",
+    "**/.backup_*",
   ],
   "executionEnvironments": [
     {

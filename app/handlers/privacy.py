@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.keyboards import get_main_kb, is_privacy_btn
 from app.models.user import User
+
 # ✅ единая логика админа
 try:
     from app.handlers.admin import is_admin_tg
@@ -148,9 +149,7 @@ async def _ensure_cols(session: AsyncSession) -> None:
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 async def _get_or_create_user(session: AsyncSession, tg_id: int, lang: str) -> User:
@@ -221,9 +220,7 @@ async def _fetch_flags(session: AsyncSession, tg_id: int) -> Tuple[bool, bool]:
     is_premium — по модели
     """
     user = await _get_user(session, tg_id)
-    is_admin = is_admin_tg(tg_id) or bool(
-        getattr(user, "is_admin", False) if user else False
-    )
+    is_admin = is_admin_tg(tg_id) or bool(getattr(user, "is_admin", False) if user else False)
     is_premium = _premium_active(user)
     return is_admin, is_premium
 
@@ -238,11 +235,7 @@ def _soft_kb(lang: str) -> InlineKeyboardMarkup:
         "en": "Continue",
     }.get(lang, "Continue")
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=label, callback_data=CB_PRIVACY_OPEN)]
-        ]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=label, callback_data=CB_PRIVACY_OPEN)]])
 
 
 def _policy_kb(lang: str) -> InlineKeyboardMarkup:
@@ -307,9 +300,7 @@ async def privacy_open_cb(c: CallbackQuery, session: AsyncSession) -> None:
     if not c.message:
         return
 
-    lang = await _fetch_lang(
-        session, c.from_user.id, getattr(c.from_user, "language_code", None)
-    )
+    lang = await _fetch_lang(session, c.from_user.id, getattr(c.from_user, "language_code", None))
 
     if is_message(c.message):
         await privacy_show(cast(Message, c.message), session, lang=lang)
@@ -331,9 +322,7 @@ async def privacy_agree(c: CallbackQuery, session: AsyncSession) -> None:
         return
 
     await _ensure_cols(session)
-    lang = await _fetch_lang(
-        session, c.from_user.id, getattr(c.from_user, "language_code", None)
-    )
+    lang = await _fetch_lang(session, c.from_user.id, getattr(c.from_user, "language_code", None))
 
     try:
         user = await _get_or_create_user(session, c.from_user.id, lang)
@@ -370,9 +359,7 @@ async def privacy_disagree(c: CallbackQuery, session: AsyncSession) -> None:
         return
 
     await _ensure_cols(session)
-    lang = await _fetch_lang(
-        session, c.from_user.id, getattr(c.from_user, "language_code", None)
-    )
+    lang = await _fetch_lang(session, c.from_user.id, getattr(c.from_user, "language_code", None))
 
     try:
         user = await _get_or_create_user(session, c.from_user.id, lang)

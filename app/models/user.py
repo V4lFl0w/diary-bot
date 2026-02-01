@@ -32,41 +32,27 @@ class User(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(SQLITE_INT_PK, primary_key=True, autoincrement=True)
 
-    tg_id: Mapped[int] = mapped_column(
-        BigInteger, unique=True, index=True, nullable=False
-    )
+    tg_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True, nullable=False)
 
     # -------------------- telegram profile --------------------
 
-    username: Mapped[Optional[str]] = mapped_column(
-        String(64), nullable=True, index=True
-    )
+    username: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     first_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     last_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     # -------------------- moderation --------------------
 
-    is_banned: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False, index=True
-    )
+    is_banned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
     # -------------------- activity --------------------
 
-    last_seen_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
-    )
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
-    assistant_prev_response_id: Mapped[Optional[str]] = mapped_column(
-        String, nullable=True
-    )
-    assistant_last_used_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    assistant_prev_response_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    assistant_last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     assistant_profile_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    assistant_profile_updated_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    assistant_profile_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # -------------------- i18n --------------------
 
@@ -77,12 +63,8 @@ class User(TimestampMixin, Base):
 
     # -------------------- privacy / consent --------------------
 
-    policy_accepted: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
-    consent_accepted_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    policy_accepted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    consent_accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # -------------------- admin (optional) --------------------
 
@@ -91,52 +73,32 @@ class User(TimestampMixin, Base):
     # -------------------- premium core --------------------
 
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    premium_until: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    premium_trial_given: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
+    premium_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    premium_trial_given: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # -------------------- premium tiers & trials --------------------
 
-    premium_plan: Mapped[str] = mapped_column(
-        String(16), default="basic", nullable=False
-    )
-    basic_trial_given: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
-    pro_trial_given: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
+    premium_plan: Mapped[str] = mapped_column(String(16), default="basic", nullable=False)
+    basic_trial_given: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    pro_trial_given: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # -------------------- proactive morning --------------------
 
     morning_auto: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    morning_time: Mapped[time] = mapped_column(
-        Time(timezone=False), default=time(9, 30), nullable=False
-    )
-    morning_last_sent_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    morning_time: Mapped[time] = mapped_column(Time(timezone=False), default=time(9, 30), nullable=False)
+    morning_last_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # -------------------- proactive evening --------------------
 
     evening_auto: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    evening_time: Mapped[time] = mapped_column(
-        Time(timezone=False), default=time(21, 30), nullable=False
-    )
-    evening_last_sent_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    evening_time: Mapped[time] = mapped_column(Time(timezone=False), default=time(21, 30), nullable=False)
+    evening_last_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # -------------------- proactive streak --------------------
     # Серия "закрыл день" (обновляем, когда пользователь реально ответил на вечерний чек-ин)
 
     proactive_streak: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    proactive_last_done_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    proactive_last_done_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # -------------------- relations --------------------
 

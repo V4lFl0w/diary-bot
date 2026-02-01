@@ -31,9 +31,7 @@ router = Router(name="menus")
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> User:
-    user = (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    user = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     if user is None:
         user = User(tg_id=tg_id)
         session.add(user)
@@ -42,9 +40,7 @@ async def _get_user(session: AsyncSession, tg_id: int) -> User:
 
 
 def _user_lang(user: User, tg_lang: Optional[str]) -> str:
-    loc = (
-        getattr(user, "locale", None) or getattr(user, "lang", None) or tg_lang or "ru"
-    ).lower()
+    loc = (getattr(user, "locale", None) or getattr(user, "lang", None) or tg_lang or "ru").lower()
     if loc.startswith(("ua", "uk")):
         return "uk"
     if loc.startswith("en"):
@@ -99,9 +95,7 @@ async def _log(
 
 
 @router.message(F.text.func(is_root_journal_btn))
-async def open_journal_menu(
-    m: Message, session: AsyncSession, state: FSMContext
-) -> None:
+async def open_journal_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
@@ -129,9 +123,7 @@ async def open_media_menu(m: Message, session: AsyncSession, state: FSMContext) 
 
 
 @router.message(F.text.func(is_root_settings_btn))
-async def open_settings_menu(
-    m: Message, session: AsyncSession, state: FSMContext
-) -> None:
+async def open_settings_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
@@ -145,9 +137,7 @@ async def open_settings_menu(
 
 
 @router.message(F.text.func(is_root_proactive_btn))
-async def open_proactive_menu(
-    m: Message, session: AsyncSession, state: FSMContext
-) -> None:
+async def open_proactive_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
@@ -164,9 +154,7 @@ async def open_proactive_menu(
 
 
 @router.message(F.text.func(is_root_premium_btn))
-async def open_premium_menu(
-    m: Message, session: AsyncSession, state: FSMContext
-) -> None:
+async def open_premium_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
@@ -181,15 +169,11 @@ async def open_premium_menu(
     from aiogram.types import ReplyKeyboardRemove
 
     await m.answer("💎 Премиум", reply_markup=ReplyKeyboardRemove())
-    await m.answer(
-        "💎 Премиум", reply_markup=get_premium_menu_kb(lang, is_premium=is_premium)
-    )
+    await m.answer("💎 Премиум", reply_markup=get_premium_menu_kb(lang, is_premium=is_premium))
 
 
 @router.callback_query(F.data == "menu:home")
-async def cb_back_to_main(
-    call: CallbackQuery, session: AsyncSession, state: FSMContext
-) -> None:
+async def cb_back_to_main(call: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()
 
     user = await _get_user(session, call.from_user.id)
@@ -235,9 +219,7 @@ async def back_to_main(m: Message, session: AsyncSession, state: FSMContext) -> 
 
 
 @router.message(F.text & ~F.text.startswith("/"))
-async def media_mode_text_router(
-    message: Message, session: AsyncSession, state: FSMContext
-):
+async def media_mode_text_router(message: Message, session: AsyncSession, state: FSMContext):
     # ✅ если в любом FSM (журнал/калории/ассистент/и т.д.) — НЕ перехватываем, пропускаем дальше
     st = None
     try:
@@ -273,7 +255,5 @@ async def media_mode_text_router(
 
     reply = await run_assistant(user, text, lang, session=session)
     if reply:
-        clean = reply.replace(
-            "\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", ""
-        )
+        clean = reply.replace("\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", "")
         await message.answer(clean, reply_markup=_media_inline_kb(), parse_mode=None)

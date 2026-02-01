@@ -15,9 +15,7 @@ class SearchTrack:
     artwork_url: str | None
 
 
-async def itunes_search(
-    query: str, *, limit: int = 8, country: str = "US"
-) -> list[SearchTrack]:
+async def itunes_search(query: str, *, limit: int = 8, country: str = "US") -> list[SearchTrack]:
     q = (query or "").strip()
     if not q:
         return []

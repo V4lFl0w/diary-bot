@@ -94,13 +94,7 @@ def _webapp_url() -> str | None:
 
 def _open_kb(l: str, url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=BTN.get(l, BTN["ru"]), web_app=WebAppInfo(url=url)
-                )
-            ]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text=BTN.get(l, BTN["ru"]), web_app=WebAppInfo(url=url))]]
     )
 
 
@@ -120,9 +114,7 @@ async def cmd_meditation(m: Message, session: AsyncSession, state: FSMContext) -
         await m.answer(PITCH.get(l, PITCH["ru"]), parse_mode="HTML")
         return
 
-    await m.answer(
-        PITCH.get(l, PITCH["ru"]), reply_markup=_open_kb(l, url), parse_mode="HTML"
-    )
+    await m.answer(PITCH.get(l, PITCH["ru"]), reply_markup=_open_kb(l, url), parse_mode="HTML")
 
 
 __all__ = ["router"]

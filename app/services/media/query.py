@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
+import re as _re_tmdb_clean
 
 from app.services.media_text import SXXEYY_RE as _SXXEYY_RE
 from app.services.media_text import YEAR_RE as _YEAR_RE
@@ -254,9 +255,7 @@ def reorder_items_by_strong_hit(
         orig = (it.get("original_title") or it.get("original_name") or "").strip()
         any_hit = False
         for q in sq:
-            if is_strong_title_match(q, title) or (
-                orig and is_strong_title_match(q, orig)
-            ):
+            if is_strong_title_match(q, title) or (orig and is_strong_title_match(q, orig)):
                 any_hit = True
                 break
         (strong if any_hit else rest).append(it)
@@ -381,7 +380,6 @@ def _parse_media_hints(q: str) -> dict:
 # ===============================================================
 
 # --- tmdb query cleanup v3 (remove chatter, keep year, drop "где") ---
-import re as _re_tmdb_clean
 
 _TMDB_LEADING_TRASH = _re_tmdb_clean.compile(
     r"""(?ix)
@@ -398,7 +396,7 @@ _TMDB_LEADING_TRASH = _re_tmdb_clean.compile(
         сериал\s+где|
         мультик\s+где
     )
-    \b[\s,:-]* 
+    \b[\s,:-]*
     """
 )
 
@@ -492,9 +490,7 @@ def _looks_like_choice(text: str) -> bool:
     return bool(re.fullmatch(r"\d{1,2}", t))
 
 
-_ASKING_TITLE_RE = re.compile(
-    r"(?i)\b(как называется|что за фильм|что за сериал|что за мультик|откуда кадр)\b"
-)
+_ASKING_TITLE_RE = re.compile(r"(?i)\b(как называется|что за фильм|что за сериал|что за мультик|откуда кадр)\b")
 
 
 def _is_asking_for_title(text: str) -> bool:

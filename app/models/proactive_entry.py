@@ -27,11 +27,7 @@ except Exception:
 
 class ProactiveEntry(Base):
     __tablename__ = "proactive_entries"
-    table_args = (
-        UniqueConstraint(
-            "user_id", "kind", "local_date", name="ux_proactive_entry_day"
-        ),
-    )
+    table_args = (UniqueConstraint("user_id", "kind", "local_date", name="ux_proactive_entry_day"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(
@@ -43,12 +39,8 @@ class ProactiveEntry(Base):
     kind: Mapped[str] = mapped_column(String(16), nullable=False)  # morning / evening
     local_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
 
-    payload: Mapped[dict[str, Any]] = mapped_column(
-        JSONType, nullable=False, default=dict
-    )
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     user = relationship("User", backref="proactive_entries")

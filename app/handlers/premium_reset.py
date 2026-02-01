@@ -98,9 +98,7 @@ async def premium_reset(m: Message, session: AsyncSession, lang: Optional[str] =
 
 # На будущее: если добавишь инлайн-кнопку "premium:reset", этот хендлер тоже отработает
 @router.callback_query(F.data == "premium:reset")
-async def premium_reset_cb(
-    c: CallbackQuery, session: AsyncSession, lang: Optional[str] = None
-):
+async def premium_reset_cb(c: CallbackQuery, session: AsyncSession, lang: Optional[str] = None):
     loc = _loc(lang)
     await c.answer()
     changed = await _reset_premium(session, c.from_user.id)

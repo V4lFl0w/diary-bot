@@ -179,9 +179,7 @@ def _csv_journal(rows: list[dict]) -> bytes:
 
 
 async def _get_user_id(session: AsyncSession, tg_id: int) -> int | None:
-    r = await session.execute(
-        sql_text("SELECT id FROM users WHERE tg_id=:tg LIMIT 1"), {"tg": tg_id}
-    )
+    r = await session.execute(sql_text("SELECT id FROM users WHERE tg_id=:tg LIMIT 1"), {"tg": tg_id})
     row = r.first()
     return int(row[0]) if row and row[0] is not None else None
 
@@ -191,12 +189,8 @@ async def _wipe_data(session: AsyncSession, tg_id: int) -> None:
     if not user_id:
         return
 
-    await session.execute(
-        sql_text("DELETE FROM journal_entries WHERE user_id=:uid"), {"uid": user_id}
-    )
-    await session.execute(
-        sql_text("DELETE FROM analytics_events WHERE user_id=:uid"), {"uid": user_id}
-    )
+    await session.execute(sql_text("DELETE FROM journal_entries WHERE user_id=:uid"), {"uid": user_id})
+    await session.execute(sql_text("DELETE FROM analytics_events WHERE user_id=:uid"), {"uid": user_id})
     await session.execute(sql_text("DELETE FROM events WHERE tg_id=:tg"), {"tg": tg_id})
 
     await session.commit()
@@ -207,16 +201,10 @@ async def _delete_account(session: AsyncSession, tg_id: int) -> None:
     if not user_id:
         return
 
-    await session.execute(
-        sql_text("DELETE FROM journal_entries WHERE user_id=:uid"), {"uid": user_id}
-    )
-    await session.execute(
-        sql_text("DELETE FROM analytics_events WHERE user_id=:uid"), {"uid": user_id}
-    )
+    await session.execute(sql_text("DELETE FROM journal_entries WHERE user_id=:uid"), {"uid": user_id})
+    await session.execute(sql_text("DELETE FROM analytics_events WHERE user_id=:uid"), {"uid": user_id})
     await session.execute(sql_text("DELETE FROM events WHERE tg_id=:tg"), {"tg": tg_id})
-    await session.execute(
-        sql_text("DELETE FROM subscriptions WHERE user_id=:uid"), {"uid": user_id}
-    )
+    await session.execute(sql_text("DELETE FROM subscriptions WHERE user_id=:uid"), {"uid": user_id})
     await session.execute(sql_text("DELETE FROM users WHERE id=:uid"), {"uid": user_id})
 
     await session.commit()

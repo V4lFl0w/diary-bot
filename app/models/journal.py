@@ -28,6 +28,4 @@ class JournalEntry(TimestampMixin, Base):
     # 1..5 — валидируй в коде/схеме
     mood: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    __table_args__ = (
-        Index("ix_journal_entries_user_created", "user_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_journal_entries_user_created", "user_id", "created_at"),)

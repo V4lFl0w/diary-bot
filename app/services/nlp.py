@@ -299,9 +299,7 @@ def _parse_once_datetime(
 
     # завтра
     if re.search(rf"\b{_RE_TOMORROW}\b", text_norm):
-        base = (now + timedelta(days=1)).replace(
-            hour=9, minute=0, second=0, microsecond=0
-        )
+        base = (now + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
         if tm:
             base = _apply_time(base, tm)
         return base

@@ -22,9 +22,7 @@ def _as_int(v: Optional[str], default: int) -> int:
 
 def _discover_ngrok_https() -> str:
     try:
-        with urllib.request.urlopen(
-            "http://127.0.0.1:4040/api/tunnels", timeout=2
-        ) as r:
+        with urllib.request.urlopen("http://127.0.0.1:4040/api/tunnels", timeout=2) as r:
             data = json.load(r)
         for t in data.get("tunnels", []):
             u = t.get("public_url", "")
@@ -38,9 +36,7 @@ def _discover_ngrok_https() -> str:
 class Settings:
     def __init__(self) -> None:
         # environment
-        self.environment = (
-            (os.getenv("ENV") or os.getenv("APP_ENV") or "dev").strip().lower()
-        )
+        self.environment = (os.getenv("ENV") or os.getenv("APP_ENV") or "dev").strip().lower()
 
         # --- DB resolution (variant 3) ---
         self.database_url = self._resolve_database_url()
@@ -58,11 +54,7 @@ class Settings:
         self._public_url = (os.getenv("PUBLIC_URL") or "").strip().rstrip("/")
 
         # locale
-        self.default_locale = (
-            (os.getenv("DEFAULT_LOCALE") or os.getenv("APP_DEFAULT_LOCALE") or "ru")
-            .strip()
-            .lower()
-        )
+        self.default_locale = (os.getenv("DEFAULT_LOCALE") or os.getenv("APP_DEFAULT_LOCALE") or "ru").strip().lower()
         if self.default_locale == "ua":
             self.default_locale = "uk"
         if self.default_locale not in {"ru", "uk", "en"}:
@@ -77,14 +69,8 @@ class Settings:
         self.premium_channel = (os.getenv("PREMIUM_CHANNEL") or "@NoticesDiarY").strip()
 
         # music urls
-        self.music_focus_url = (
-            os.getenv("MUSIC_FOCUS_URL")
-            or "https://www.youtube.com/watch?v=jfKfPfyJRdk"
-        ).strip()
-        self.music_sleep_url = (
-            os.getenv("MUSIC_SLEEP_URL")
-            or "https://www.youtube.com/watch?v=5qap5aO4i9A"
-        ).strip()
+        self.music_focus_url = (os.getenv("MUSIC_FOCUS_URL") or "https://www.youtube.com/watch?v=jfKfPfyJRdk").strip()
+        self.music_sleep_url = (os.getenv("MUSIC_SLEEP_URL") or "https://www.youtube.com/watch?v=5qap5aO4i9A").strip()
 
         # misc
         self.reminder_tick_sec = _as_int(os.getenv("REMINDER_TICK_SEC"), 5)
@@ -92,12 +78,7 @@ class Settings:
 
     def _resolve_database_url(self) -> str:
         # 1) explicit override (highest priority)
-        explicit = (
-            os.getenv("DATABASE_URL")
-            or os.getenv("DB_URL")
-            or os.getenv("DB_URI")
-            or ""
-        ).strip()
+        explicit = (os.getenv("DATABASE_URL") or os.getenv("DB_URL") or os.getenv("DB_URI") or "").strip()
         if explicit:
             return explicit
 
@@ -106,19 +87,11 @@ class Settings:
         # 2) env-specific vars
         if env in {"prod", "production"}:
             return (
-                os.getenv("DATABASE_URL_PROD")
-                or os.getenv("DB_URL_PROD")
-                or os.getenv("DB_URI_PROD")
-                or ""
+                os.getenv("DATABASE_URL_PROD") or os.getenv("DB_URL_PROD") or os.getenv("DB_URI_PROD") or ""
             ).strip()
 
         # default: dev/local/test
-        return (
-            os.getenv("DATABASE_URL_DEV")
-            or os.getenv("DB_URL_DEV")
-            or os.getenv("DB_URI_DEV")
-            or ""
-        ).strip()
+        return (os.getenv("DATABASE_URL_DEV") or os.getenv("DB_URL_DEV") or os.getenv("DB_URI_DEV") or "").strip()
 
     def ensure_public_url(self) -> str:
         # In production we never use ngrok discovery

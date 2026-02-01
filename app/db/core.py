@@ -14,9 +14,7 @@ DB_URL = _normalize_url(os.getenv("DB_URL", "sqlite:///dev.db"))
 
 engine = create_async_engine(DB_URL, future=True, echo=False)
 Base = declarative_base()
-async_session = async_sessionmaker(
-    bind=engine, expire_on_commit=False, class_=AsyncSession
-)
+async_session = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
 Session = async_session
 
 

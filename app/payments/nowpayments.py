@@ -36,9 +36,7 @@ def create_invoice(tg_id: str = Query(...)):
 async def webhook(request: Request):
     body = await request.body()
     sign = request.headers.get("x-nowpayments-sig", "")
-    check = hmac.new(
-        os.getenv("NOWP_IPN_SECRET", "").encode(), body, hashlib.sha512
-    ).hexdigest()
+    check = hmac.new(os.getenv("NOWP_IPN_SECRET", "").encode(), body, hashlib.sha512).hexdigest()
     if not hmac.compare_digest(check, sign):
         return {"ok": False}
     data = await request.json()

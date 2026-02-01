@@ -139,9 +139,7 @@ def _has_calories_feature() -> bool:
         return False
 
 
-def _build_commands(
-    include_admin: bool, include_calories: bool
-) -> Dict[str, list[BotCommand]]:
+def _build_commands(include_admin: bool, include_calories: bool) -> Dict[str, list[BotCommand]]:
     ru = [
         BotCommand(command="start", description="Начать"),
         BotCommand(command="journal", description="Сделать запись"),
@@ -231,9 +229,7 @@ class DBSessionMiddleware(BaseMiddleware):
 
 
 async def _ensure_db() -> None:
-    for _, name, _ in pkgutil.iter_modules(
-        _models_pkg.__path__, _models_pkg.__name__ + "."
-    ):
+    for _, name, _ in pkgutil.iter_modules(_models_pkg.__path__, _models_pkg.__name__ + "."):
         importlib.import_module(name)
 
     async with engine.begin() as conn:
@@ -241,9 +237,7 @@ async def _ensure_db() -> None:
 
 
 async def _set_commands(include_admin: bool, include_calories: bool) -> None:
-    cmds = _build_commands(
-        include_admin=include_admin, include_calories=include_calories
-    )
+    cmds = _build_commands(include_admin=include_admin, include_calories=include_calories)
     with contextlib.suppress(Exception):
         await bot.set_my_commands(cmds["ru"], language_code="ru")
         await bot.set_my_commands(cmds["uk"], language_code="uk")
@@ -253,11 +247,7 @@ async def _set_commands(include_admin: bool, include_calories: bool) -> None:
 async def _reminders_loop() -> None:
     tick = max(
         1,
-        int(
-            os.getenv(
-                "REMINDER_TICK_SEC", str(getattr(settings, "reminder_tick_sec", 5))
-            )
-        ),
+        int(os.getenv("REMINDER_TICK_SEC", str(getattr(settings, "reminder_tick_sec", 5)))),
     )
 
     try:
@@ -325,11 +315,7 @@ def build_dispatcher() -> Dispatcher:
     dp.update.outer_middleware(UserSyncMiddleware())
 
     # 2) Язык/контекст (если надо)
-    dp.update.outer_middleware(
-        LangMiddlewareImpl()
-        if LangMiddlewareImpl is not None
-        else _FallbackLangMiddleware()
-    )
+    dp.update.outer_middleware(LangMiddlewareImpl() if LangMiddlewareImpl is not None else _FallbackLangMiddleware())
 
     dp.update.outer_middleware(LastSeenMiddleware(min_update_seconds=60))
 
@@ -422,12 +408,8 @@ async def main() -> None:
         logging.info("Connected as @%s id: %s", me.username, me.id)
 
     reminders_task = asyncio.create_task(_reminders_loop(), name="reminders_loop")
-    renewal_task = asyncio.create_task(
-        _renewal_reminders_loop(), name="renewal_reminders_loop"
-    )
-    proactive_task = asyncio.create_task(
-        proactive_loop(bot, SessionLocal), name="proactive_loop"
-    )
+    renewal_task = asyncio.create_task(_renewal_reminders_loop(), name="renewal_reminders_loop")
+    proactive_task = asyncio.create_task(proactive_loop(bot, SessionLocal), name="proactive_loop")
 
     await log_db_info()
     logging.info("✅ Bot is up. Starting polling…")

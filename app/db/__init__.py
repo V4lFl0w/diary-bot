@@ -11,11 +11,7 @@ class Base(DeclarativeBase):
 
 
 def _pick_db_url() -> str:
-    env = (
-        (getattr(settings, "environment", None) or os.getenv("ENV") or "dev")
-        .strip()
-        .lower()
-    )
+    env = (getattr(settings, "environment", None) or os.getenv("ENV") or "dev").strip().lower()
     env_key = env.upper()
 
     candidates = [
@@ -25,9 +21,7 @@ def _pick_db_url() -> str:
         os.getenv("DATABASE_URL"),
         os.getenv("DB_URL"),
         os.getenv("DB_URI"),
-        getattr(settings, "database_url", "")
-        if hasattr(settings, "database_url")
-        else "",
+        getattr(settings, "database_url", "") if hasattr(settings, "database_url") else "",
     ]
 
     for c in candidates:

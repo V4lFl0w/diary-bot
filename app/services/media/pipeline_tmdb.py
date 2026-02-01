@@ -28,10 +28,7 @@ def _dedupe_media(items: list[dict]) -> list[dict]:
 def _sort_media(items: list[dict]) -> list[dict]:
     def score(it: dict) -> float:
         try:
-            return (
-                float(it.get("popularity") or 0) * 0.8
-                + float(it.get("vote_average") or 0) * 2.0
-            )
+            return float(it.get("popularity") or 0) * 0.8 + float(it.get("vote_average") or 0) * 2.0
         except Exception:
             return 0.0
 

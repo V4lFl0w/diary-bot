@@ -1,4 +1,3 @@
-
 def _find_router_index(dp, wanted):
     # aiogram v3: include_router adds to dp.sub_routers list
     subs = list(getattr(dp, "sub_routers", []))
@@ -6,6 +5,7 @@ def _find_router_index(dp, wanted):
         if r is wanted:
             return i
     return -1
+
 
 def test_dispatcher_includes_and_order():
     import app.main as main

@@ -5,6 +5,7 @@ Revises: d8d1968672cf
 Create Date: 2026-01-10 16:49:41.233518
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -12,15 +13,15 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '7586fc120e13'
-down_revision: Union[str, Sequence[str], None] = 'd8d1968672cf'
+revision: str = "7586fc120e13"
+down_revision: Union[str, Sequence[str], None] = "d8d1968672cf"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade():
     insp = sa.inspect(op.get_bind())
-    if 'payments' not in insp.get_table_names():
+    if "payments" not in insp.get_table_names():
         return
 
     with op.batch_alter_table("payments") as b:
@@ -30,9 +31,10 @@ def upgrade():
         b.add_column(sa.Column("refund_admin_note", sa.String(length=500), nullable=True))
         b.add_column(sa.Column("refund_requested_at", sa.DateTime(), nullable=True))
 
+
 def downgrade():
     insp = sa.inspect(op.get_bind())
-    if 'payments' not in insp.get_table_names():
+    if "payments" not in insp.get_table_names():
         return
 
     with op.batch_alter_table("payments") as b:

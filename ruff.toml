@@ -1,9 +1,19 @@
-line-length = 100
+line-length = 120
 target-version = "py311"
+
+extend-exclude = [
+  ".backup_*",
+  "project_snapshot_*.txt",
+  "__pycache__",
+  ".pytest_cache",
+  ".ruff_cache",
+  ".mypy_cache",
+  "backups_*",
+]
 
 [lint]
 select = ["E", "F", "W"]
-ignore = []
+ignore = ["E402", "E501", "E741"]
 
 [lint.per-file-ignores]
 "app.py" = ["E701", "E702", "E401"]

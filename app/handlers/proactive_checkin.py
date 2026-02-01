@@ -39,9 +39,7 @@ def _flow(kind: str):
 
 
 @router.callback_query(F.data.startswith("proactive:checkin:"))
-async def proactive_checkin_start(
-    cb: CallbackQuery, session: AsyncSession, state: FSMContext
-):
+async def proactive_checkin_start(cb: CallbackQuery, session: AsyncSession, state: FSMContext):
     tg = cb.from_user
     # user берём так же, как у тебя в других хендлерах (если есть util — замени)
     u = (
@@ -57,9 +55,7 @@ async def proactive_checkin_start(
 
     k, q = _flow(kind)[0]
     await state.set_state(ProactiveCheckinFSM.waiting_a1)
-    await cb.message.answer(
-        f"⚡ Проактивность • {'Утро' if kind == 'morning' else 'Вечер'}\n\n{q}"
-    )
+    await cb.message.answer(f"⚡ Проактивность • {'Утро' if kind == 'morning' else 'Вечер'}\n\n{q}")
     await cb.answer("Ок")
 
 

@@ -49,6 +49,7 @@ async def maybe_grant_trial(*a, **k) -> bool:
     except Exception:
         return False
 
+
 # feature-gates
 # feature-gates (shim; always returns bool)
 try:
@@ -67,6 +68,7 @@ async def require_feature_v2(*a, **k) -> bool:
         return bool(res)
     except Exception:
         return True
+
 
 router = Router(name="journal")
 
@@ -110,15 +112,11 @@ def _tr(lang: Optional[str], ru: str, uk: str, en: str) -> str:
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 def _user_lang(user: Optional[User], fallback: Optional[str]) -> str:
-    raw = (
-        getattr(user, "locale", None) or getattr(user, "lang", None) or fallback or "ru"
-    )
+    raw = getattr(user, "locale", None) or getattr(user, "lang", None) or fallback or "ru"
     return _normalize_lang(str(raw))
 
 
@@ -201,9 +199,7 @@ def _is_admin_user(user: Optional[User], tg_id: Optional[int] = None) -> bool:
         return False
 
 
-def _main_kb_for(
-    user: Optional[User], lang: str, *, tg_id: Optional[int] = None, is_premium=None
-):
+def _main_kb_for(user: Optional[User], lang: str, *, tg_id: Optional[int] = None, is_premium=None):
     """
     Безопасный вызов get_main_kb:
     - премиум считаем по _is_premium_user(user)
@@ -338,9 +334,7 @@ async def journal_save(
                 "Потрібно прийняти політику: натисни 🔒 Політика",
                 "You need to accept the policy: tap 🔒 Privacy",
             ),
-            reply_markup=_main_kb_for(
-                user, loc, tg_id=m.from_user.id, is_premium=is_premium
-            ),
+            reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id, is_premium=is_premium),
         )
         return
 
@@ -368,11 +362,7 @@ async def journal_save(
     await state.clear()
 
     total = (
-        await session.execute(
-            select(func.count())
-            .select_from(JournalEntry)
-            .where(JournalEntry.user_id == user_id)
-        )
+        await session.execute(select(func.count()).select_from(JournalEntry).where(JournalEntry.user_id == user_id))
     ).scalar() or 0
 
     await m.answer(
@@ -388,9 +378,7 @@ async def journal_save(
             "Quick actions are in the menu.\n"
             "Premium expands: search, ranges, extended history and stats.",
         ),
-        reply_markup=_main_kb_for(
-            user, loc, tg_id=m.from_user.id, is_premium=is_premium
-        ),
+        reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id, is_premium=is_premium),
     )
 
 
@@ -419,11 +407,7 @@ async def journal_stats(
         return
 
     total = (
-        await session.execute(
-            select(func.count())
-            .select_from(JournalEntry)
-            .where(JournalEntry.user_id == user.id)
-        )
+        await session.execute(select(func.count()).select_from(JournalEntry).where(JournalEntry.user_id == user.id))
     ).scalar() or 0
 
     parts: list[str] = []
@@ -440,42 +424,22 @@ async def journal_stats(
     try:
         has_analytics = (
             await session.execute(
-                sql_text(
-                    "SELECT 1 FROM sqlite_master "
-                    "WHERE type='table' AND name='analytics_events' LIMIT 1;"
-                )
+                sql_text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='analytics_events' LIMIT 1;")
             )
         ).scalar_one_or_none()
 
         if has_analytics:
-            cols = [
-                r[1]
-                for r in (
-                    await session.execute(
-                        sql_text("PRAGMA table_info(analytics_events);")
-                    )
-                ).all()
-            ]
-            col_tg = (
-                "tg_id"
-                if "tg_id" in cols
-                else ("user_id" if "user_id" in cols else None)
-            )
+            cols = [r[1] for r in (await session.execute(sql_text("PRAGMA table_info(analytics_events);"))).all()]
+            col_tg = "tg_id" if "tg_id" in cols else ("user_id" if "user_id" in cols else None)
             col_name = (
                 "name"
                 if "name" in cols
-                else (
-                    "event"
-                    if "event" in cols
-                    else ("event_name" if "event_name" in cols else None)
-                )
+                else ("event" if "event" in cols else ("event_name" if "event_name" in cols else None))
             )
             col_created = (
                 "created_at"
                 if "created_at" in cols
-                else (
-                    "ts" if "ts" in cols else ("created" if "created" in cols else None)
-                )
+                else ("ts" if "ts" in cols else ("created" if "created" in cols else None))
             )
 
             if col_tg and col_name and col_created:
@@ -531,12 +495,7 @@ async def journal_stats(
     # events trial_* (7d)
     try:
         has_events = (
-            await session.execute(
-                sql_text(
-                    "SELECT 1 FROM sqlite_master "
-                    "WHERE type='table' AND name='events' LIMIT 1;"
-                )
-            )
+            await session.execute(sql_text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events' LIMIT 1;"))
         ).scalar_one_or_none()
 
         if has_events:
@@ -690,11 +649,7 @@ async def _render_history(
     edit: bool,
 ) -> None:
     total = (
-        await session.execute(
-            select(func.count())
-            .select_from(JournalEntry)
-            .where(JournalEntry.user_id == user.id)
-        )
+        await session.execute(select(func.count()).select_from(JournalEntry).where(JournalEntry.user_id == user.id))
     ).scalar() or 0
 
     q = (
@@ -781,9 +736,7 @@ def _history_kb(offset: int, limit: int, total: int, loc: str) -> InlineKeyboard
 
 
 @router.callback_query(F.data.startswith("journal:history:"))
-async def cb_journal_history(
-    call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None
-):
+async def cb_journal_history(call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None):
     if not call.from_user:
         return
 
@@ -805,16 +758,12 @@ async def cb_journal_history(
 
     msg = cast(Message, call.message)
 
-    await _render_history(
-        msg, session, user, loc, offset=offset, limit=limit, edit=True
-    )
+    await _render_history(msg, session, user, loc, offset=offset, limit=limit, edit=True)
     await call.answer()
 
 
 @router.callback_query(F.data.startswith("journal:open:"))
-async def cb_journal_open(
-    call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None
-):
+async def cb_journal_open(call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None):
     if not call.from_user:
         return
 
@@ -831,11 +780,7 @@ async def cb_journal_open(
         await call.answer()
         return
 
-    q = (
-        select(JournalEntry)
-        .where(JournalEntry.user_id == user.id, JournalEntry.id == entry_id)
-        .limit(1)
-    )
+    q = select(JournalEntry).where(JournalEntry.user_id == user.id, JournalEntry.id == entry_id).limit(1)
     entry = (await session.execute(q)).scalar_one_or_none()
     if not entry:
         await call.answer(
@@ -866,9 +811,7 @@ async def cb_journal_open(
 
 
 @router.message(F.text.regexp(r"^/open_(\d+)$"))
-async def journal_open_cmd(
-    m: Message, session: AsyncSession, lang: Optional[str] = None
-):
+async def journal_open_cmd(m: Message, session: AsyncSession, lang: Optional[str] = None):
     if not m.from_user:
         return
     user = await _get_user(session, m.from_user.id)
@@ -885,16 +828,10 @@ async def journal_open_cmd(
         return
     entry_id = int(mm.group(1))
 
-    q = (
-        select(JournalEntry)
-        .where(JournalEntry.user_id == user.id, JournalEntry.id == entry_id)
-        .limit(1)
-    )
+    q = select(JournalEntry).where(JournalEntry.user_id == user.id, JournalEntry.id == entry_id).limit(1)
     entry = (await session.execute(q)).scalar_one_or_none()
     if not entry:
-        await m.answer(
-            _tr(loc, "Запись не найдена.", "Запис не знайдено.", "Entry not found.")
-        )
+        await m.answer(_tr(loc, "Запись не найдена.", "Запис не знайдено.", "Entry not found."))
         return
 
     tz = _user_tz(user)
@@ -1026,9 +963,7 @@ async def journal_search_query(
     await _run_journal_search(m, session, user, loc, query_text)
 
 
-async def _run_journal_search(
-    m: Message, session: AsyncSession, user: User, loc: str, query_text: str
-) -> None:
+async def _run_journal_search(m: Message, session: AsyncSession, user: User, loc: str, query_text: str) -> None:
     # экранируем %, _, \ чтобы LIKE не ломался
     q_raw = query_text.strip()
     q_esc = q_raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -1109,9 +1044,7 @@ async def journal_range(
 
     try:
         start = datetime.fromisoformat(parts[1]).replace(tzinfo=timezone.utc)
-        end = datetime.fromisoformat(parts[2]).replace(tzinfo=timezone.utc) + timedelta(
-            days=1
-        )
+        end = datetime.fromisoformat(parts[2]).replace(tzinfo=timezone.utc) + timedelta(days=1)
     except Exception:
         await m.answer(
             _tr(
@@ -1211,11 +1144,7 @@ async def journal_week(
     active_days = len(dates)
 
     overall_total = (
-        await session.execute(
-            select(func.count())
-            .select_from(JournalEntry)
-            .where(JournalEntry.user_id == user.id)
-        )
+        await session.execute(select(func.count()).select_from(JournalEntry).where(JournalEntry.user_id == user.id))
     ).scalar() or 0
 
     text = _tr(

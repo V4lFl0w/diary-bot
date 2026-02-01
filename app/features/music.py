@@ -117,9 +117,7 @@ def _tr(lang: str | None, key: str) -> str:
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 def _user_lang(user: User | None, tg_lang: str | None) -> str:
@@ -156,21 +154,15 @@ def _menu_kb(l: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text=_tr(l, "focus_btn"), callback_data="music:focus"
-                ),
-                InlineKeyboardButton(
-                    text=_tr(l, "sleep_btn"), callback_data="music:sleep"
-                ),
+                InlineKeyboardButton(text=_tr(l, "focus_btn"), callback_data="music:focus"),
+                InlineKeyboardButton(text=_tr(l, "sleep_btn"), callback_data="music:sleep"),
             ],
             [
                 InlineKeyboardButton(text=_tr(l, "my_btn"), callback_data="music:my"),
                 InlineKeyboardButton(text=_tr(l, "add_btn"), callback_data="music:add"),
             ],
             [
-                InlineKeyboardButton(
-                    text=_tr(l, "search_btn"), callback_data="music:search"
-                ),
+                InlineKeyboardButton(text=_tr(l, "search_btn"), callback_data="music:search"),
             ],
         ]
     )
@@ -192,9 +184,7 @@ def _numbers_kb(l: str, items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
     kb: list[list[InlineKeyboardButton]] = []
 
     for idx, (iid, _title) in enumerate(items, start=1):
-        row.append(
-            InlineKeyboardButton(text=str(idx), callback_data=f"music:play/{iid}")
-        )
+        row.append(InlineKeyboardButton(text=str(idx), callback_data=f"music:play/{iid}"))
         if len(row) == 5:
             kb.append(row)
             row = []
@@ -219,13 +209,9 @@ def _search_numbers_kb(l: str, n: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 
-async def _save_track(
-    session: AsyncSession, user: User, title: str, file_id: str
-) -> None:
+async def _save_track(session: AsyncSession, user: User, title: str, file_id: str) -> None:
     existing = await session.scalar(
-        select(UserTrack)
-        .where(UserTrack.user_id == user.id, UserTrack.file_id == file_id)
-        .limit(1)
+        select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.file_id == file_id).limit(1)
     )
     if existing:
         if not existing.title and title:
@@ -233,9 +219,7 @@ async def _save_track(
             await session.commit()
         return
 
-    total = await session.scalar(
-        select(func.count()).select_from(UserTrack).where(UserTrack.user_id == user.id)
-    )
+    total = await session.scalar(select(func.count()).select_from(UserTrack).where(UserTrack.user_id == user.id))
     if (total or 0) >= PLAYLIST_LIMIT:
         raise ValueError("limit")
 
@@ -250,16 +234,11 @@ async def _save_track(
     await session.commit()
 
 
-async def _list_tracks(
-    session: AsyncSession, user: User, limit: int = MY_LIST_LIMIT
-) -> list[tuple[int, str]]:
+async def _list_tracks(session: AsyncSession, user: User, limit: int = MY_LIST_LIMIT) -> list[tuple[int, str]]:
     rows = (
         (
             await session.execute(
-                select(UserTrack)
-                .where(UserTrack.user_id == user.id)
-                .order_by(UserTrack.id.desc())
-                .limit(limit)
+                select(UserTrack).where(UserTrack.user_id == user.id).order_by(UserTrack.id.desc()).limit(limit)
             )
         )
         .scalars()
@@ -268,23 +247,15 @@ async def _list_tracks(
     return [(t.id, (t.title or "Track")) for t in rows]
 
 
-async def _get_track(
-    session: AsyncSession, user: User, track_id: int
-) -> Optional[UserTrack]:
+async def _get_track(session: AsyncSession, user: User, track_id: int) -> Optional[UserTrack]:
     return (
-        await session.execute(
-            select(UserTrack)
-            .where(UserTrack.user_id == user.id, UserTrack.id == track_id)
-            .limit(1)
-        )
+        await session.execute(select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == track_id).limit(1))
     ).scalar_one_or_none()
 
 
 @router.message(Command("music"))
 @router.message(F.text.func(is_music_btn))
-@router.message(
-    F.text.in_({"🎵 Music", "🎵 Музика", "🎵 Музыка", "music", "музыка", "музика"})
-)
+@router.message(F.text.in_({"🎵 Music", "🎵 Музика", "🎵 Музыка", "music", "музыка", "музика"}))
 async def cmd_music(m: Message, session: AsyncSession) -> None:
     user = await _get_user(session, m.from_user.id)
     l = _user_lang(user, getattr(m.from_user, "language_code", None))
@@ -295,9 +266,7 @@ async def cmd_music(m: Message, session: AsyncSession) -> None:
 
 
 @router.callback_query(F.data == "music:search")
-async def on_music_search_btn(
-    c: CallbackQuery, state: FSMContext, session: AsyncSession
-) -> None:
+async def on_music_search_btn(c: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     try:
         await c.answer()
     except TelegramBadRequest:
@@ -369,9 +338,7 @@ async def on_music_choice(c: CallbackQuery, session: AsyncSession) -> None:
         if not chat_id:
             return
 
-        await c.bot.send_audio(
-            chat_id=chat_id, audio=track.file_id, caption=track.title or None
-        )
+        await c.bot.send_audio(chat_id=chat_id, audio=track.file_id, caption=track.title or None)
         return
 
 
@@ -421,9 +388,7 @@ async def on_audio_document(m: Message, session: AsyncSession) -> None:
 
 
 @router.message(MusicStates.waiting_search, F.text)
-async def on_music_search_query(
-    m: Message, state: FSMContext, session: AsyncSession
-) -> None:
+async def on_music_search_query(m: Message, state: FSMContext, session: AsyncSession) -> None:
     user = await _get_user(session, m.from_user.id)
     l = _user_lang(user, getattr(m.from_user, "language_code", None))
     if not user:

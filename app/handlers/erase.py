@@ -72,11 +72,7 @@ def _lang(m, user=None) -> str:
 
 def _t(lang: str, key: str, **fmt):
     block = _L10N.get(key, {}) if isinstance(globals().get("_L10N"), dict) else {}
-    template = (
-        (block.get(_norm_lang(lang)) or block.get("ru") or key)
-        if isinstance(block, dict)
-        else key
-    )
+    template = (block.get(_norm_lang(lang)) or block.get("ru") or key) if isinstance(block, dict) else key
     try:
         return template.format(**fmt)
     except Exception:

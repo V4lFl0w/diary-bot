@@ -233,11 +233,7 @@ async def activate_subscription_from_payment(
     auto_renew: bool = False,
 ) -> Subscription:
     now = utcnow()
-    plan_name = (
-        (getattr(payment, "sku", None) or "").strip()
-        or plan
-        or (payment.plan or "premium")
-    )
+    plan_name = (getattr(payment, "sku", None) or "").strip() or plan or (payment.plan or "premium")
 
     # 1) Находим "текущую" подписку (active или canceled, но ещё действующая)
     existing_sub = await get_current_subscription(session, user.id, now=now)
@@ -419,9 +415,7 @@ async def get_subscriptions_for_renewal_reminders(
     # только те, у которых expires_at задан и ещё не истекли "давно"
     # (lifetime с expires_at=None не трогаем)
     base_q = select(Subscription).where(
-        Subscription.status.in_(
-            ("active", "canceled")
-        ),  # canceled = авто-реню офф, но доступ может быть активен
+        Subscription.status.in_(("active", "canceled")),  # canceled = авто-реню офф, но доступ может быть активен
         Subscription.expires_at.is_not(None),
         Subscription.expires_at > (now - timedelta(days=1)),  # чтобы "сегодня" поймать
     )

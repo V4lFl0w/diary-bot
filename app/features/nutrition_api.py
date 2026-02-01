@@ -196,8 +196,7 @@ async def fetch_nutrition(query: str) -> Tuple[Dict[str, float], List[Dict[str, 
                 return _sum_totals(data2), data2
             except httpx.HTTPError as e2:
                 raise NutritionError(
-                    f"HTTP error while calling nutrition API: {status}. "
-                    f"Tried normalized query too."
+                    f"HTTP error while calling nutrition API: {status}. Tried normalized query too."
                 ) from e2
 
         raise NutritionError(f"HTTP error while calling nutrition API: {e}") from e

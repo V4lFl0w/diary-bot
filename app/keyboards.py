@@ -36,12 +36,7 @@ def _t(lang: Optional[str], key: str, fallback: Dict[str, str]) -> str:
             vv = v.strip()
             low = vv.lower()
 
-            if (
-                vv
-                and not _BAD_I18N.match(vv)
-                and low != key.lower()
-                and not low.startswith(("menu_", "btn_", "cmd_"))
-            ):
+            if vv and not _BAD_I18N.match(vv) and low != key.lower() and not low.startswith(("menu_", "btn_", "cmd_")):
                 return vv
     except Exception:
         # В проде i18n не должен падать, но мы не кладём бота из-за текстов.
@@ -432,15 +427,7 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMar
         ]
     )
 
-    keyboard.append(
-        [
-            KeyboardButton(
-                text=_t(
-                    lang, "btn_back", {"ru": "⬅️ Назад", "uk": "⬅️ Назад", "en": "⬅️ Back"}
-                )
-            )
-        ]
-    )
+    keyboard.append([KeyboardButton(text=_t(lang, "btn_back", {"ru": "⬅️ Назад", "uk": "⬅️ Назад", "en": "⬅️ Back"}))])
 
     logger.info(
         "PAY_KB(premium_menu): lang=%s is_premium=%s keyboard=%s",
@@ -531,12 +518,8 @@ def _norm_btn(s: str) -> str:
 # -------------------------------------------------------------------
 
 # root
-ROOT_JOURNAL_TXT = {
-    _norm_btn(x) for x in ("📓 журнал", "журнал", "📓 journal", "journal")
-}
-ROOT_REMINDERS_TXT = {
-    _norm_btn(x) for x in ("⏰ напоминания", "напоминания", "⏰ reminders", "reminders")
-}
+ROOT_JOURNAL_TXT = {_norm_btn(x) for x in ("📓 журнал", "журнал", "📓 journal", "journal")}
+ROOT_REMINDERS_TXT = {_norm_btn(x) for x in ("⏰ напоминания", "напоминания", "⏰ reminders", "reminders")}
 ROOT_CALORIES_TXT = {
     _norm_btn(x)
     for x in (
@@ -548,9 +531,7 @@ ROOT_CALORIES_TXT = {
         "calories",
     )
 }
-ROOT_STATS_TXT = {
-    _norm_btn(x) for x in ("📊 статистика", "статистика", "📊 stats", "stats")
-}
+ROOT_STATS_TXT = {_norm_btn(x) for x in ("📊 статистика", "статистика", "📊 stats", "stats")}
 ROOT_ASSISTANT_TXT = {
     _norm_btn(x)
     for x in (
@@ -562,14 +543,8 @@ ROOT_ASSISTANT_TXT = {
         "assistant",
     )
 }
-ROOT_MEDIA_TXT = {
-    _norm_btn(x)
-    for x in ("🧘 медиа", "медиа", "🧘 медіа", "медіа", "🧘 media", "media")
-}
-ROOT_PREMIUM_TXT = {
-    _norm_btn(x)
-    for x in ("💎 премиум", "премиум", "💎 преміум", "преміум", "💎 premium", "premium")
-}
+ROOT_MEDIA_TXT = {_norm_btn(x) for x in ("🧘 медиа", "медиа", "🧘 медіа", "медіа", "🧘 media", "media")}
+ROOT_PREMIUM_TXT = {_norm_btn(x) for x in ("💎 премиум", "премиум", "💎 преміум", "преміум", "💎 premium", "premium")}
 ROOT_SETTINGS_TXT = {
     _norm_btn(x)
     for x in (
@@ -608,9 +583,7 @@ REPORT_TXT = {
         "повідомити про баг",
     )
 }
-ADMIN_TXT = {
-    _norm_btn(x) for x in ("🛡 админ", "админ", "🛡 адмін", "адмін", "🛡 admin", "admin")
-}
+ADMIN_TXT = {_norm_btn(x) for x in ("🛡 админ", "админ", "🛡 адмін", "адмін", "🛡 admin", "admin")}
 
 # journal submenu
 HISTORY_TXT = {

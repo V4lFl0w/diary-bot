@@ -18,9 +18,7 @@ S3_REGION = os.getenv("S3_REGION", "fra1")
 S3_BUCKET = os.getenv("S3_BUCKET")
 S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY_ID")
 S3_SECRET_KEY = os.getenv("S3_SECRET_ACCESS_KEY")
-S3_PUBLIC_BASE = os.getenv(
-    "S3_PUBLIC_BASE"
-)  # e.g. https://<bucket>.<region>.digitaloceanspaces.com
+S3_PUBLIC_BASE = os.getenv("S3_PUBLIC_BASE")  # e.g. https://<bucket>.<region>.digitaloceanspaces.com
 
 _session = boto3.session.Session()
 
@@ -51,9 +49,7 @@ def _content_type_for_ext(ext: str) -> str:
     return "application/octet-stream"
 
 
-async def upload_bytes_get_url(
-    data: bytes, ext: str = "jpg", prefix: str = "frames"
-) -> str:
+async def upload_bytes_get_url(data: bytes, ext: str = "jpg", prefix: str = "frames") -> str:
     """
     Upload raw image bytes to DigitalOcean Spaces (S3 compatible) and return public URL.
     Requires env:

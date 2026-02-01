@@ -9,9 +9,7 @@ from app.config import settings
 
 def _default_props() -> DefaultBotProperties:
     try:
-        return DefaultBotProperties(
-            parse_mode=ParseMode.HTML, link_preview_is_disabled=True
-        )
+        return DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True)
     except TypeError:
         return DefaultBotProperties(parse_mode=ParseMode.HTML)
 

@@ -34,9 +34,7 @@ def _tmdb_auth_headers_and_params() -> Tuple[Dict[str, str], Dict[str, str]]:
     return headers, params
 
 
-async def tmdb_search_multi(
-    query: str, *, lang: str = "ru-RU", limit: int = 5
-) -> List[Dict[str, Any]]:
+async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5) -> List[Dict[str, Any]]:
     q = (query or "").strip()
     if not q:
         return []
@@ -131,9 +129,7 @@ async def tmdb_search_person(name: str):
         return res[0]["id"] if res else None
 
 
-async def tmdb_discover_with_people(
-    person_id: int, *, year: str | None, kind: str | None
-):
+async def tmdb_discover_with_people(person_id: int, *, year: str | None, kind: str | None):
     headers, base_params = _tmdb_auth_headers_and_params()
     media_type = "movie" if kind != "tv" else "tv"
     url = f"{TMDB_API}/discover/{media_type}"

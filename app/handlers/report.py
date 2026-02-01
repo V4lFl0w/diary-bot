@@ -35,20 +35,14 @@ class ReportFSM(StatesGroup):
 
 TEXTS: Dict[str, Dict[str, str]] = {
     "ru": {
-        "ask": (
-            "Опиши, что не работает/что улучшить. Можно приложить скрин/файл.\n"
-            "Отправь сообщением ниже 👇"
-        ),
+        "ask": ("Опиши, что не работает/что улучшить. Можно приложить скрин/файл.\nОтправь сообщением ниже 👇"),
         "saved": "Спасибо! Репорт сохранён. Мы посмотрим и ответим.",
         "start_first": "Нажми /start — и повтори репорт.",
         "empty": "Нужно написать пару слов к репорту. Попробуй ещё раз 👇",
         "cancelled": "Ок, отменил.",
     },
     "uk": {
-        "ask": (
-            "Опишіть, що не працює/що покращити. Можна додати скрін/файл.\n"
-            "Надішліть повідомлення нижче 👇"
-        ),
+        "ask": ("Опишіть, що не працює/що покращити. Можна додати скрін/файл.\nНадішліть повідомлення нижче 👇"),
         "saved": "Дякуємо! Репорт збережено. Переглянемо і відповімо.",
         "start_first": "Натисніть /start — і повторіть репорт.",
         "empty": "Потрібно написати кілька слів до репорту. Спробуйте ще раз 👇",
@@ -56,8 +50,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     },
     "en": {
         "ask": (
-            "Describe what’s broken / what to improve. You may attach a screenshot/file.\n"
-            "Send your message below 👇"
+            "Describe what’s broken / what to improve. You may attach a screenshot/file.\nSend your message below 👇"
         ),
         "saved": "Thanks! Bug report saved. We’ll review and reply.",
         "start_first": "Please press /start and send the report again.",
@@ -97,9 +90,7 @@ def _user_lang(user: Optional[User], fallback: Optional[str]) -> str:
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 def _collect_admin_ids() -> Set[int]:
@@ -157,16 +148,7 @@ async def ask_report(
     await m.answer(_t(loc, "ask"), reply_markup=ForceReply(selective=True))
 
 
-content_any = (
-    F.text
-    | F.caption
-    | F.photo
-    | F.document
-    | F.video
-    | F.animation
-    | F.voice
-    | F.audio
-)
+content_any = F.text | F.caption | F.photo | F.document | F.video | F.animation | F.voice | F.audio
 
 
 # ✅ ВАЖНО: cancel должен быть выше save_report
@@ -231,9 +213,7 @@ async def save_report(
     # уведомление админам
     admin_ids = _collect_admin_ids()
     if admin_ids:
-        uname = (
-            f"@{m.from_user.username}" if m.from_user.username else str(m.from_user.id)
-        )
+        uname = f"@{m.from_user.username}" if m.from_user.username else str(m.from_user.id)
         preview = (text[:800] + "…") if len(text) > 800 else text
 
         for admin_id in admin_ids:

@@ -14,16 +14,10 @@ async def version():
 
 
 def _base() -> str:
-    public = (
-        (os.getenv("PUBLIC_URL") or os.getenv("PUBLIC_BASE_URL") or "")
-        .strip()
-        .rstrip("/")
-    )
+    public = (os.getenv("PUBLIC_URL") or os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
     if not public.startswith("http"):
         # чтобы сразу было понятно в логах
-        raise HTTPException(
-            status_code=500, detail="PUBLIC_URL/PUBLIC_BASE_URL not set"
-        )
+        raise HTTPException(status_code=500, detail="PUBLIC_URL/PUBLIC_BASE_URL not set")
     return public
 
 

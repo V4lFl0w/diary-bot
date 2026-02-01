@@ -5,9 +5,9 @@ Revises: 4eb10165de91
 Create Date: 2026-01-22 09:10:14.779574
 
 """
+
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision = "7f5d9ca507a1"
@@ -15,12 +15,6 @@ down_revision = "4eb10165de91"
 branch_labels = None
 depends_on = None
 
-
-def upgrade() -> None:
-    bind = op.get_bind()
-    insp = inspect(bind)
-    if "user_tracks" not in insp.get_table_names():
-        return
 
 def upgrade() -> None:
     # гарантируем NOT NULL — схема должна совпадать с моделями

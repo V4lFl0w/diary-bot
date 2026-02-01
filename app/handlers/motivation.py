@@ -38,10 +38,12 @@ OPEN_TRIGGERS = (
     "Motivation",
 )
 
+
 class MotStates(StatesGroup):
     waiting_support = State()
     waiting_jump = State()
     waiting_comeback = State()
+
 
 def _kb() -> ReplyKeyboardMarkup:
     rows = [
@@ -51,23 +53,20 @@ def _kb() -> ReplyKeyboardMarkup:
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
+
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
+
 
 def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
-    raw = (
-        (getattr(user, "locale", None) or getattr(user, "lang", None))
-        if user is not None
-        else None
-    )
+    raw = (getattr(user, "locale", None) or getattr(user, "lang", None)) if user is not None else None
     loc = (raw or tg_lang or "ru").lower()
     if loc.startswith(("ua", "uk")):
         return "uk"
     if loc.startswith("en"):
         return "en"
     return "ru"
+
 
 def _user_tz(user: User):
     tz_name = getattr(user, "tz", None) or "Europe/Kyiv"
@@ -78,12 +77,14 @@ def _user_tz(user: User):
     except Exception:
         return timezone.utc
 
+
 def _t(lang: str, ru: str, uk: str, en: str) -> str:
     if lang == "uk":
         return uk
     if lang == "en":
         return en
     return ru
+
 
 # ---- support infinite combinatorics (ru/uk/en) ----
 _SUPPORT_BANK = {
@@ -242,6 +243,7 @@ _SUPPORT_BANK = {
     },
 }
 
+
 def generate_support(lang: str, user_text: str, *, seed: int | None = None) -> str:
     # seed можно не задавать — тогда будет максимально “живое”
     # user_text участвует в тексте => уже добавляет уникальности
@@ -278,7 +280,9 @@ def generate_support(lang: str, user_text: str, *, seed: int | None = None) -> s
     # итоговый текст
     return f"{line1}\n\n{validate}\n{reframe}\n\n{micro}\n\n{nxt}"
 
+
 # ---- /support infinite combinatorics ----
+
 
 @router.message(Command("cancel"))
 async def motivation_cancel(m: Message, state: FSMContext):
@@ -290,11 +294,13 @@ async def motivation_cancel(m: Message, state: FSMContext):
     # Возвращаем меню мотивации
     await m.answer("Ок, отменил. Выбирай кнопку ниже 👇", reply_markup=_kb())
 
+
 def _is_motivation_open(text: str) -> bool:
     t = (text or "").strip().lower()
     # убираем ведущие эмодзи/символы
     t = t.lstrip("🥇🔥⭐️✅⚡️⚡🏅 ").strip()
     return t in {"мотивация", "мотивація", "motivation"}
+
 
 @router.message(F.text.func(_is_motivation_open))
 async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
@@ -302,9 +308,7 @@ async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
         return
     await state.clear()
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     text = _t(
         lang,
@@ -324,14 +328,11 @@ async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
 
     await m.answer(text, reply_markup=_kb())
 
+
 @router.message(F.text == BTN_SUPPORT)
-async def motivation_support_start(
-    m: Message, session: AsyncSession, state: FSMContext
-):
+async def motivation_support_start(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     await state.set_state(MotStates.waiting_support)
     await m.answer(
@@ -343,14 +344,11 @@ async def motivation_support_start(
         )
     )
 
+
 @router.message(MotStates.waiting_support, F.text)
-async def motivation_support_reply(
-    m: Message, session: AsyncSession, state: FSMContext
-):
+async def motivation_support_reply(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     txt = (m.text or "").strip()
     await state.clear()
@@ -358,12 +356,11 @@ async def motivation_support_reply(
     msg = generate_support(lang, txt)
     await m.answer(msg, reply_markup=_kb())
 
+
 @router.message(F.text == BTN_JUMP)
 async def motivation_jump_start(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     await state.set_state(MotStates.waiting_jump)
     await m.answer(
@@ -384,12 +381,11 @@ async def motivation_jump_start(m: Message, session: AsyncSession, state: FSMCon
         )
     )
 
+
 @router.message(MotStates.waiting_jump, F.text)
 async def motivation_jump_reply(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     task = (m.text or "").strip()
     await state.clear()
@@ -413,12 +409,11 @@ async def motivation_jump_reply(m: Message, session: AsyncSession, state: FSMCon
         reply_markup=_kb(),
     )
 
+
 @router.message(F.text.casefold().in_({"готово", "done"}))
 async def motivation_done(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     await m.answer(
         _t(
@@ -445,12 +440,11 @@ async def motivation_done(m: Message, session: AsyncSession):
         reply_markup=_kb(),
     )
 
+
 @router.message(F.text.casefold().in_({"еще 15", "ещё 15", "another 15"}))
 async def motivation_more_15(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     await m.answer(
         _t(
@@ -461,12 +455,11 @@ async def motivation_more_15(m: Message, session: AsyncSession):
         )
     )
 
+
 @router.message(F.text.casefold().in_({"стоп", "stop"}))
 async def motivation_stop(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     await m.answer(
         _t(
@@ -478,14 +471,11 @@ async def motivation_stop(m: Message, session: AsyncSession):
         reply_markup=_kb(),
     )
 
+
 @router.message(F.text == BTN_COMEBACK)
-async def motivation_comeback_start(
-    m: Message, session: AsyncSession, state: FSMContext
-):
+async def motivation_comeback_start(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     await state.set_state(MotStates.waiting_comeback)
     await m.answer(
@@ -506,14 +496,11 @@ async def motivation_comeback_start(
         )
     )
 
+
 @router.message(MotStates.waiting_comeback, F.text)
-async def motivation_comeback_reply(
-    m: Message, session: AsyncSession, state: FSMContext
-):
+async def motivation_comeback_reply(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     focus = (m.text or "").strip()
     await state.clear()
@@ -534,12 +521,11 @@ async def motivation_comeback_reply(
         reply_markup=_kb(),
     )
 
+
 @router.message(F.text == BTN_STREAK)
 async def motivation_streak(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     streak = 0
     if user is not None and hasattr(user, "proactive_streak"):
@@ -565,15 +551,15 @@ async def motivation_streak(m: Message, session: AsyncSession):
 
     await m.answer(msg, reply_markup=_kb())
 
+
 @router.message(F.text == BTN_QUOTE)
 async def motivation_quote(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(
-        user, getattr(m.from_user, "language_code", None) if m.from_user else None
-    )
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     # “бесконечность”: каждый раз новая комбинация
     await m.answer(generate_quote(lang))
+
 
 @router.message(F.text == BTN_BACK)
 async def motivation_back(m: Message):

@@ -15,9 +15,7 @@ from app.models.user import User
 def _is_admin_id(tg_id: int) -> bool:
     # settings.bot_admin_tg_id
     try:
-        if getattr(settings, "bot_admin_tg_id", None) and int(
-            settings.bot_admin_tg_id
-        ) == int(tg_id):
+        if getattr(settings, "bot_admin_tg_id", None) and int(settings.bot_admin_tg_id) == int(tg_id):
             return True
     except Exception:
         pass
@@ -59,11 +57,7 @@ class BanMiddleware(BaseMiddleware):
         if _is_admin_id(tg_id):
             return await handler(event, data)
 
-        row = (
-            await session.execute(
-                select(User.is_admin, User.is_banned).where(User.tg_id == tg_id)
-            )
-        ).one_or_none()
+        row = (await session.execute(select(User.is_admin, User.is_banned).where(User.tg_id == tg_id))).one_or_none()
 
         if row is None:
             return await handler(event, data)

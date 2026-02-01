@@ -110,13 +110,9 @@ def _premium_btn_text(lang: str) -> str:
 
 
 def _detect_lang(user: Optional[User], m: Optional[Message] = None) -> str:
-    tg_lang = (
-        getattr(getattr(m, "from_user", None), "language_code", None) if m else None
-    )
+    tg_lang = getattr(getattr(m, "from_user", None), "language_code", None) if m else None
     return _normalize_lang(
-        (getattr(user, "locale", None) if user else None)
-        or (getattr(user, "lang", None) if user else None)
-        or tg_lang
+        (getattr(user, "locale", None) if user else None) or (getattr(user, "lang", None) if user else None) or tg_lang
     )
 
 

@@ -28,9 +28,7 @@ def _verify_sig(secret: str, body: bytes, sig: str) -> bool:
 def now_create(tg_id: str):
     key = os.getenv("NOWP_API_KEY")
     price = os.getenv("NOWP_PRICE_USD", "5.00")
-    public = os.getenv(
-        "PUBLIC_BASE_URL", "https://ilda-comelier-pliantly.ngrok-free.dev"
-    )
+    public = os.getenv("PUBLIC_BASE_URL", "https://ilda-comelier-pliantly.ngrok-free.dev")
     payload = {
         "price_amount": str(price),
         "price_currency": "USD",
@@ -50,15 +48,11 @@ def now_create(tg_id: str):
         inv = r.json()
         url = inv.get("invoice_url") or inv.get("data", {}).get("invoice_url")
         if not url:
-            return JSONResponse(
-                {"ok": False, "error": "no invoice_url", "resp": inv}, status_code=502
-            )
+            return JSONResponse({"ok": False, "error": "no invoice_url", "resp": inv}, status_code=502)
         return RedirectResponse(url, status_code=303)
     except Exception as e:
         body = getattr(getattr(e, "response", None), "text", None)
-        return JSONResponse(
-            {"ok": False, "error": str(e), "resp": body}, status_code=502
-        )
+        return JSONResponse({"ok": False, "error": str(e), "resp": body}, status_code=502)
 
 
 @router.post("/payments/now/webhook")

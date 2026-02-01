@@ -4,6 +4,7 @@ Revision ID: d8d1968672cf
 Revises: 01286a052106
 Create Date: 2025-12-10 06:19:14.326838
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -30,25 +31,23 @@ def _create_users_table() -> None:
         "users",
         id_col,
         sa.Column("tg_id", sa.BigInteger(), nullable=False),
-
         sa.Column("locale", sa.String(8), nullable=False, server_default=sa.text("'ru'")),
         sa.Column("lang", sa.String(8), nullable=True),
         sa.Column("tz", sa.String(64), nullable=False, server_default=sa.text("'Europe/Kyiv'")),
-
         sa.Column("policy_accepted", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("consent_accepted_at", sa.DateTime(timezone=True), nullable=True),
-
         sa.Column("is_admin", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-
         sa.Column("is_premium", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("premium_until", sa.DateTime(timezone=True), nullable=True),
         sa.Column("premium_trial_given", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-
         sa.Column("morning_auto", sa.Boolean(), nullable=False, server_default=sa.text("false")),
         sa.Column("morning_time", sa.Time(), nullable=False, server_default=sa.text("'09:30:00'")),
-
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")
+        ),
     )
 
     op.create_index("ix_users_tg_id", "users", ["tg_id"], unique=True)
@@ -67,9 +66,7 @@ def upgrade() -> None:
         return
 
     with op.batch_alter_table("users") as batch:
-        batch.add_column(
-            sa.Column("is_admin", sa.Boolean(), nullable=False, server_default=sa.text("false"))
-        )
+        batch.add_column(sa.Column("is_admin", sa.Boolean(), nullable=False, server_default=sa.text("false")))
 
 
 def downgrade() -> None:

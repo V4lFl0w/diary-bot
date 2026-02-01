@@ -67,9 +67,7 @@ CB_PAY_STARS = "pay_stars"
 CB_STARS_BUY_PREFIX = "stars:buy:"
 
 # pricing
-PREMIUM_STARS_PLAN = (
-    PaymentPlan.MONTH
-)  # must match your plan mapping in subscriptions service
+PREMIUM_STARS_PLAN = PaymentPlan.MONTH  # must match your plan mapping in subscriptions service
 
 
 def _utcnow() -> datetime:
@@ -170,9 +168,7 @@ async def pay_premium_with_stars(c: CallbackQuery, session: AsyncSession) -> Non
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
     def btn(text: str, sku: str) -> InlineKeyboardButton:
-        return InlineKeyboardButton(
-            text=text, callback_data=f"{CB_STARS_BUY_PREFIX}{sku}"
-        )
+        return InlineKeyboardButton(text=text, callback_data=f"{CB_STARS_BUY_PREFIX}{sku}")
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -223,9 +219,7 @@ async def buy_stars_package(c: CallbackQuery, session: AsyncSession) -> None:
         "quarter": PaymentPlan.QUARTER,
         "year": PaymentPlan.YEAR,
     }
-    plan_enum = period_to_plan.get(
-        (spec.period or "").strip().lower(), PaymentPlan.MONTH
-    )
+    plan_enum = period_to_plan.get((spec.period or "").strip().lower(), PaymentPlan.MONTH)
 
     user = await _get_or_create_user(session, c.from_user.id)
     lang = _lang_of(user, c)
@@ -237,9 +231,7 @@ async def buy_stars_package(c: CallbackQuery, session: AsyncSession) -> None:
         amount_cents=int(spec.stars),  # для XTR храним кол-во звёзд тут
         currency="XTR",
         sku=sku,
-        payload=str(
-            {"sku": sku, "tier": spec.tier, "period": spec.period, "days": spec.days}
-        ),
+        payload=str({"sku": sku, "tier": spec.tier, "period": spec.period, "days": spec.days}),
         status=PaymentStatus.PENDING,
     )
     session.add(payment)
@@ -328,11 +320,7 @@ async def on_successful_payment_stars(m: Message, session: AsyncSession) -> None
 
         lang = _lang_of(user, m) if user else "ru"
         is_admin = is_admin_tg(m.from_user.id) if m.from_user else False
-        kb = (
-            get_main_kb(lang, is_premium=True, is_admin=is_admin)
-            if get_main_kb
-            else None
-        )
+        kb = get_main_kb(lang, is_premium=True, is_admin=is_admin) if get_main_kb else None
         await m.answer(_success_text(lang), reply_markup=kb)
         return
 

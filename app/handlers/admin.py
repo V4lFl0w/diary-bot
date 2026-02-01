@@ -256,9 +256,7 @@ def is_admin_btn(text: str) -> bool:
 
 def _is_admin_by_settings(tg_id: int) -> bool:
     try:
-        return bool(getattr(settings, "bot_admin_tg_id", None)) and int(
-            settings.bot_admin_tg_id
-        ) == int(tg_id)
+        return bool(getattr(settings, "bot_admin_tg_id", None)) and int(settings.bot_admin_tg_id) == int(tg_id)
     except Exception:
         return False
 
@@ -295,11 +293,7 @@ def is_admin_tg(tg_id: int) -> bool:
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> User | None:
-    q = (
-        select(User)
-        .where(User.tg_id == tg_id)
-        .execution_options(populate_existing=True)
-    )
+    q = select(User).where(User.tg_id == tg_id).execution_options(populate_existing=True)
     res = await session.execute(q)
     return res.scalars().one_or_none()
 
@@ -321,44 +315,22 @@ def _user_lang(user: User | None, tg_lang: Optional[str]) -> str:
 def _admin_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=_tr(lang, "btn_self"), callback_data="admin:premium_self")],
             [
-                InlineKeyboardButton(
-                    text=_tr(lang, "btn_self"), callback_data="admin:premium_self"
-                )
+                InlineKeyboardButton(text=_tr(lang, "btn_give"), callback_data="admin:premium_user"),
+                InlineKeyboardButton(text=_tr(lang, "btn_reset"), callback_data="admin:premium_reset"),
+            ],
+            [InlineKeyboardButton(text=_tr(lang, "btn_analytics"), callback_data="admin:analytics_7d")],
+            [
+                InlineKeyboardButton(text=_tr(lang, "btn_users"), callback_data="admin:users_7d"),
+                InlineKeyboardButton(text=_tr(lang, "btn_users_all"), callback_data="admin:users_all"),
             ],
             [
-                InlineKeyboardButton(
-                    text=_tr(lang, "btn_give"), callback_data="admin:premium_user"
-                ),
-                InlineKeyboardButton(
-                    text=_tr(lang, "btn_reset"), callback_data="admin:premium_reset"
-                ),
+                InlineKeyboardButton(text=_tr(lang, "btn_find_user"), callback_data="admin:user_find"),
             ],
             [
-                InlineKeyboardButton(
-                    text=_tr(lang, "btn_analytics"), callback_data="admin:analytics_7d"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=_tr(lang, "btn_users"), callback_data="admin:users_7d"
-                ),
-                InlineKeyboardButton(
-                    text=_tr(lang, "btn_users_all"), callback_data="admin:users_all"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text=_tr(lang, "btn_find_user"), callback_data="admin:user_find"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    text=_tr(lang, "btn_ban"), callback_data="admin:ban"
-                ),
-                InlineKeyboardButton(
-                    text=_tr(lang, "btn_unban"), callback_data="admin:unban"
-                ),
+                InlineKeyboardButton(text=_tr(lang, "btn_ban"), callback_data="admin:ban"),
+                InlineKeyboardButton(text=_tr(lang, "btn_unban"), callback_data="admin:unban"),
             ],
         ]
     )
@@ -397,9 +369,7 @@ def _is_system_event(name: str) -> bool:
     return (n in SYSTEM_EVENTS) or n.startswith(("test_", "system_"))
 
 
-def _take_top(
-    rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3
-) -> list[Tuple[str, int]]:
+def _take_top(rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3) -> list[Tuple[str, int]]:
     out: list[Tuple[str, int]] = []
     for e, c in rows:
         if e in allowed:
@@ -419,12 +389,8 @@ def _kb_give_tier(lang: str, user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text="💎 BASIC", callback_data=f"{CB_GIVE_TIER}{user_id}:basic"
-                ),
-                InlineKeyboardButton(
-                    text="👑 PRO", callback_data=f"{CB_GIVE_TIER}{user_id}:pro"
-                ),
+                InlineKeyboardButton(text="💎 BASIC", callback_data=f"{CB_GIVE_TIER}{user_id}:basic"),
+                InlineKeyboardButton(text="👑 PRO", callback_data=f"{CB_GIVE_TIER}{user_id}:pro"),
             ]
         ]
     )
@@ -526,9 +492,7 @@ def _is_banned(user: User) -> bool:
 # -------------------- entrypoints --------------------
 
 
-async def _show_admin_panel(
-    m: Message, session: AsyncSession, state: FSMContext
-) -> None:
+async def _show_admin_panel(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     user = await _get_user(session, m.from_user.id)
@@ -556,9 +520,7 @@ async def admin_btn_open(m: Message, session: AsyncSession, state: FSMContext) -
 
 
 @router.callback_query(F.data.startswith("admin:"))
-async def on_admin_cb(
-    c: CallbackQuery, session: AsyncSession, state: FSMContext
-) -> None:
+async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     me = await _get_user(session, c.from_user.id)
     if not is_admin(c.from_user.id, me):
         try:
@@ -660,9 +622,7 @@ async def on_admin_cb(
             ).scalar_one()
 
         # фильтр системных
-        rows = [
-            (str(e), int(cnt)) for (e, cnt) in raw_rows if not _is_system_event(str(e))
-        ]
+        rows = [(str(e), int(cnt)) for (e, cnt) in raw_rows if not _is_system_event(str(e))]
 
         if not rows:
             if c.message:
@@ -691,10 +651,7 @@ async def on_admin_cb(
         try:
             has_events = (
                 await session.execute(
-                    sql_text(
-                        "SELECT 1 FROM sqlite_master "
-                        "WHERE type='table' AND name='events' LIMIT 1;"
-                    )
+                    sql_text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events' LIMIT 1;")
                 )
             ).scalar_one_or_none()
 
@@ -1004,16 +961,12 @@ async def on_give_id(m: Message, session: AsyncSession, state: FSMContext) -> No
         await m.answer(_tr(lang, "user_not_found"))
         await state.clear()
         return
-    await m.answer(
-        "Выбери, какой Premium выдать:", reply_markup=_kb_give_tier(lang, user.id)
-    )
+    await m.answer("Выбери, какой Premium выдать:", reply_markup=_kb_give_tier(lang, user.id))
     return
 
 
 @router.callback_query(F.data.startswith(CB_GIVE_TIER))
-async def on_give_tier(
-    c: CallbackQuery, session: AsyncSession, state: FSMContext
-) -> None:
+async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     me = await _get_user(session, c.from_user.id)
     if not is_admin(c.from_user.id, me):
         await state.clear()
@@ -1117,19 +1070,13 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
 
     # IMPORTANT: не трогаем user.is_premium/user.premium_until напрямую (избегаем lazy-load / expired attr)
     await session.execute(
-        update(User)
-        .where(User.id == user.id)
-        .values(is_premium=False, premium_until=None, premium_plan="basic")
+        update(User).where(User.id == user.id).values(is_premium=False, premium_until=None, premium_plan="basic")
     )
 
     # опционально: если есть таблица subscriptions — деактивируем активные (чтобы не пере-синкнуло обратно)
     try:
         await session.execute(
-            sql_text(
-                "UPDATE subscriptions "
-                "SET status='expired' "
-                "WHERE user_id = :uid AND status = 'active'"
-            ),
+            sql_text("UPDATE subscriptions SET status='expired' WHERE user_id = :uid AND status = 'active'"),
             {"uid": int(user.id)},
         )
     except Exception:
@@ -1140,9 +1087,7 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
             pass
         # и повторяем только user update
         await session.execute(
-            update(User)
-            .where(User.id == user.id)
-            .values(is_premium=False, premium_until=None, premium_plan="basic")
+            update(User).where(User.id == user.id).values(is_premium=False, premium_until=None, premium_plan="basic")
         )
 
     try:
@@ -1201,9 +1146,7 @@ async def on_find_id(m: Message, session: AsyncSession, state: FSMContext) -> No
             f"• tg_id: {tg_id}",
             f"• link: {link}",
             f"• user_id: {getattr(u, 'id', '-')}",
-            f"• username: @{getattr(u, 'username', '')}"
-            if getattr(u, "username", None)
-            else "• username: -",
+            f"• username: @{getattr(u, 'username', '')}" if getattr(u, "username", None) else "• username: -",
             f"• locale: {getattr(u, 'locale', '-')}",
             f"• tz: {getattr(u, 'tz', '-')}",
             f"• last_seen_at: {getattr(u, 'last_seen_at', None)}",

@@ -22,9 +22,7 @@ from app.models.proactive_entry import ProactiveEntry
 from app.services.proactive_streak import compute_streak
 
 
-async def log_proactive_entry(
-    session: AsyncSession, user, kind: str, payload: dict[str, Any]
-) -> None:
+async def log_proactive_entry(session: AsyncSession, user, kind: str, payload: dict[str, Any]) -> None:
     today = _local_today(getattr(user, "tz", None))
 
     # one entry per (user, kind, day) — update if already exists
@@ -43,11 +41,7 @@ async def log_proactive_entry(
     if existing:
         existing.payload = payload
     else:
-        session.add(
-            ProactiveEntry(
-                user_id=user.id, kind=kind, local_date=today, payload=payload
-            )
-        )
+        session.add(ProactiveEntry(user_id=user.id, kind=kind, local_date=today, payload=payload))
 
     # recompute streak for this local day
     user.proactive_streak = await compute_streak(session, user.id, today)

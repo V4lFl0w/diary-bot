@@ -28,15 +28,11 @@ async def request_refund(
     payment_id: int,
     reason: str = "",
 ) -> RefundResult:
-    user = (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    user = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     if not user:
         return RefundResult(False, "❌ Пользователь не найден. Нажми /start")
 
-    pay = (
-        await session.execute(select(Payment).where(Payment.id == payment_id))
-    ).scalar_one_or_none()
+    pay = (await session.execute(select(Payment).where(Payment.id == payment_id))).scalar_one_or_none()
     if not pay:
         return RefundResult(False, "❌ Платёж не найден")
 
@@ -46,12 +42,7 @@ async def request_refund(
         return RefundResult(False, "❌ Это не твой платёж")
 
     status_obj = getattr(pay, "status", None)
-    st = (
-        getattr(status_obj, "value", None)
-        or getattr(status_obj, "name", None)
-        or str(status_obj)
-        or ""
-    ).lower()
+    st = (getattr(status_obj, "value", None) or getattr(status_obj, "name", None) or str(status_obj) or "").lower()
 
     # если уже возвращён — повторно не создаём заявку
     if st == "refunded":
@@ -66,9 +57,7 @@ async def request_refund(
         try:
             _p = json.loads(raw_payload)
             if isinstance(_p, dict) and _p.get("refund_status") == "requested":
-                return RefundResult(
-                    False, "ℹ️ Заявка на возврат уже создана и находится в обработке."
-                )
+                return RefundResult(False, "ℹ️ Заявка на возврат уже создана и находится в обработке.")
         except Exception:
             pass
 
@@ -110,9 +99,7 @@ async def request_refund(
         setattr(pay, "payload", json.dumps(payload, ensure_ascii=False))
 
     await session.commit()
-    return RefundResult(
-        True, "✅ Запрос на возврат создан. Админ рассмотрит и ответит."
-    )
+    return RefundResult(True, "✅ Запрос на возврат создан. Админ рассмотрит и ответит.")
 
 
 async def approve_refund(
@@ -120,9 +107,7 @@ async def approve_refund(
     payment_id: int,
     admin_note: str = "",
 ) -> RefundResult:
-    pay = (
-        await session.execute(select(Payment).where(Payment.id == payment_id))
-    ).scalar_one_or_none()
+    pay = (await session.execute(select(Payment).where(Payment.id == payment_id))).scalar_one_or_none()
     if not pay:
         return RefundResult(False, "❌ Платёж не найден")
     # 1) payment.status -> refunded
@@ -157,15 +142,11 @@ async def approve_refund(
     # 3) close subscription if exists
     sub_id = getattr(pay, "subscription_id", None)
     if sub_id:
-        sub = (
-            await session.execute(select(Subscription).where(Subscription.id == sub_id))
-        ).scalar_one_or_none()
+        sub = (await session.execute(select(Subscription).where(Subscription.id == sub_id))).scalar_one_or_none()
         if sub and hasattr(sub, "status"):
             setattr(sub, "status", "cancelled")
         if sub and hasattr(sub, "expires_at"):
             setattr(sub, "expires_at", _now_utc())
 
     await session.commit()
-    return RefundResult(
-        True, "✅ Возврат подтверждён: payment=refunded, подписка закрыта (если была)."
-    )
+    return RefundResult(True, "✅ Возврат подтверждён: payment=refunded, подписка закрыта (если была).")

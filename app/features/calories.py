@@ -144,21 +144,11 @@ def _cal_hook_inline_kb(lang_code: str) -> InlineKeyboardMarkup:
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
-def _user_lang(
-    user: Optional[User], fallback: Optional[str], tg_lang: Optional[str] = None
-) -> str:
-    return _normalize_lang(
-        getattr(user, "locale", None)
-        or getattr(user, "lang", None)
-        or fallback
-        or tg_lang
-        or "ru"
-    )
+def _user_lang(user: Optional[User], fallback: Optional[str], tg_lang: Optional[str] = None) -> str:
+    return _normalize_lang(getattr(user, "locale", None) or getattr(user, "lang", None) or fallback or tg_lang or "ru")
 
 
 def _format_cal_total(lang_code: str, res: Dict[str, float]) -> str:
@@ -208,14 +198,8 @@ def _format_photo_details(lang_code: str, res: Dict[str, Any]) -> str:
     Доп-детали только для фото-анализа:
     title / ingredients / portion / assumptions
     """
-    title = (
-        (res.get("title") or "").strip() if isinstance(res.get("title"), str) else ""
-    )
-    portion = (
-        (res.get("portion") or "").strip()
-        if isinstance(res.get("portion"), str)
-        else ""
-    )
+    title = (res.get("title") or "").strip() if isinstance(res.get("title"), str) else ""
+    portion = (res.get("portion") or "").strip() if isinstance(res.get("portion"), str) else ""
 
     ingredients = res.get("ingredients")
     if isinstance(ingredients, str):
@@ -235,9 +219,7 @@ def _format_photo_details(lang_code: str, res: Dict[str, Any]) -> str:
 
     parts = []
     if title:
-        parts.append(
-            _tr(lang_code, f"Блюдо: {title}", f"Страва: {title}", f"Dish: {title}")
-        )
+        parts.append(_tr(lang_code, f"Блюдо: {title}", f"Страва: {title}", f"Dish: {title}"))
     if ingredients_list:
         joined = ", ".join(ingredients_list[:12])
         parts.append(
@@ -459,9 +441,7 @@ def _add_confidence(out: str, conf: float | None, lang_code: str = "ru") -> str:
     return out
 
 
-def _wrap_text(
-    draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_w: int
-):
+def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_w: int):
     lines = []
     for paragraph in (text or "").split("\n"):
         if not paragraph.strip():
@@ -488,12 +468,8 @@ def render_text_card(text: str) -> bytes:
     bg = Image.new("RGB", (W, H), (15, 18, 22))
     draw = ImageDraw.Draw(bg)
 
-    font_title = ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52
-    )
-    font_body = ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36
-    )
+    font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52)
+    font_body = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
 
     draw.text((PAD, 40), "Калории", font=font_title, fill=(255, 255, 255))
 
@@ -525,16 +501,10 @@ def render_result_card(photo_bytes: bytes, text: str) -> bytes:
     draw = ImageDraw.Draw(out)
     draw.rectangle([0, new_h, W, new_h + PANEL_H], fill=(15, 18, 22))
 
-    font_title = ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48
-    )
-    font_body = ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36
-    )
+    font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48)
+    font_body = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
 
-    draw.text(
-        (PAD, new_h + 28), "Расчёт калорий", font=font_title, fill=(255, 255, 255)
-    )
+    draw.text((PAD, new_h + 28), "Расчёт калорий", font=font_title, fill=(255, 255, 255))
 
     max_w = W - PAD * 2
     lines = _wrap_text(draw, text, font_body, max_w)
@@ -572,9 +542,7 @@ async def analyze_text(text: str) -> Dict[str, float]:
                     kcal = sum(float(i.get("calories", 0) or 0) for i in items)
                     p = sum(float(i.get("protein_g", 0) or 0) for i in items)
                     f = sum(float(i.get("fat_total_g", 0) or 0) for i in items)
-                    c = sum(
-                        float(i.get("carbohydrates_total_g", 0) or 0) for i in items
-                    )
+                    c = sum(float(i.get("carbohydrates_total_g", 0) or 0) for i in items)
 
                     confidence = 0.85
                     return {
@@ -610,11 +578,7 @@ async def analyze_text(text: str) -> Dict[str, float]:
     piece_hint = _try_piece_guess(text)
     grams_info: list[tuple[float, Dict[str, float]]] = []
     # rough bowls/cups for some foods (very approximate)
-    if (
-        "миска" in low
-        and ("корм" in low or "catfood" in low)
-        and not re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low)
-    ):
+    if "миска" in low and ("корм" in low or "catfood" in low) and not re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low):
         meta = FALLBACK.get("корм")
         if meta:
             grams_info.append((60.0, meta))  # ~60g dry cat food
@@ -660,9 +624,7 @@ async def analyze_text(text: str) -> Dict[str, float]:
         unit_re_rev = r"(г|g|гр)"
         if name in REV_DRINK_KEYS:
             unit_re_rev = r"(г|g|гр|мл|ml|л|l)"
-        pattern_rev = (
-            rf"{safe_name}\w*(?:\s+[а-яёa-z]+){{0,3}}\s*{num}\s*{unit_re_rev}\b"
-        )
+        pattern_rev = rf"{safe_name}\w*(?:\s+[а-яёa-z]+){{0,3}}\s*{num}\s*{unit_re_rev}\b"
         for m in re.finditer(pattern, low):
             qty_raw = m.group(1).replace(",", ".")
             try:
@@ -689,12 +651,7 @@ async def analyze_text(text: str) -> Dict[str, float]:
             grams_info.append((float(g), meta))
 
         # не добавляем "дефолт-порцию", если уже был распознан режим "шт"
-        if (
-            (not piece_hint)
-            and name in PIECE_GRAMS
-            and name in low
-            and not re.search(pattern, low)
-        ):
+        if (not piece_hint) and name in PIECE_GRAMS and name in low and not re.search(pattern, low):
             grams_info.append((float(PIECE_GRAMS[name]), meta))
 
     kcal = p = f = c = 0.0
@@ -707,9 +664,7 @@ async def analyze_text(text: str) -> Dict[str, float]:
 
     has_explicit_grams = bool(re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low))
     if has_explicit_grams:
-        confidence = (
-            0.95 if re.search(r"\d+(?:[.,]\d+)?\s*(мл|ml|л|l)\b", low) else 0.90
-        )
+        confidence = 0.95 if re.search(r"\d+(?:[.,]\d+)?\s*(мл|ml|л|l)\b", low) else 0.90
     elif piece_hint:
         confidence = 0.60
     elif grams_info:
@@ -831,18 +786,10 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, Any]]:
         data = json.loads(m.group(0))
 
         return {
-            "title": (data.get("title") or "")
-            if isinstance(data.get("title"), str)
-            else "",
-            "ingredients": data.get("ingredients")
-            if isinstance(data.get("ingredients"), (list, str))
-            else [],
-            "portion": (data.get("portion") or "")
-            if isinstance(data.get("portion"), str)
-            else "",
-            "assumptions": data.get("assumptions")
-            if isinstance(data.get("assumptions"), (list, str))
-            else [],
+            "title": (data.get("title") or "") if isinstance(data.get("title"), str) else "",
+            "ingredients": data.get("ingredients") if isinstance(data.get("ingredients"), (list, str)) else [],
+            "portion": (data.get("portion") or "") if isinstance(data.get("portion"), str) else "",
+            "assumptions": data.get("assumptions") if isinstance(data.get("assumptions"), (list, str)) else [],
             "kcal": float(data.get("kcal", 0) or 0),
             "p": float(data.get("p", 0) or 0),
             "f": float(data.get("f", 0) or 0),
@@ -866,9 +813,7 @@ async def _require_photo_premium(
     props: Optional[Dict[str, Any]] = None,
 ) -> bool:
     if not user:
-        await message.answer(
-            _tr(lang_code, "Нажми /start", "Натисни /start", "Press /start")
-        )
+        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
         return False
 
     if require_feature_v2 is None:
@@ -1055,9 +1000,7 @@ async def cal_photo_cb(
         await cb.answer()
         return
 
-    ok = await _require_photo_premium(
-        msg, session, user, lang_code, source="hook_button"
-    )
+    ok = await _require_photo_premium(msg, session, user, lang_code, source="hook_button")
     if not ok:
         return
 
@@ -1145,17 +1088,13 @@ async def cal_photo_waiting(
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
-    ok = await _require_photo_premium(
-        message, session, user, lang_code, source="waiting_photo"
-    )
+    ok = await _require_photo_premium(message, session, user, lang_code, source="waiting_photo")
     if not ok:
         return
 
     res = await analyze_photo(message)
     if not res:
-        await message.answer(
-            "Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON."
-        )
+        await message.answer("Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON.")
         return
 
     conf = float(res.get("confidence", 0) or 0)
@@ -1178,9 +1117,7 @@ async def cal_photo_waiting(
 
 
 @router.message(F.text.func(_looks_like_food))
-async def cal_text_free_autodetect(
-    message: types.Message, session: AsyncSession, lang: Optional[str] = None
-) -> None:
+async def cal_text_free_autodetect(message: types.Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     text = (message.text or "").strip()
     if not text:
         return
@@ -1210,9 +1147,7 @@ async def cal_text_free_autodetect(
 
 
 @router.message(F.photo)
-async def cal_photo_caption_trigger(
-    message: types.Message, session: AsyncSession, lang: Optional[str] = None
-) -> None:
+async def cal_photo_caption_trigger(message: types.Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     caption = (message.caption or "").strip()
     if not caption:
         return
@@ -1227,9 +1162,7 @@ async def cal_photo_caption_trigger(
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
-    ok = await _require_photo_premium(
-        message, session, user, lang_code, source="photo_caption_trigger"
-    )
+    ok = await _require_photo_premium(message, session, user, lang_code, source="photo_caption_trigger")
     if not ok:
         return
 
@@ -1254,9 +1187,7 @@ async def cal_photo_caption_trigger(
 
     res2 = await analyze_photo(message)
     if not res2:
-        await message.answer(
-            "Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON."
-        )
+        await message.answer("Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON.")
         return
 
     conf = float(res2.get("confidence", 0) or 0)

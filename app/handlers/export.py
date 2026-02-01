@@ -63,51 +63,29 @@ async def export_data(m: Message, session: AsyncSession):
     if not settings.enable_exporter:
         # пытаемся показать на языке пользователя
         user_lang = getattr(getattr(m, "from_user", None), "language_code", None)
-        return await m.answer(
-            _t(user_lang, "export_disabled", _L10N["export_disabled"])
-        )
+        return await m.answer(_t(user_lang, "export_disabled", _L10N["export_disabled"]))
 
     # Ищем пользователя по Telegram ID
-    user = (
-        await session.execute(select(User).where(User.tg_id == m.from_user.id))
-    ).scalar_one_or_none()
+    user = (await session.execute(select(User).where(User.tg_id == m.from_user.id))).scalar_one_or_none()
     if not user:
         user_lang = getattr(getattr(m, "from_user", None), "language_code", None)
         return await m.answer(_t(user_lang, "press_start", _L10N["press_start"]))
 
     # Забираем все данные пользователя
     entries = (
-        (
-            await session.execute(
-                select(JournalEntry)
-                .where(JournalEntry.user_id == user.id)
-                .order_by(JournalEntry.id)
-            )
-        )
+        (await session.execute(select(JournalEntry).where(JournalEntry.user_id == user.id).order_by(JournalEntry.id)))
         .scalars()
         .all()
     )
 
     reminders = (
-        (
-            await session.execute(
-                select(Reminder)
-                .where(Reminder.user_id == user.id)
-                .order_by(Reminder.id)
-            )
-        )
+        (await session.execute(select(Reminder).where(Reminder.user_id == user.id).order_by(Reminder.id)))
         .scalars()
         .all()
     )
 
     reports = (
-        (
-            await session.execute(
-                select(BugReport)
-                .where(BugReport.user_id == user.id)
-                .order_by(BugReport.id)
-            )
-        )
+        (await session.execute(select(BugReport).where(BugReport.user_id == user.id).order_by(BugReport.id)))
         .scalars()
         .all()
     )

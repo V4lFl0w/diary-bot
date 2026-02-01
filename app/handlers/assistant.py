@@ -293,9 +293,7 @@ async def _reset_media_ack(state: FSMContext) -> None:
 
 
 @router.message(AssistantFSM.waiting_question, F.text)
-async def _assistant_text_in_waiting_question(
-    m: Message, state: FSMContext, session: AsyncSession
-):
+async def _assistant_text_in_waiting_question(m: Message, state: FSMContext, session: AsyncSession):
     text = (m.text or "").strip()
     if not text:
         return
@@ -346,9 +344,7 @@ async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) 
 
 
 @router.callback_query(F.data == "open_premium")
-async def open_premium_from_inline(
-    cb: CallbackQuery, state: FSMContext, session: AsyncSession
-) -> None:
+async def open_premium_from_inline(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
 
     user = await _get_user(session, cb.from_user.id)
@@ -356,13 +352,9 @@ async def open_premium_from_inline(
     # determine lang best-effort
     lang = _normalize_lang(getattr(cb.from_user, "language_code", None))
     if user:
-        lang = _normalize_lang(
-            (getattr(user, "lang", None) or getattr(user, "locale", None) or lang)
-        )
+        lang = _normalize_lang((getattr(user, "lang", None) or getattr(user, "locale", None) or lang))
 
     is_premium = _has_premium(user)
-    is_admin = is_admin_tg(cb.from_user.id)
-
     if cb.message:
         await cb.message.answer(
             "💎 Премиум",
@@ -379,9 +371,7 @@ async def open_premium_from_inline(
 # =============== EXIT ===============
 
 
-@router.message(
-    AssistantFSM.waiting_question, F.text.casefold().in_(("стоп", "stop", "/cancel"))
-)
+@router.message(AssistantFSM.waiting_question, F.text.casefold().in_(("стоп", "stop", "/cancel")))
 async def assistant_exit(m: Message, state: FSMContext, session: AsyncSession) -> None:
     if not m.from_user:
         return
@@ -393,9 +383,7 @@ async def assistant_exit(m: Message, state: FSMContext, session: AsyncSession) -
     await state.clear()
     await m.answer(
         "Ок, режим помощника выключен.",
-        reply_markup=get_main_kb(
-            lang, is_premium=_has_premium(user), is_admin=is_admin
-        ),
+        reply_markup=get_main_kb(lang, is_premium=_has_premium(user), is_admin=is_admin),
     )
 
 
@@ -473,9 +461,7 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
     await _ack_media_search_once(m, state)
     typing_task = asyncio.create_task(_typing_loop(m.chat.id, interval=4.0))
     try:
-        reply = await run_assistant_vision(
-            user, img_bytes, caption, lang, session=session
-        )
+        reply = await run_assistant_vision(user, img_bytes, caption, lang, session=session)
     finally:
         await _reset_media_ack(state)
         typing_task.cancel()
@@ -504,9 +490,7 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
     AssistantFSM.waiting_question,
     F.text & ~F.photo & ~F.text.func(_is_menu_click) & ~F.text.startswith("/"),
 )
-async def assistant_dialog(
-    m: Message, state: FSMContext, session: AsyncSession
-) -> None:
+async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession) -> None:
     if not m.from_user:
         return
 
@@ -631,9 +615,7 @@ async def media_ok(call: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == "media:alts")
-async def media_alts(
-    call: CallbackQuery, state: FSMContext, session: AsyncSession
-) -> None:
+async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     # ask assistant for alternative variants based on last query
     try:
         data = await state.get_data()
@@ -653,11 +635,7 @@ async def media_alts(
         return
 
     # typing loop (optional)
-    typing_task = (
-        asyncio.create_task(_typing_loop(call.message.chat.id, interval=4.0))
-        if call.message
-        else None
-    )
+    typing_task = asyncio.create_task(_typing_loop(call.message.chat.id, interval=4.0)) if call.message else None
     try:
         prompt = f"{last_q}\n\nДай другие варианты. 3–5 штук. Коротко."
         reply = await run_assistant(user, prompt, lang, session=session)
@@ -689,9 +667,7 @@ async def media_alts(
                 parse_mode=None,
             )
         else:
-            await call.message.answer(
-                clean, reply_markup=_media_inline_kb(), parse_mode=None
-            )
+            await call.message.answer(clean, reply_markup=_media_inline_kb(), parse_mode=None)
     else:
         await call.message.answer(str(reply))
 
@@ -719,16 +695,12 @@ async def media_hint(call: CallbackQuery, state: FSMContext) -> None:
 
 # --- FALLBACK PHOTO HANDLER (если FSM почему-то не активен) ---
 @router.message(F.photo)
-async def assistant_photo_fallback(
-    m: Message, state: FSMContext, session: AsyncSession
-) -> None:
+async def assistant_photo_fallback(m: Message, state: FSMContext, session: AsyncSession) -> None:
     st = await state.get_state()
     if st != AssistantFSM.waiting_question.state:
         # allow photo handling in sticky media mode even if FSM is not active
         try:
-            user = await session.scalar(
-                select(User).where(User.tg_id == m.from_user.id)
-            )
+            user = await session.scalar(select(User).where(User.tg_id == m.from_user.id))
             now_utc = datetime.now(timezone.utc)
             mode = getattr(user, "assistant_mode", None) if user else None
             until = getattr(user, "assistant_mode_until", None) if user else None

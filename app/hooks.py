@@ -35,9 +35,7 @@ def _register(app: Any) -> None:
         async def pay_crypto(tg_id: str | None = None):
             if not tg_id:
                 return PlainTextResponse("tg_id required", status_code=400)
-            return RedirectResponse(
-                url=f"/payments/now/create?tg_id={tg_id}", status_code=303
-            )
+            return RedirectResponse(url=f"/payments/now/create?tg_id={tg_id}", status_code=303)
 
         routes = getattr(app, "routes", None)
         if routes is None:

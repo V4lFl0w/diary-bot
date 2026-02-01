@@ -4,6 +4,7 @@ Revision ID: 3e6a508adf17
 Revises: 8208f9e10222
 Create Date: 2025-12-09 04:23:45.994096
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -40,18 +41,14 @@ def upgrade() -> None:
             "user_tracks",
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
         )
-        op.execute(
-            "UPDATE user_tracks SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"
-        )
+        op.execute("UPDATE user_tracks SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL")
 
     if not _has_column("user_tracks", "updated_at"):
         op.add_column(
             "user_tracks",
             sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         )
-        op.execute(
-            "UPDATE user_tracks SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"
-        )
+        op.execute("UPDATE user_tracks SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL")
 
     # 2) приводим к NOT NULL + дефолтам (SQLite-friendly)
     with op.batch_alter_table("user_tracks") as batch:

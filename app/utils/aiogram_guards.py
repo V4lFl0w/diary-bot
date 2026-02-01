@@ -50,9 +50,7 @@ class MessageLike(Protocol):
     chat: _ChatLike
     message_id: int
 
-    async def edit_text(
-        self, text: str, *, reply_markup: Any = None, **kwargs: Any
-    ) -> Any: ...
+    async def edit_text(self, text: str, *, reply_markup: Any = None, **kwargs: Any) -> Any: ...
     async def delete(self) -> Any: ...
 
 
@@ -64,9 +62,7 @@ class InaccessibleMessageLike(Protocol):
 
 @runtime_checkable
 class BotLike(Protocol):
-    async def send_message(
-        self, chat_id: int, text: str, *, reply_markup: Any = None, **kwargs: Any
-    ) -> Any: ...
+    async def send_message(self, chat_id: int, text: str, *, reply_markup: Any = None, **kwargs: Any) -> Any: ...
     async def edit_message_text(
         self,
         *,
@@ -92,9 +88,7 @@ def is_inaccessible(m: Any) -> bool:
 
 def require_message(m: Any, *, context: str = "") -> MessageLike:
     if not is_message(m):
-        raise RuntimeError(
-            f"CallbackQuery message is not accessible{': ' + context if context else ''}"
-        )
+        raise RuntimeError(f"CallbackQuery message is not accessible{': ' + context if context else ''}")
     return cast(MessageLike, m)
 
 
@@ -131,9 +125,7 @@ def safe_message_id(obj: Any) -> int:
 # ---------- callback-safe helpers ----------
 
 
-async def cb_reply(
-    cb: Any, text: str, *, reply_markup: Any = None, **kwargs: Any
-) -> None:
+async def cb_reply(cb: Any, text: str, *, reply_markup: Any = None, **kwargs: Any) -> None:
     """
     Safe alternative for: await cb.message.answer(...)
     If cb.message is missing, sends to cb.from_user.id.
@@ -157,14 +149,10 @@ async def cb_reply(
     if bot is None:
         return
 
-    await cast(BotLike, bot).send_message(
-        chat_id, text, reply_markup=reply_markup, **kwargs
-    )
+    await cast(BotLike, bot).send_message(chat_id, text, reply_markup=reply_markup, **kwargs)
 
 
-async def cb_edit(
-    cb: Any, text: str, *, reply_markup: Any = None, **kwargs: Any
-) -> None:
+async def cb_edit(cb: Any, text: str, *, reply_markup: Any = None, **kwargs: Any) -> None:
     """
     Safe alternative for: await cb.message.edit_text(...)
     If can't edit (no message / inaccessible), falls back to sending a new message.
@@ -182,9 +170,7 @@ async def cb_edit(
     # Accessible Message: can edit directly
     if is_message(m):
         try:
-            await cast(MessageLike, m).edit_text(
-                text, reply_markup=reply_markup, **kwargs
-            )
+            await cast(MessageLike, m).edit_text(text, reply_markup=reply_markup, **kwargs)
             return
         except Exception:
             await cb_reply(cb, text, reply_markup=reply_markup, **kwargs)
@@ -224,8 +210,6 @@ async def cb_delete(cb: Any) -> None:
         return
 
     try:
-        await bot2.delete_message(
-            chat_id=safe_chat_id(m), message_id=safe_message_id(m)
-        )
+        await bot2.delete_message(chat_id=safe_chat_id(m), message_id=safe_message_id(m))
     except Exception:
         pass

@@ -133,9 +133,7 @@ def _reply_kb(kind: str, lang: str) -> InlineKeyboardMarkup:
         btn = "✍️ Ответить"
 
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=btn, callback_data=f"proactive:checkin:{kind}")]
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text=btn, callback_data=f"proactive:checkin:{kind}")]]
     )
 
 
@@ -177,16 +175,12 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
                         if isinstance(t, str):
                             t = _parse_hhmm(t)
                         if isinstance(t, time):
-                            due = now_local.replace(
-                                hour=t.hour, minute=t.minute, second=0, microsecond=0
-                            )
+                            due = now_local.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
                             last = getattr(u, "morning_last_sent_at", None)
 
                             should_send = _in_send_window(now_local, due)
                             if last:
-                                should_send = should_send and not _same_local_day(
-                                    last, now_utc, tz
-                                )
+                                should_send = should_send and not _same_local_day(last, now_utc, tz)
 
                             if should_send:
                                 try:
@@ -210,16 +204,12 @@ async def proactive_loop(bot, Session: async_sessionmaker[AsyncSession]):
                         if isinstance(t, str):
                             t = _parse_hhmm(t)
                         if isinstance(t, time):
-                            due = now_local.replace(
-                                hour=t.hour, minute=t.minute, second=0, microsecond=0
-                            )
+                            due = now_local.replace(hour=t.hour, minute=t.minute, second=0, microsecond=0)
                             last = getattr(u, "evening_last_sent_at", None)
 
                             should_send = _in_send_window(now_local, due)
                             if last:
-                                should_send = should_send and not _same_local_day(
-                                    last, now_utc, tz
-                                )
+                                should_send = should_send and not _same_local_day(last, now_utc, tz)
 
                             if should_send:
                                 try:

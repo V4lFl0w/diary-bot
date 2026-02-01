@@ -30,9 +30,7 @@ async def cmd_refund(m: Message, session: AsyncSession, lang: Optional[str] = No
 
 
 @router.message(Command("refund_approve"))
-async def cmd_refund_approve(
-    m: Message, session: AsyncSession, lang: Optional[str] = None
-):
+async def cmd_refund_approve(m: Message, session: AsyncSession, lang: Optional[str] = None):
     """
     MVP админ-команда:
     /refund_approve <payment_id> [note...]

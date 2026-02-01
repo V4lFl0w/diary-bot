@@ -12,7 +12,6 @@
     • оплата через Telegram Stars (встроенный invoice)
 """
 
-
 from __future__ import annotations
 
 import os
@@ -46,6 +45,7 @@ def _safe_btn(*, text: str, url: str | None = None, cb: str | None = None) -> In
     if cb:
         return InlineKeyboardButton(text=text, callback_data=cb)
     raise ValueError(f"Inline button '{text}' has no url/callback")
+
 
 # ✅ главный клава-генератор
 try:
@@ -118,11 +118,7 @@ def t_local(lang: str, key: str, **fmt: Any) -> str:
     return v.format(**fmt) if fmt else v
 
 
-CHANNEL_USERNAME = (
-    getattr(settings, "premium_channel", None)
-    or os.getenv("PREMIUM_CHANNEL")
-    or "@NoticesDiarY"
-)
+CHANNEL_USERNAME = getattr(settings, "premium_channel", None) or os.getenv("PREMIUM_CHANNEL") or "@NoticesDiarY"
 CHANNEL_URL = f"https://t.me/{CHANNEL_USERNAME.lstrip('@')}"
 
 
@@ -337,39 +333,21 @@ def _pay_kb(lang: str, tg_id: int, is_premium: bool = False) -> InlineKeyboardMa
 def _active_premium_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=_t_cancel_label(lang), callback_data=CB_SUB_CANCEL
-                )
-            ],
+            [InlineKeyboardButton(text=_t_cancel_label(lang), callback_data=CB_SUB_CANCEL)],
         ]
     )
 
 
-def _subscribe_kb(
-    lang: str, tg_id: int, show_trial: bool = True
-) -> InlineKeyboardMarkup:
+def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=t_local(lang, "btn_sub"), url=CHANNEL_URL)],
     ]
 
     if show_trial:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="🎁 Пробный доступ (24h)", callback_data=CB_TRIAL_START
-                )
-            ]
-        )
+        rows.append([InlineKeyboardButton(text="🎁 Пробный доступ (24h)", callback_data=CB_TRIAL_START)])
 
     # check
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text=t_local(lang, "btn_check"), callback_data=CB_PREMIUM_CHECK
-            )
-        ]
-    )
+    rows.append([InlineKeyboardButton(text=t_local(lang, "btn_check"), callback_data=CB_PREMIUM_CHECK)])
 
     # pay by card (only if PUBLIC_URL is valid)
     pay_link = public_pay_url(tg_id)
@@ -377,9 +355,7 @@ def _subscribe_kb(
         rows.append([InlineKeyboardButton(text=t_local(lang, "btn_pay"), url=pay_link)])
 
     # stars
-    rows.append(
-        [InlineKeyboardButton(text=_stars_label(lang), callback_data=CB_PAY_STARS)]
-    )
+    rows.append([InlineKeyboardButton(text=_stars_label(lang), callback_data=CB_PAY_STARS)])
 
     # refund
     rows.append(
@@ -441,10 +417,7 @@ async def _grant_24h(session: AsyncSession, tg_id: int) -> bool:
 
     until = datetime.now(timezone.utc) + timedelta(days=1)
     await session.execute(
-        sql_text(
-            "UPDATE users SET is_premium=True, premium_until=:u, premium_trial_given=True "
-            "WHERE tg_id=:tg"
-        ),
+        sql_text("UPDATE users SET is_premium=True, premium_until=:u, premium_trial_given=True WHERE tg_id=:tg"),
         {"u": until, "tg": tg_id},
     )
     await session.commit()
@@ -465,11 +438,7 @@ async def _cancel_subscription(session: AsyncSession, tg_id: int) -> bool:
         return False
 
     # берём активную подписку по user_id
-    q = sql_text(
-        "UPDATE subscriptions "
-        "SET auto_renew=false, status='canceled' "
-        "WHERE user_id=:uid AND status='active' "
-    )
+    q = sql_text("UPDATE subscriptions SET auto_renew=false, status='canceled' WHERE user_id=:uid AND status='active' ")
     res = await session.execute(q, {"uid": user_db_id})
     await session.commit()
 
@@ -491,9 +460,7 @@ async def maybe_grant_trial(session: AsyncSession, tg_id: int) -> None:
         await _grant_24h(session, tg_id)
 
 
-async def _log_event(
-    session: AsyncSession, tg_id: int, name: str, meta: str | None = None
-) -> None:
+async def _log_event(session: AsyncSession, tg_id: int, name: str, meta: str | None = None) -> None:
     payloads = [
         (
             "INSERT INTO events (tg_id, name, meta, created_at) VALUES (:tg, :n, :m, :ts)",
@@ -558,9 +525,7 @@ def _build_menu(lang: str, user: Dict[str, Any]) -> str:
         locked_cta = "Щоб відкрити замочки, оформи преміум нижче — оплатою карткою або через Stars 👇"
         trial_hint = "Можна отримати 24 години преміуму: підпишись на канал і натисни «Перевірити»."
         status_active = (
-            f"Статус: активний до {_fmt_local(until, tz_name)} ({tz_name}) ✅"
-            if until
-            else "Статус: активний ✅"
+            f"Статус: активний до {_fmt_local(until, tz_name)} ({tz_name}) ✅" if until else "Статус: активний ✅"
         )
         status_inactive = "Статус: не активний 🔒"
 
@@ -583,16 +548,10 @@ def _build_menu(lang: str, user: Dict[str, Any]) -> str:
             "🔐 Priority support",
         ]
         unlocked_cta = "You already have Premium — everything is unlocked 💚"
-        locked_cta = (
-            "To unlock everything, activate Premium below — pay by card or via Stars 👇"
-        )
-        trial_hint = (
-            "You can get 24 hours of Premium: subscribe to the channel and tap “Check”."
-        )
+        locked_cta = "To unlock everything, activate Premium below — pay by card or via Stars 👇"
+        trial_hint = "You can get 24 hours of Premium: subscribe to the channel and tap “Check”."
         status_active = (
-            f"Status: active until {_fmt_local(until, tz_name)} ({tz_name}) ✅"
-            if until
-            else "Status: active ✅"
+            f"Status: active until {_fmt_local(until, tz_name)} ({tz_name}) ✅" if until else "Status: active ✅"
         )
         status_inactive = "Status: not active 🔒"
 
@@ -616,13 +575,9 @@ def _build_menu(lang: str, user: Dict[str, Any]) -> str:
         ]
         unlocked_cta = "У тебя уже есть премиум — все функции разблокированы 💚"
         locked_cta = "Чтобы открыть замочки, оформи премиум ниже — оплатой картой или через Stars 👇"
-        trial_hint = (
-            "Можно получить 24 часа премиума: подпишись на канал и нажми «Проверить»."
-        )
+        trial_hint = "Можно получить 24 часа премиума: подпишись на канал и нажми «Проверить»."
         status_active = (
-            f"Статус: активен до {_fmt_local(until, tz_name)} ({tz_name}) ✅"
-            if until
-            else "Статус: активен ✅"
+            f"Статус: активен до {_fmt_local(until, tz_name)} ({tz_name}) ✅" if until else "Статус: активен ✅"
         )
         status_inactive = "Статус: не активен 🔒"
 
@@ -650,11 +605,7 @@ def _build_menu(lang: str, user: Dict[str, Any]) -> str:
 
 
 @router.message(StateFilter("*"), Command("premium"))
-@router.message(
-    F.text.lower().in_(
-        {"💎 premium", "premium", "премиум", "💎 премиум", "преміум", "💎 преміум"}
-    )
-)
+@router.message(F.text.lower().in_({"💎 premium", "premium", "премиум", "💎 премиум", "преміум", "💎 преміум"}))
 async def cmd_premium(
     m: Message,
     session: AsyncSession,
@@ -670,9 +621,7 @@ async def cmd_premium(
     if active:
         kb = _active_premium_kb(lang_code)  # 👈 вот тут теперь появится cancel
     else:
-        kb = _subscribe_kb(
-            lang_code, m.from_user.id, show_trial=not user.get("premium_trial_given")
-        )
+        kb = _subscribe_kb(lang_code, m.from_user.id, show_trial=not user.get("premium_trial_given"))
 
     await m.answer(text, reply_markup=kb, parse_mode=None)
 
@@ -694,9 +643,7 @@ async def open_premium_cb(
     if active:
         kb = _active_premium_kb(lang_code)  # 👈 вот тут теперь появится cancel
     else:
-        kb = _subscribe_kb(
-            lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given")
-        )
+        kb = _subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"))
 
     await c.answer()
     if c.message:
@@ -724,9 +671,7 @@ async def trial_start_cb(
             "uk": "🎁 Пробний доступ на 24 години:\n1) Підпишись на канал\n2) Натисни «Перевірити» ✅",
             "en": "🎁 24h trial:\n1) Subscribe to the channel\n2) Tap “Check” ✅",
         }.get(lang_code, "🎁 Trial: subscribe then tap Check ✅"),
-        reply_markup=_subscribe_kb(
-            lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given")
-        ),
+        reply_markup=_subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given")),
     )
 
 
@@ -764,9 +709,7 @@ async def premium_check(
             await cb_reply(
                 c,
                 t_local(lang_code, "trial_used"),
-                reply_markup=_pay_kb(
-                    lang_code, c.from_user.id, is_premium=_is_active(user)
-                ),
+                reply_markup=_pay_kb(lang_code, c.from_user.id, is_premium=_is_active(user)),
             )
     else:
         await _log_event(session, c.from_user.id, "trial_denied", meta="not_member")
@@ -784,11 +727,7 @@ async def premium_check(
 def _cancel_confirm_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="✅ Да, отменить", callback_data=CB_SUB_CANCEL_CONFIRM
-                )
-            ],
+            [InlineKeyboardButton(text="✅ Да, отменить", callback_data=CB_SUB_CANCEL_CONFIRM)],
             [InlineKeyboardButton(text="↩️ Назад", callback_data=CB_OPEN_PREMIUM)],
         ]
     )
@@ -850,9 +789,7 @@ async def sub_cancel_confirm(
             "en": "✅ Auto-renew is off. Premium stays active until the end of the paid period.",
         }.get(lang_code, "✅ Done"),
         reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="💎 Премиум", callback_data=CB_OPEN_PREMIUM)]
-            ]
+            inline_keyboard=[[InlineKeyboardButton(text="💎 Премиум", callback_data=CB_OPEN_PREMIUM)]]
         ),
     )
 
@@ -881,10 +818,7 @@ async def premium_reset(
     await _ensure_user_columns(session)
 
     if hard:
-        sql = (
-            "UPDATE users SET is_premium=0, premium_until=NULL, premium_trial_given=0 "
-            "WHERE tg_id=:tg"
-        )
+        sql = "UPDATE users SET is_premium=0, premium_until=NULL, premium_trial_given=0 WHERE tg_id=:tg"
     else:
         sql = "UPDATE users SET is_premium=0, premium_until=NULL WHERE tg_id=:tg"
 
@@ -892,11 +826,7 @@ async def premium_reset(
     await session.commit()
 
     if target_id == m.from_user.id:
-        msg = (
-            "Премиум и триал полностью сброшены для твоего аккаунта."
-            if hard
-            else "Премиум сброшен."
-        )
+        msg = "Премиум и триал полностью сброшены для твоего аккаунта." if hard else "Премиум сброшен."
     else:
         msg = (
             f"Премиум и триал полностью сброшены для пользователя {target_id}."

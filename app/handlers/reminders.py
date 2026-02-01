@@ -42,6 +42,7 @@ try:
 except Exception:
     _maybe_grant_trial_any = None  # type: ignore
 
+
 async def _maybe_grant_trial_safe(*args: Any, **kwargs: Any) -> bool:
     fn = _maybe_grant_trial_any
     if not fn:
@@ -60,6 +61,7 @@ try:
 except Exception:
     _require_feature_v2_any = None  # type: ignore
 
+
 async def _require_feature_v2_safe(*args: Any, **kwargs: Any) -> bool:
     fn = _require_feature_v2_any
     if not fn:
@@ -70,12 +72,12 @@ async def _require_feature_v2_safe(*args: Any, **kwargs: Any) -> bool:
         return True
 
 
-
 router = Router(name="reminders")
 
 # ---------------------------------------------------------------------
 # Callback helpers (reply/edit) — локально, чтобы не тянуть зависимости
 # ---------------------------------------------------------------------
+
 
 async def cb_reply(c: CallbackQuery, text: str, **kwargs: Any) -> None:
     try:
@@ -88,6 +90,7 @@ async def cb_reply(c: CallbackQuery, text: str, **kwargs: Any) -> None:
             await c.answer()
         except Exception:
             pass
+
 
 async def cb_edit(c: CallbackQuery, text: str, **kwargs: Any) -> None:
     try:
@@ -135,9 +138,7 @@ def _tr(lang: Optional[str], ru: str, uk: str, en: str) -> str:
 
 def _reminders_help_kb(lang: str):
     kb = InlineKeyboardBuilder()
-    kb.button(
-        text=_tr(lang, "📋 Список", "📋 Список", "📋 List"), callback_data="rem:list"
-    )
+    kb.button(text=_tr(lang, "📋 Список", "📋 Список", "📋 List"), callback_data="rem:list")
     kb.button(
         text=_tr(lang, "⛔️ Выкл всё", "⛔️ Вимк все", "⛔️ Disable all"),
         callback_data="rem:disable_all",
@@ -178,9 +179,7 @@ def _reminder_row_kb(lang: str, rid: int, is_active: bool):
     return kb.as_markup()
 
 
-async def _get_lang(
-    session: AsyncSession, m: Message, fallback: Optional[str] = None
-) -> str:
+async def _get_lang(session: AsyncSession, m: Message, fallback: Optional[str] = None) -> str:
     tg_id = getattr(getattr(m, "from_user", None), "id", None)
     tg_code = getattr(getattr(m, "from_user", None), "language_code", None)
 
@@ -203,9 +202,7 @@ async def _get_lang(
     return _normalize_lang(db_locale or db_lang or tg_code or fallback or "ru")
 
 
-async def _get_lang_cb(
-    session: AsyncSession, c: CallbackQuery, fallback: Optional[str] = None
-) -> str:
+async def _get_lang_cb(session: AsyncSession, c: CallbackQuery, fallback: Optional[str] = None) -> str:
     tg_id = getattr(getattr(c, "from_user", None), "id", None)
     tg_code = getattr(getattr(c, "from_user", None), "language_code", None)
 
@@ -298,9 +295,7 @@ def _desc_line(lang: str, r: Reminder, tz_name: str, now_utc: datetime) -> str:
 
 
 async def _load_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 # ---------------------------------------------------------------------
@@ -309,9 +304,7 @@ async def _load_user(session: AsyncSession, tg_id: int) -> Optional[User]:
 
 
 @router.message(Command("remind"))
-async def remind_help(
-    m: Message, session: AsyncSession, lang: Optional[str] = None
-) -> None:
+async def remind_help(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     if not m.from_user:
         return
 
@@ -320,14 +313,13 @@ async def remind_help(
 
     # UX: если нет юзера — не показываем хелп + не даём кнопки
     if not user:
-        await m.answer(
-            _tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"), parse_mode=None
-        )
+        await m.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"), parse_mode=None)
         return
 
     if not _policy_ok(user):
         await m.answer(
-            _tr(lang_code,
+            _tr(
+                lang_code,
                 "Нужно принять политику: нажми 🔒 Политика",
                 "Потрібно прийняти політику: натисни 🔒 Політика",
                 "You need to accept the policy: tap 🔒 Privacy",
@@ -337,7 +329,8 @@ async def remind_help(
         return
 
     await m.answer(
-        _tr(lang_code,
+        _tr(
+            lang_code,
             (
                 "⏰ Напоминания без напряга\n\n"
                 "Скинь задачу и время — я напомню.\n\n"
@@ -441,9 +434,7 @@ def _is_list_alias(text: Optional[str]) -> bool:
     if not text:
         return False
     t = text.strip().lower()
-    return ("покажи" in t or "список" in t or "list" in t or "show" in t) and (
-        "напомин" in t or "remind" in t
-    )
+    return ("покажи" in t or "список" in t or "list" in t or "show" in t) and ("напомин" in t or "remind" in t)
 
 
 def _should_parse(text: Optional[str]) -> bool:
@@ -457,9 +448,7 @@ def _should_parse(text: Optional[str]) -> bool:
 
 
 @router.message(F.text.func(_should_parse))
-async def remind_parse(
-    m: Message, session: AsyncSession, lang: Optional[str] = None
-) -> None:
+async def remind_parse(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     if not m.from_user:
         return
 
@@ -467,14 +456,13 @@ async def remind_parse(
     lang_code = await _get_lang(session, m, fallback=lang)
 
     if not user:
-        await m.answer(
-            _tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"), parse_mode=None
-        )
+        await m.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"), parse_mode=None)
         return
 
     if not _policy_ok(user):
         await m.answer(
-            _tr(lang_code,
+            _tr(
+                lang_code,
                 "Нужно принять политику: нажми 🔒 Политика",
                 "Потрібно прийняти політику: натисни 🔒 Політика",
                 "You need to accept the policy: tap 🔒 Privacy",
@@ -495,7 +483,8 @@ async def remind_parse(
     parsed = parse_any(m.text or "", user_tz=tz_name, now=now_local)
     if not parsed:
         await m.answer(
-            _tr(lang_code,
+            _tr(
+                lang_code,
                 "Не понял. Пример: «вода в 12:00» или «напомни воду в 12:00».",
                 "Не зрозумів. Приклад: «вода о 12:00» або «нагадай воду о 12:00».",
                 "Didn't understand. Example: “water at 12:00” or “remind water at 12:00”.",
@@ -518,11 +507,7 @@ async def remind_parse(
             cond = getattr(Reminder.title, "ilike", None)
             filters.append(cond(f"%{q}%") if cond else Reminder.title.like(f"%{q}%"))
 
-        to_update = (
-            (await session.execute(select(Reminder).where(and_(*filters))))
-            .scalars()
-            .all()
-        )
+        to_update = (await session.execute(select(Reminder).where(and_(*filters)))).scalars().all()
         if not to_update:
             await m.answer(
                 _tr(lang_code, "Ничего не нашёл.", "Нічого не знайшов.", "Found nothing."),
@@ -530,16 +515,11 @@ async def remind_parse(
             )
             return
 
-        await session.execute(
-            update(Reminder).where(and_(*filters)).values(is_active=action_enable)
-        )
+        await session.execute(update(Reminder).where(and_(*filters)).values(is_active=action_enable))
 
         if action_enable:
             for r in to_update:
-                if _cron_of(r) and (
-                    _next_run_of(r) is None
-                    or ((nr := _next_run_of(r)) is not None and nr <= now_utc)
-                ):
+                if _cron_of(r) and (_next_run_of(r) is None or ((nr := _next_run_of(r)) is not None and nr <= now_utc)):
                     cron = _cron_of(r)
                     nxt = compute_next_run(cron, now_utc, tz_name) if cron else None
                     if nxt:
@@ -550,7 +530,8 @@ async def remind_parse(
 
         cnt = len(to_update)
         await m.answer(
-            _tr(lang_code,
+            _tr(
+                lang_code,
                 f"{'Включил' if action_enable else 'Выключил'} {cnt} напоминаний.",
                 f"{'Увімкнув' if action_enable else 'Вимкнув'} {cnt} нагадувань.",
                 f"{'Enabled' if action_enable else 'Disabled'} {cnt} reminder(s).",
@@ -576,7 +557,8 @@ async def remind_parse(
         next_run_utc = compute_next_run(cron, now_utc, tz_name) if cron else None
         if not next_run_utc:
             await m.answer(
-                _tr(lang_code,
+                _tr(
+                    lang_code,
                     "Не понял расписание. Пример: «каждый день в 09:00».",
                     "Не зрозумів розклад. Приклад: «щодня о 09:00».",
                     "Couldn't compute schedule. Example: “daily at 09:00”.",
@@ -588,7 +570,8 @@ async def remind_parse(
         dt = getattr(pr, "next_run_utc", None)
         if not isinstance(dt, datetime):
             await m.answer(
-                _tr(lang_code,
+                _tr(
+                    lang_code,
                     "Не понял время. Пример: «в 12:30», «завтра в 9», «через 15 минут».",
                     "Не зрозумів час. Приклад: «о 12:30», «завтра о 9», «через 15 хвилин».",
                     "Couldn't recognise time. Example: “at 12:30”, “tomorrow 9”, “in 15 minutes”.",
@@ -601,7 +584,8 @@ async def remind_parse(
     what = (getattr(pr, "what", None) or "").strip()
     if not what:
         await m.answer(
-            _tr(lang_code,
+            _tr(
+                lang_code,
                 "Не понял что напомнить.",
                 "Не зрозумів що нагадати.",
                 "What to remind?",
@@ -630,7 +614,8 @@ async def remind_parse(
         await session.commit()
         local_str = _fmt_local(next_run_utc, tz_name)
         await m.answer(
-            _tr(lang_code,
+            _tr(
+                lang_code,
                 f"Обновил: «{what}»\n🕒 {local_str}",
                 f"Оновив: «{what}»\n🕒 {local_str}",
                 f"Updated: “{what}”\n🕒 {local_str}",
@@ -639,9 +624,7 @@ async def remind_parse(
         )
         return
 
-    r = Reminder(
-        user_id=user.id, title=what, cron=cron, next_run=next_run_utc, is_active=True
-    )
+    r = Reminder(user_id=user.id, title=what, cron=cron, next_run=next_run_utc, is_active=True)
     session.add(r)
     await session.commit()
 
@@ -652,7 +635,8 @@ async def remind_parse(
 
     local_str = _fmt_local(next_run_utc, tz_name)
     await m.answer(
-        _tr(lang_code,
+        _tr(
+            lang_code,
             f"Готово ✅ «{what}»\n🕒 {local_str}",
             f"Готово ✅ «{what}»\n🕒 {local_str}",
             f"Done ✅ “{what}”\n🕒 {local_str}",
@@ -680,22 +664,17 @@ async def reminders_list(
     user = await _load_user(session, tg_id)
     lang_code = await _get_lang(session, m, fallback=lang)
     if not user:
-        await m.answer(
-            _tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"), parse_mode=None
-        )
+        await m.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"), parse_mode=None)
         return
 
     tz_name = _user_tz_name(user)
     now_utc = now_utc_fn()
 
-    rows = (
-        (await session.execute(select(Reminder).where(Reminder.user_id == user.id)))
-        .scalars()
-        .all()
-    )
+    rows = (await session.execute(select(Reminder).where(Reminder.user_id == user.id))).scalars().all()
     if not rows:
         await m.answer(
-            _tr(lang_code,
+            _tr(
+                lang_code,
                 "Пока нет напоминаний. Напиши: «вода в 12:00».",
                 "Поки немає нагадувань. Напиши: «вода о 12:00».",
                 "No reminders yet. Send: “water at 12:00”.",
@@ -744,9 +723,7 @@ async def reminders_list(
 
 
 @router.message(F.text.func(is_reminders_btn))
-async def reminders_menu(
-    m: Message, session: AsyncSession, lang: Optional[str] = None
-) -> None:
+async def reminders_menu(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     await remind_help(m, session, lang=lang)
 
 
@@ -756,9 +733,7 @@ async def reminders_menu(
 
 
 @router.message(F.text & F.from_user.id.func(lambda uid: uid in _pending))
-async def reminders_pending_input(
-    m: Message, session: AsyncSession, lang: Optional[str] = None
-) -> None:
+async def reminders_pending_input(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     if not m.from_user:
         return
 
@@ -789,17 +764,14 @@ async def reminders_pending_input(
     now_local = now_utc.astimezone(ZoneInfo(tz_name))
 
     r = (
-        await session.execute(
-            select(Reminder).where(
-                and_(Reminder.user_id == user.id, Reminder.id == rid)
-            )
-        )
+        await session.execute(select(Reminder).where(and_(Reminder.user_id == user.id, Reminder.id == rid)))
     ).scalar_one_or_none()
 
     if not r:
         _pending.pop(tg_id, None)
         await m.answer(
-            _tr(lang_code,
+            _tr(
+                lang_code,
                 "Не нашёл напоминание.",
                 "Не знайшов нагадування.",
                 "Reminder not found.",
@@ -820,7 +792,8 @@ async def reminders_pending_input(
         _pending.pop(tg_id, None)
 
         await m.answer(
-            _tr(lang_code,
+            _tr(
+                lang_code,
                 f"Ок ✅ Изменил на: «{text}»",
                 f"Ок ✅ Змінив на: «{text}»",
                 f"Ok ✅ Updated to: “{text}”",
@@ -837,7 +810,8 @@ async def reminders_pending_input(
 
         if not pr:
             await m.answer(
-                _tr(lang_code,
+                _tr(
+                    lang_code,
                     "Не понял время. Пример: «в 12:30», «завтра в 9», «через 15 минут».",
                     "Не зрозумів час. Приклад: «о 12:30», «завтра о 9», «через 15 хвилин».",
                     "Couldn't recognise time. Example: “at 12:30”, “tomorrow 9”, “in 15 minutes”.",
@@ -855,7 +829,8 @@ async def reminders_pending_input(
             dt = getattr(pr, "next_run_utc", None)
             if not isinstance(dt, datetime):
                 await m.answer(
-                    _tr(lang_code,
+                    _tr(
+                        lang_code,
                         "Не понял время.",
                         "Не зрозумів час.",
                         "Couldn't recognise time.",
@@ -874,12 +849,11 @@ async def reminders_pending_input(
         _pending.pop(tg_id, None)
 
         nr = _next_run_of(r) or now_utc
-        local_str = _fmt_local(
-            nr if nr.tzinfo else nr.replace(tzinfo=timezone.utc), tz_name
-        )
+        local_str = _fmt_local(nr if nr.tzinfo else nr.replace(tzinfo=timezone.utc), tz_name)
 
         await m.answer(
-            _tr(lang_code,
+            _tr(
+                lang_code,
                 f"Перенёс ✅\n🕒 {local_str}",
                 f"Переніс ✅\n🕒 {local_str}",
                 f"Rescheduled ✅\n🕒 {local_str}",
@@ -895,9 +869,7 @@ async def reminders_pending_input(
 
 
 @router.callback_query(F.data.startswith("rem:"))
-async def reminders_callbacks(
-    c: CallbackQuery, session: AsyncSession, lang: Optional[str] = None
-) -> None:
+async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Optional[str] = None) -> None:
     if not c.from_user:
         return
 
@@ -937,7 +909,8 @@ async def reminders_callbacks(
         if c.message:
             await cb_reply(
                 c,
-                _tr(lang_code,
+                _tr(
+                    lang_code,
                     "Нужно принять политику: нажми 🔒 Политика",
                     "Потрібно прийняти політику: натисни 🔒 Політика",
                     "You need to accept the policy: tap 🔒 Privacy",
@@ -949,39 +922,22 @@ async def reminders_callbacks(
     # LIST
     if data == "rem:list":
         if c.message:
-            await reminders_list(
-                c.message, session, lang=lang_code, tg_id_override=c.from_user.id
-            )
+            await reminders_list(c.message, session, lang=lang_code, tg_id_override=c.from_user.id)
         return
 
     # ENABLE/DISABLE ALL — без спама (тост)
     if data in {"rem:disable_all", "rem:enable_all"}:
         action_enable = data == "rem:enable_all"
 
-        await session.execute(
-            update(Reminder)
-            .where(Reminder.user_id == user.id)
-            .values(is_active=action_enable)
-        )
+        await session.execute(update(Reminder).where(Reminder.user_id == user.id).values(is_active=action_enable))
 
         tz_name = _user_tz_name(user)
         now_utc = now_utc_fn()
 
         if action_enable:
-            rows = (
-                (
-                    await session.execute(
-                        select(Reminder).where(Reminder.user_id == user.id)
-                    )
-                )
-                .scalars()
-                .all()
-            )
+            rows = (await session.execute(select(Reminder).where(Reminder.user_id == user.id))).scalars().all()
             for r in rows:
-                if _cron_of(r) and (
-                    _next_run_of(r) is None
-                    or ((nr := _next_run_of(r)) is not None and nr <= now_utc)
-                ):
+                if _cron_of(r) and (_next_run_of(r) is None or ((nr := _next_run_of(r)) is not None and nr <= now_utc)):
                     cron = _cron_of(r)
                     nxt = compute_next_run(cron, now_utc, tz_name) if cron else None
                     if nxt:
@@ -992,16 +948,11 @@ async def reminders_callbacks(
 
         try:
             await c.answer(
-                _tr(lang_code,
-                    "✅ Все напоминания включены."
-                    if action_enable
-                    else "⛔️ Все напоминания выключены.",
-                    "✅ Усі нагадування увімкнено."
-                    if action_enable
-                    else "⛔️ Усі нагадування вимкнено.",
-                    "✅ Enabled all reminders."
-                    if action_enable
-                    else "⛔️ Disabled all reminders.",
+                _tr(
+                    lang_code,
+                    "✅ Все напоминания включены." if action_enable else "⛔️ Все напоминания выключены.",
+                    "✅ Усі нагадування увімкнено." if action_enable else "⛔️ Усі нагадування вимкнено.",
+                    "✅ Enabled all reminders." if action_enable else "⛔️ Disabled all reminders.",
                 ),
                 show_alert=False,
             )
@@ -1010,9 +961,7 @@ async def reminders_callbacks(
 
         # обновим список (если есть сообщение)
         if c.message:
-            await reminders_list(
-                c.message, session, lang=lang_code, tg_id_override=c.from_user.id
-            )
+            await reminders_list(c.message, session, lang=lang_code, tg_id_override=c.from_user.id)
         return
 
     # EXAMPLE
@@ -1039,7 +988,8 @@ async def reminders_callbacks(
         if c.message:
             await cb_reply(
                 c,
-                _tr(lang_code,
+                _tr(
+                    lang_code,
                     f"Сделал пример ✅\n«{title}»\n🕒 {local_str}",
                     f"Зробив приклад ✅\n«{title}»\n🕒 {local_str}",
                     f"Example created ✅\n“{title}”\n🕒 {local_str}",
@@ -1052,18 +1002,12 @@ async def reminders_callbacks(
     if data.startswith("rem:open:"):
         rid = int(data.split(":")[-1])
         r = (
-            await session.execute(
-                select(Reminder).where(
-                    and_(Reminder.user_id == user.id, Reminder.id == rid)
-                )
-            )
+            await session.execute(select(Reminder).where(and_(Reminder.user_id == user.id, Reminder.id == rid)))
         ).scalar_one_or_none()
 
         if not r:
             try:
-                await c.answer(
-                    _tr(lang_code, "Не нашёл.", "Не знайшов.", "Not found."), show_alert=False
-                )
+                await c.answer(_tr(lang_code, "Не нашёл.", "Не знайшов.", "Not found."), show_alert=False)
             except Exception:
                 pass
             return
@@ -1087,7 +1031,8 @@ async def reminders_callbacks(
             nxt = compute_next_run(cron, now_utc, tz_name) if cron else None
             when = _fmt_local(nxt, tz_name) if nxt else "-"
 
-        body = _tr(lang_code,
+        body = _tr(
+            lang_code,
             f"⏰ Напоминание\n\n«{title}»\n🕒 {when}\n{'🔁 ' + cron if cron else ''}",
             f"⏰ Нагадування\n\n«{title}»\n🕒 {when}\n{'🔁 ' + cron if cron else ''}",
             f"⏰ Reminder\n\n“{title}”\n🕒 {when}\n{'🔁 ' + cron if cron else ''}",
@@ -1106,11 +1051,7 @@ async def reminders_callbacks(
     if data.startswith("rem:toggle:"):
         rid = int(data.split(":")[-1])
         r = (
-            await session.execute(
-                select(Reminder).where(
-                    and_(Reminder.user_id == user.id, Reminder.id == rid)
-                )
-            )
+            await session.execute(select(Reminder).where(and_(Reminder.user_id == user.id, Reminder.id == rid)))
         ).scalar_one_or_none()
 
         if not r:
@@ -1125,10 +1066,7 @@ async def reminders_callbacks(
         if (
             r.is_active
             and _cron_of(r)
-            and (
-                _next_run_of(r) is None
-                or ((nr := _next_run_of(r)) is not None and nr <= now_utc)
-            )
+            and (_next_run_of(r) is None or ((nr := _next_run_of(r)) is not None and nr <= now_utc))
         ):
             cron = _cron_of(r)
             nxt = compute_next_run(cron, now_utc, tz_name) if cron else None
@@ -1140,7 +1078,8 @@ async def reminders_callbacks(
 
         try:
             await c.answer(
-                _tr(lang_code,
+                _tr(
+                    lang_code,
                     "✅ Включено" if r.is_active else "⏸️ На паузе",
                     "✅ Увімкнено" if r.is_active else "⏸️ На паузі",
                     "✅ Enabled" if r.is_active else "⏸️ Paused",
@@ -1170,24 +1109,16 @@ async def reminders_callbacks(
         rid = int(data.split(":")[-1])
 
         # удаляем сразу, без лишних подтверждений (минимум шума)
-        await session.execute(
-            delete(Reminder).where(
-                and_(Reminder.user_id == user.id, Reminder.id == rid)
-            )
-        )
+        await session.execute(delete(Reminder).where(and_(Reminder.user_id == user.id, Reminder.id == rid)))
         await session.commit()
 
         try:
-            await c.answer(
-                _tr(lang_code, "🗑️ Удалено", "🗑️ Видалено", "🗑️ Deleted"), show_alert=False
-            )
+            await c.answer(_tr(lang_code, "🗑️ Удалено", "🗑️ Видалено", "🗑️ Deleted"), show_alert=False)
         except Exception:
             pass
 
         if c.message:
-            await reminders_list(
-                c.message, session, lang=lang_code, tg_id_override=c.from_user.id
-            )
+            await reminders_list(c.message, session, lang=lang_code, tg_id_override=c.from_user.id)
         return
 
     # MOVE / EDIT -> ставим pending и просим текст
@@ -1198,7 +1129,8 @@ async def reminders_callbacks(
 
         _pending[c.from_user.id] = {"action": action, "rid": rid, "ts": monotonic()}
 
-        prompt = _tr(lang_code,
+        prompt = _tr(
+            lang_code,
             "Ок. Пришли новое время (пример: «в 12:30», «завтра в 9», «через 15 минут», «по будням в 10:00»)."
             if action == "move"
             else "Ок. Пришли новый текст напоминания (что именно напоминать).",

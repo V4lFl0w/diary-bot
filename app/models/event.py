@@ -47,9 +47,7 @@ class AnalyticsEvent(Base):
     __tablename__ = "analytics_events"
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    user_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=True
-    )
+    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
 
     user: Mapped[Optional["User"]] = relationship("User", back_populates="events")
 
@@ -74,6 +72,4 @@ class Event(Base):
     tg_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     meta: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[str | None] = mapped_column(
-        TIMESTAMP, server_default=text("CURRENT_TIMESTAMP")
-    )
+    created_at: Mapped[str | None] = mapped_column(TIMESTAMP, server_default=text("CURRENT_TIMESTAMP"))

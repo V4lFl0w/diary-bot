@@ -5,14 +5,15 @@ Revises: 5f6f8f49b718
 Create Date: 2026-01-13 22:22:30.003239
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'c23cdec84ace'
-down_revision: Union[str, Sequence[str], None] = '5f6f8f49b718'
+revision: str = "c23cdec84ace"
+down_revision: Union[str, Sequence[str], None] = "5f6f8f49b718"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -37,7 +38,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-
     op.execute("""
         ALTER TABLE analytics_events
         ALTER COLUMN id

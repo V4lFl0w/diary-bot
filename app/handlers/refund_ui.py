@@ -73,9 +73,7 @@ def _admin_ids() -> list[int]:
     return out
 
 
-async def _edit_cb_message(
-    bot: Optional[Bot], cb: CallbackQuery, text: str, *, reply_markup=None
-) -> None:
+async def _edit_cb_message(bot: Optional[Bot], cb: CallbackQuery, text: str, *, reply_markup=None) -> None:
     if bot is None:
         # типо-безопасно: просто отвечаем, без редактирования
         try:
@@ -160,9 +158,7 @@ def _refund_info(provider: str, lang: str) -> str:
 
 
 async def _get_lang(session: AsyncSession, tg_id: int) -> str:
-    u = (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     if not u:
         return "ru"
     lang_code = (getattr(u, "lang", None) or "ru").lower()
@@ -173,12 +169,8 @@ async def _get_lang(session: AsyncSession, tg_id: int) -> str:
     return lang_code
 
 
-async def _list_recent_paid(
-    session: AsyncSession, tg_id: int, limit: int = 5
-) -> list[Payment]:
-    u = (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+async def _list_recent_paid(session: AsyncSession, tg_id: int, limit: int = 5) -> list[Payment]:
+    u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     if not u:
         return []
     q = (
@@ -197,9 +189,7 @@ def _kb_pick(payments: list[Payment], lang: str) -> InlineKeyboardMarkup:
         label = f"#{p.id} • {p.provider.value} • {p.amount}{p.currency}"
         if p.paid_at:
             label += f" • {p.paid_at.date().isoformat()}"
-        rows.append(
-            [InlineKeyboardButton(text=label, callback_data=f"{CB_PICK}{p.id}")]
-        )
+        rows.append([InlineKeyboardButton(text=label, callback_data=f"{CB_PICK}{p.id}")])
     rows.append(
         [
             InlineKeyboardButton(
@@ -226,9 +216,7 @@ def _kb_reason(payment_id: int, lang: str) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(
-                text=_t(
-                    lang, "😕 Не понравилось", "😕 Не сподобалось", "😕 Didn't like it"
-                ),
+                text=_t(lang, "😕 Не понравилось", "😕 Не сподобалось", "😕 Didn't like it"),
                 callback_data=f"{CB_REASON}{payment_id}:dislike",
             )
         ],
@@ -253,9 +241,7 @@ def _kb_reason(payment_id: int, lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def _deny_payload(
-    session: AsyncSession, pay: Payment, *, reason: str, code: str
-) -> None:
+async def _deny_payload(session: AsyncSession, pay: Payment, *, reason: str, code: str) -> None:
     raw = getattr(pay, "payload", None)
     payload: dict = {}
     if isinstance(raw, dict):
@@ -319,9 +305,7 @@ async def refund_open(m: Message, session: AsyncSession, state: FSMContext) -> N
 
 
 @router.callback_query(F.data == "refund:open")
-async def refund_open_cb(
-    c: CallbackQuery, session: AsyncSession, state: FSMContext
-) -> None:
+async def refund_open_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await c.answer()
     await state.clear()
 
@@ -367,13 +351,9 @@ async def refund_pick(c: CallbackQuery, session: AsyncSession) -> None:
     lang = await _get_lang(session, tg_id)
 
     data = c.data or ""
-    payment_id = int(data[len(CB_PICK):])
-    u = (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
-    pay = (
-        await session.execute(select(Payment).where(Payment.id == payment_id))
-    ).scalar_one_or_none()
+    payment_id = int(data[len(CB_PICK) :])
+    u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
+    pay = (await session.execute(select(Payment).where(Payment.id == payment_id))).scalar_one_or_none()
 
     if not u or not pay or int(getattr(pay, "user_id", 0) or 0) != int(u.id):
         await c.bot.send_message(
@@ -404,9 +384,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
     parts = (c.data or "").split(":")
     # refund:reason:<id>:<kind>
     if len(parts) < 4:
-        await c.bot.send_message(
-            tg_id, _t(lang, "Ошибка данных.", "Помилка даних.", "Bad data.")
-        )
+        await c.bot.send_message(tg_id, _t(lang, "Ошибка данных.", "Помилка даних.", "Bad data."))
         return
 
     try:
@@ -425,12 +403,8 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
         "other": _t(lang, "другое", "інше", "other"),
     }.get(kind, "other")
 
-    u = (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
-    pay = (
-        await session.execute(select(Payment).where(Payment.id == payment_id))
-    ).scalar_one_or_none()
+    u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
+    pay = (await session.execute(select(Payment).where(Payment.id == payment_id))).scalar_one_or_none()
     if not u or not pay or int(getattr(pay, "user_id", 0) or 0) != int(u.id):
         await c.bot.send_message(
             tg_id,
@@ -452,9 +426,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
 
     paid_at = getattr(pay, "paid_at", None)
     if not paid_at:
-        res = await request_refund(
-            session, tg_id=tg_id, payment_id=payment_id, reason=reason_text
-        )
+        res = await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
         await c.bot.send_message(tg_id, res.msg)
         return
 
@@ -495,15 +467,11 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
             charge_id = getattr(pay, "external_id", None) or ""
             if charge_id:
                 try:
-                    await c.bot.refund_star_payment(
-                        user_id=tg_id, telegram_payment_charge_id=charge_id
-                    )
+                    await c.bot.refund_star_payment(user_id=tg_id, telegram_payment_charge_id=charge_id)
                 except Exception:
                     # даже если TG refund упал — мы не падаем, но всё равно пометим и закроем доступ
                     pass
-            r = await approve_refund(
-                session, payment_id=payment_id, admin_note=f"auto_ok:{reason_text}"
-            )
+            r = await approve_refund(session, payment_id=payment_id, admin_note=f"auto_ok:{reason_text}")
             if getattr(r, "ok", False):
                 await log_admin_action(
                     session,
@@ -525,9 +493,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
 
         # 💳 Mono — заявка (реальный refund делается через провайдера/банк)
         if prov_low == "mono":
-            await request_refund(
-                session, tg_id=tg_id, payment_id=payment_id, reason=reason_text
-            )
+            await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
             await log_admin_action(
                 session,
                 admin_tg_id=c.from_user.id,
@@ -549,9 +515,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
 
         # 🪙 Crypto — заявка + просим адрес
         if prov_low == "crypto":
-            await request_refund(
-                session, tg_id=tg_id, payment_id=payment_id, reason=reason_text
-            )
+            await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
             await log_admin_action(
                 session,
                 admin_tg_id=c.from_user.id,
@@ -578,19 +542,14 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
             return
 
     # серый кейс → заявка + пинг админу
-    res = await request_refund(
-        session, tg_id=tg_id, payment_id=payment_id, reason=reason_text
-    )
+    res = await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
     await c.bot.send_message(
         tg_id,
         _t(
             lang,
-            "✅ Заявка создана. Обычно ответ приходит быстро.\n"
-            + _refund_info(prov_low, lang),
-            "✅ Заявку створено. Зазвичай відповідь приходить швидко.\n"
-            + _refund_info(prov_low, lang),
-            "✅ Request created. Usually reviewed quickly.\n"
-            + _refund_info(prov_low, lang),
+            "✅ Заявка создана. Обычно ответ приходит быстро.\n" + _refund_info(prov_low, lang),
+            "✅ Заявку створено. Зазвичай відповідь приходить швидко.\n" + _refund_info(prov_low, lang),
+            "✅ Request created. Usually reviewed quickly.\n" + _refund_info(prov_low, lang),
         ),
     )
 
@@ -665,9 +624,7 @@ async def refund_crypto_address_capture(m: Message, session: AsyncSession) -> No
     tg_id = m.from_user.id
     lang = await _get_lang(session, tg_id)
 
-    u = (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     if not u:
         raise SkipHandler
 
@@ -697,9 +654,7 @@ async def refund_crypto_address_capture(m: Message, session: AsyncSession) -> No
             except Exception:
                 payload = {}
         # Ищем активную заявку, где ещё нет адреса
-        if payload.get("refund_status") == "requested" and not payload.get(
-            "refund_address"
-        ):
+        if payload.get("refund_status") == "requested" and not payload.get("refund_address"):
             target = p
             target_payload = payload
             break
@@ -735,11 +690,7 @@ async def refund_crypto_address_capture(m: Message, session: AsyncSession) -> No
     admins = _admin_ids()
     if admins:
         txt = (
-            "🪙 Crypto refund address received\n"
-            f"user_tg={tg_id}\n"
-            f"payment_id={target.id}\n"
-            f"address={text}\n"
-            "network=TRC20"
+            f"🪙 Crypto refund address received\nuser_tg={tg_id}\npayment_id={target.id}\naddress={text}\nnetwork=TRC20"
         )
         for aid in admins:
             try:

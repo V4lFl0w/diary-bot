@@ -35,10 +35,10 @@ def _normalize_lang(code: Optional[str]) -> str:
 def _tr(lang: Optional[str], ru: str, uk: str, en: str) -> str:
     loc = _normalize_lang(lang)
     return uk if loc == "uk" else en if loc == "en" else ru
+
+
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
-    return (
-        await session.execute(select(User).where(User.tg_id == tg_id))
-    ).scalar_one_or_none()
+    return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 
 def _user_lang(user: Optional[User], tg_lang: Optional[str], fallback: Optional[str]) -> str:
