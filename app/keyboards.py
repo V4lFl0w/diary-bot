@@ -347,7 +347,7 @@ def get_media_menu_kb(lang: str) -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[row1, row_back])
 
 
-def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMarkup:
+def get_premium_menu_kb(lang: str, is_premium: bool = False, tg_id: int | None = None) -> ReplyKeyboardMarkup:
     """
     Подменю Премиума:
     💎 О премиуме        | 💳 Оплатить картой
@@ -359,6 +359,7 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMar
     """
     p = _premium_badge(is_premium)
 
+    tg_id = tg_id or 0
     row1 = [
         KeyboardButton(
             text=_t(
@@ -381,12 +382,10 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMar
                     "uk": "💳 Оплатити карткою",
                     "en": "💳 Pay by card",
                 },
-            )
-        ,
-            web_app=WebAppInfo(url=WEBAPP_PREMIUM_URL)
+            ),
+            web_app=WebAppInfo(url=f"{WEBAPP_PREMIUM_URL}?tg_id={tg_id}"),
         ),
     ]
-
     row2 = [
         KeyboardButton(
             text=p

@@ -169,7 +169,7 @@ async def open_premium_menu(m: Message, session: AsyncSession, state: FSMContext
     from aiogram.types import ReplyKeyboardRemove
 
     await m.answer("💎 Премиум", reply_markup=ReplyKeyboardRemove())
-    await m.answer("💎 Премиум", reply_markup=get_premium_menu_kb(lang, is_premium=is_premium))
+    await m.answer("💎 Премиум", reply_markup=get_premium_menu_kb(lang, is_premium=is_premium, tg_id=m.from_user.id))
 
 
 @router.callback_query(F.data == "menu:home")
