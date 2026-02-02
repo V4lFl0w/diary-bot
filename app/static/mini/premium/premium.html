@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Premium</title>
+
+  <!-- Telegram WebApp -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <style>
+    :root{
+      /* 🎨 ТУТ ПОДКРУЧИВАЕШЬ ЦВЕТА ПОД СВОЙ БОТ */
+      --bg: #0b1220;
+      --panel: rgba(255,255,255,.06);
+      --panel2: rgba(255,255,255,.08);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.60);
+
+      --brand: #3b82f6;     /* основной (синий) */
+      --brand2: #60a5fa;    /* подсветка */
+      --success: #22c55e;
+      --stroke: rgba(255,255,255,.10);
+      --stroke2: rgba(255,255,255,.14);
+
+      --radius: 18px;
+      --radius2: 22px;
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif;
+      background:
+        radial-gradient(1200px 520px at 30% -10%, rgba(59,130,246,.25), transparent 55%),
+        radial-gradient(900px 420px at 90% 10%, rgba(96,165,250,.18), transparent 55%),
+        var(--bg);
+      color:var(--text);
+      -webkit-font-smoothing: antialiased;
+      padding: calc(14px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom));
+    }
+
+    .topbar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:12px;
+      gap:10px;
+    }
+    .title{
+      font-size:18px;
+      font-weight:700;
+      letter-spacing:.2px;
+      margin:0;
+      line-height:1.2;
+    }
+    .subtitle{
+      margin:6px 0 0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.35;
+    }
+
+    .pill{
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.04);
+      padding:8px 10px;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      color:var(--muted);
+      font-size:12px;
+      white-space:nowrap;
+    }
+    .dot{
+      width:8px;height:8px;border-radius:50%;
+      background: var(--brand);
+      box-shadow: 0 0 0 4px rgba(59,130,246,.18);
+    }
+
+    .tabs{
+      display:flex;
+      gap:6px;
+      background: rgba(255,255,255,.05);
+      border:1px solid var(--stroke);
+      border-radius:999px;
+      padding:6px;
+      margin: 14px 0 14px;
+    }
+    .tab{
+      flex:1;
+      border:0;
+      background: transparent;
+      color: var(--muted);
+      padding:11px 10px;
+      border-radius:999px;
+      font-weight:700;
+      font-size:14px;
+      cursor:pointer;
+    }
+    .tab.active{
+      background: rgba(59,130,246,.22);
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(59,130,246,.35);
+    }
+
+    .screen{display:none}
+    .screen.active{display:block}
+
+    .carousel{
+      display:flex;
+      gap:12px;
+      overflow:auto;
+      padding-bottom:6px;
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+    .carousel::-webkit-scrollbar{display:none}
+
+    .card{
+      min-width: 86%;
+      scroll-snap-align: start;
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.05);
+      border-radius: var(--radius2);
+      padding:14px;
+      position:relative;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+    .card.selected{
+      border-color: rgba(96,165,250,.70);
+      box-shadow:
+        0 12px 34px rgba(0,0,0,.32),
+        0 0 0 1px rgba(59,130,246,.35) inset;
+      background:
+        radial-gradient(900px 280px at 20% 0%, rgba(59,130,246,.22), transparent 60%),
+        rgba(255,255,255,.055);
+    }
+
+    .badge{
+      position:absolute;
+      top:12px;
+      right:12px;
+      background: rgba(59,130,246,.22);
+      border:1px solid rgba(59,130,246,.35);
+      color: var(--text);
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:800;
+    }
+
+    .cardHeader{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:12px;
+    }
+
+    .planName{
+      font-size:22px;
+      font-weight:900;
+      margin:0;
+      letter-spacing:.2px;
+    }
+    .planDesc{
+      margin:6px 0 0;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.35;
+    }
+
+    .check{
+      width:28px;height:28px;
+      border-radius:999px;
+      display:grid;
+      place-items:center;
+      border:1px solid var(--stroke2);
+      background: rgba(255,255,255,.04);
+      flex: 0 0 auto;
+    }
+    .card.selected .check{
+      border-color: rgba(96,165,250,.8);
+      background: rgba(59,130,246,.25);
+    }
+
+    .priceRow{
+      display:flex;
+      align-items:baseline;
+      gap:8px;
+      margin: 10px 0 12px;
+    }
+    .price{
+      font-size:46px;
+      font-weight:950;
+      letter-spacing:-.8px;
+    }
+    .per{
+      color:var(--muted);
+      font-size:14px;
+      font-weight:700;
+    }
+    .smallLine{
+      color:var(--muted);
+      font-size:13px;
+      margin-top:-6px;
+    }
+
+    .gift{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--stroke);
+      padding:12px;
+      border-radius: 14px;
+      margin: 14px 0 10px;
+    }
+    .giftIcon{
+      width:32px;height:32px;border-radius:10px;
+      display:grid;place-items:center;
+      background: rgba(59,130,246,.18);
+      border:1px solid rgba(59,130,246,.25);
+    }
+    .giftText{
+      font-weight:800;
+    }
+
+    .list{
+      margin:10px 0 0;
+      padding:0;
+      list-style:none;
+      display:grid;
+      gap:10px;
+    }
+    .li{
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+      color: rgba(255,255,255,.88);
+      font-size:14px;
+      line-height:1.35;
+    }
+    .tick{
+      width:18px;height:18px;border-radius:6px;
+      background: rgba(34,197,94,.15);
+      border:1px solid rgba(34,197,94,.30);
+      display:grid;place-items:center;
+      color: var(--success);
+      margin-top:1px;
+      flex: 0 0 auto;
+    }
+
+    .footer{
+      margin-top: 16px;
+      border-top:1px solid rgba(255,255,255,.08);
+      padding-top:14px;
+    }
+    .payMethod{
+      color:var(--muted);
+      font-size:13px;
+      margin: 0 0 10px;
+    }
+
+    .btn{
+      width:100%;
+      border:0;
+      cursor:pointer;
+      border-radius: 16px;
+      padding: 16px 14px;
+      font-weight:950;
+      font-size:16px;
+      color: white;
+      background: linear-gradient(90deg, var(--brand), var(--brand2));
+      box-shadow: 0 10px 24px rgba(59,130,246,.25);
+    }
+    .btn:active{ transform: translateY(1px); }
+
+    /* Tokens screen */
+    .tokenBox{
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.05);
+      border-radius: var(--radius2);
+      padding:14px;
+    }
+    .tokenTitle{
+      font-size:18px;font-weight:900;margin:0 0 6px;
+    }
+    .tokenGrid{
+      display:grid;
+      gap:10px;
+      margin-top:12px;
+    }
+    .tokenItem{
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.045);
+      border-radius: 16px;
+      padding:12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
+    .tokenItem strong{font-size:14px}
+    .tokenItem span{color:var(--muted);font-size:13px}
+  </style>
+</head>
+
+<body>
+  <div class="topbar">
+    <div>
+      <h1 class="title">Премиум</h1>
+      <p class="subtitle">Доступ к функциям бота без ограничений — подписка или токены.</p>
+    </div>
+    <div class="pill" id="userPill">
+      <span class="dot"></span>
+      <span id="userText">Пользователь</span>
+    </div>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab active" data-tab="sub">Подписка</button>
+    <button class="tab" data-tab="tok">Токены</button>
+  </div>
+
+  <!-- SUBSCRIPTIONS -->
+  <section class="screen active" id="screen-sub">
+    <div class="carousel" id="plans"></div>
+
+    <div class="footer">
+      <p class="payMethod">Способ оплаты</p>
+      <button class="btn" id="payBtn">Оплатить</button>
+    </div>
+  </section>
+
+  <!-- TOKENS -->
+  <section class="screen" id="screen-tok">
+    <div class="tokenBox">
+      <h2 class="tokenTitle">Пакеты токенов</h2>
+      <div class="subtitle" style="margin:0;">Токены списываются только за тяжёлые задачи (например: генерация видео/изображений).</div>
+
+      <div class="tokenGrid" id="tokenPacks"></div>
+
+      <div class="footer">
+        <p class="payMethod">Способ оплаты</p>
+        <button class="btn" id="buyTokensBtn">Купить токены</button>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    // ===== Telegram WebApp init =====
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      // Можно взять цвета из Telegram темы:
+      // document.documentElement.style.setProperty('--bg', tg.themeParams.bg_color || '#0b1220');
+
+      const u = tg.initDataUnsafe?.user;
+      if (u) {
+        document.getElementById('userText').textContent = `${u.first_name || 'Пользователь'}${u.username ? ' @' + u.username : ''}`;
+      }
+    }
+
+    // ===== Your structure (под твою модель) =====
+    // ВАЖНО: "id" совпадает с твоими планами: free/basic/pro
+    const PLANS = [
+      {
+        id: "basic",
+        tag: "⭐ Выбор пользователей",
+        name: "Оптимальный",
+        desc: "Если ты используешь бота в работе и повседневной жизни.",
+        price: 720,
+        per: "месяц",
+        tokensMonthly: 450,
+        gift: "45 токенов в подарок",
+        bullets: [
+          "Доступ ко всем нейросетям",
+          "До 559 ответов от языковых моделей",
+          "До 67 генераций изображений",
+          "До 15 генераций видео*"
+        ]
+      },
+      {
+        id: "pro",
+        tag: "🚀 Максимум",
+        name: "Продвинутый",
+        desc: "Для тех, кто выжимает из ИИ максимум каждый день.",
+        price: 1190,
+        per: "месяц",
+        tokensMonthly: 900,
+        gift: "100 токенов в подарок",
+        bullets: [
+          "Приоритет в очереди",
+          "Больше лимитов на генерации",
+          "Расширенные функции бота",
+          "Лучшее соотношение цена/лимиты"
+        ]
+      },
+      {
+        id: "start",
+        tag: "",
+        name: "Старт",
+        desc: "Минимум, чтобы попробовать и понять поток.",
+        price: 390,
+        per: "месяц",
+        tokensMonthly: 150,
+        gift: "10 токенов в подарок",
+        bullets: [
+          "Базовый доступ к функциям",
+          "Небольшие лимиты",
+          "Подходит для редкого использования",
+          "Можно апгрейднуть в любой момент"
+        ]
+      },
+    ];
+
+    const TOKEN_PACKS = [
+      { id: "t100", name: "100 токенов", price: 199, note: "Под задачи иногда" },
+      { id: "t300", name: "300 токенов", price: 499, note: "Оптимально для недели" },
+      { id: "t800", name: "800 токенов", price: 1099, note: "Для активной работы" },
+    ];
+
+    let selectedMode = "subscription"; // subscription | tokens
+    let selectedPlanId = "basic";
+    let selectedTokenPackId = "t300";
+
+    // ===== Render Plans =====
+    const plansEl = document.getElementById("plans");
+    function renderPlans() {
+      plansEl.innerHTML = "";
+      for (const p of PLANS) {
+        const card = document.createElement("div");
+        card.className = "card" + (p.id === selectedPlanId ? " selected" : "");
+        card.dataset.plan = p.id;
+
+        card.innerHTML = `
+          ${p.tag ? `<div class="badge">${p.tag}</div>` : ""}
+          <div class="cardHeader">
+            <div>
+              <h3 class="planName">${p.name}</h3>
+              <p class="planDesc">${p.desc}</p>
+            </div>
+            <div class="check" aria-label="selected">
+              ${p.id === selectedPlanId ? "✓" : ""}
+            </div>
+          </div>
+
+          <div class="priceRow">
+            <div class="price">${p.price}₽</div>
+            <div class="per">/ ${p.per}</div>
+          </div>
+          <div class="smallLine">${p.tokensMonthly} токенов ежемесячно</div>
+
+          <div class="gift">
+            <div class="giftIcon">🎁</div>
+            <div class="giftText">${p.gift}</div>
+          </div>
+
+          <ul class="list">
+            ${p.bullets.map(x => `
+              <li class="li">
+                <span class="tick">✓</span>
+                <span>${x}</span>
+              </li>
+            `).join("")}
+          </ul>
+        `;
+
+        card.addEventListener("click", () => {
+          selectedPlanId = p.id;
+          renderPlans();
+          updateButtons();
+        });
+
+        plansEl.appendChild(card);
+      }
+    }
+
+    // ===== Render token packs =====
+    const tokenPacksEl = document.getElementById("tokenPacks");
+    function renderTokenPacks() {
+      tokenPacksEl.innerHTML = "";
+      for (const t of TOKEN_PACKS) {
+        const item = document.createElement("div");
+        item.className = "tokenItem";
+        item.style.cursor = "pointer";
+        item.style.borderColor = (t.id === selectedTokenPackId) ? "rgba(96,165,250,.55)" : "var(--stroke)";
+        item.style.boxShadow = (t.id === selectedTokenPackId) ? "0 0 0 1px rgba(59,130,246,.25) inset" : "none";
+
+        item.innerHTML = `
+          <div>
+            <strong>${t.name}</strong><br/>
+            <span>${t.note}</span>
+          </div>
+          <div style="text-align:right">
+            <strong>${t.price}₽</strong><br/>
+            <span>${t.id === selectedTokenPackId ? "выбрано" : "выбрать"}</span>
+          </div>
+        `;
+
+        item.addEventListener("click", () => {
+          selectedTokenPackId = t.id;
+          renderTokenPacks();
+          updateButtons();
+        });
+
+        tokenPacksEl.appendChild(item);
+      }
+    }
+
+    // ===== Tabs logic =====
+    const tabs = document.querySelectorAll(".tab");
+    const screenSub = document.getElementById("screen-sub");
+    const screenTok = document.getElementById("screen-tok");
+
+    tabs.forEach(btn => {
+      btn.addEventListener("click", () => {
+        tabs.forEach(x => x.classList.remove("active"));
+        btn.classList.add("active");
+
+        const tab = btn.dataset.tab;
+        if (tab === "sub") {
+          selectedMode = "subscription";
+          screenSub.classList.add("active");
+          screenTok.classList.remove("active");
+        } else {
+          selectedMode = "tokens";
+          screenTok.classList.add("active");
+          screenSub.classList.remove("active");
+        }
+        updateButtons();
+      });
+    });
+
+    // ===== Actions: send to bot =====
+    function sendToBot(payload) {
+      // payload пойдёт в бот: Telegram.WebApp.onEvent('message') / web_app_data
+      const data = JSON.stringify(payload);
+
+      if (tg) {
+        tg.sendData(data);
+        // можно закрывать:
+        // tg.close();
+      } else {
+        console.log("WebApp payload:", payload);
+        alert("DEV MODE:\n" + data);
+      }
+    }
+
+    const payBtn = document.getElementById("payBtn");
+    const buyTokensBtn = document.getElementById("buyTokensBtn");
+
+    function updateButtons() {
+      if (selectedMode === "subscription") {
+        const plan = PLANS.find(p => p.id === selectedPlanId);
+        payBtn.textContent = `Оплатить — ${plan.price}₽`;
+      } else {
+        const pack = TOKEN_PACKS.find(t => t.id === selectedTokenPackId);
+        buyTokensBtn.textContent = `Купить — ${pack.price}₽`;
+      }
+    }
+
+    payBtn.addEventListener("click", () => {
+      sendToBot({
+        action: "buy_subscription",
+        plan_id: selectedPlanId,   // "basic" | "pro" | "start"
+        source: "webapp"
+      });
+    });
+
+    buyTokensBtn.addEventListener("click", () => {
+      sendToBot({
+        action: "buy_tokens",
+        pack_id: selectedTokenPackId, // "t100" | "t300" | ...
+        source: "webapp"
+      });
+    });
+
+    // init
+    renderPlans();
+    renderTokenPacks();
+    updateButtons();
+  </script>
+</body>
+</html>
