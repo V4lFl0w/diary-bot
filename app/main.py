@@ -23,6 +23,7 @@ from app.db import Base, engine
 from app.db import async_session as SessionLocal
 from app.handlers import export
 from app.handlers import premium_bridge_v2
+from app.handlers import premium_webapp
 from app.handlers.proactive_checkin import router as proactive_checkin_router
 from app.handlers import media_nav  # или прямой импорт пути, как у тебя принято
 from app.logging_setup import setup_logging
@@ -339,6 +340,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(premium_reset.router)
     dp.include_router(refund_ui.router)
     dp.include_router(payments_stars.router)
+    dp.include_router(premium_webapp.router)
     dp.include_router(refund.router)
 
     if admin and getattr(admin, "router", None):
