@@ -15,6 +15,12 @@
 from __future__ import annotations
 
 import os
+
+WEBAPP_PREMIUM_URL = os.getenv(
+    "WEBAPP_PREMIUM_URL",
+    "https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html"
+)
+
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo
@@ -26,6 +32,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
+    WebAppInfo,
 )
 
 from sqlalchemy import text as sql_text
@@ -34,7 +41,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.filters.buttons import Btn
 from app.jobs.renewal_reminders import run_renewal_reminders
-from app.urls import public_pay_url
 from app.utils.aiogram_guards import cb_reply
 
 
@@ -306,7 +312,7 @@ def _pay_kb(lang: str, tg_id: int, is_premium: bool = False) -> InlineKeyboardMa
         [
             InlineKeyboardButton(
                 text=t_local(lang, "btn_pay"),
-                url=public_pay_url(tg_id),
+                web_app=WebAppInfo(url=f"{WEBAPP_PREMIUM_URL}?tg_id={tg_id}"),
             )
         ],
         [
@@ -349,10 +355,8 @@ def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True) -> InlineKeybo
     # check
     rows.append([InlineKeyboardButton(text=t_local(lang, "btn_check"), callback_data=CB_PREMIUM_CHECK)])
 
-    # pay by card (only if PUBLIC_URL is valid)
-    pay_link = public_pay_url(tg_id)
-    if pay_link:
-        rows.append([InlineKeyboardButton(text=t_local(lang, "btn_pay"), url=pay_link)])
+    # pay by card (webapp)
+    rows.append([InlineKeyboardButton(text=t_local(lang, "btn_pay"), web_app=WebAppInfo(url=f"{WEBAPP_PREMIUM_URL}?tg_id={tg_id}"))])
 
     # stars
     rows.append([InlineKeyboardButton(text=_stars_label(lang), callback_data=CB_PAY_STARS)])
