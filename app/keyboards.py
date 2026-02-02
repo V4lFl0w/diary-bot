@@ -8,7 +8,15 @@ logger = logging.getLogger(__name__)
 import re
 from typing import Dict, Optional
 
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+import os
+from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
+
+
+WEBAPP_PREMIUM_URL = os.getenv(
+    "WEBAPP_PREMIUM_URL",
+    "https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html"
+)
+
 
 # -------------------------------------------------------------------
 # I18N helper (безопасный доступ к t())
@@ -374,6 +382,8 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False) -> ReplyKeyboardMar
                     "en": "💳 Pay by card",
                 },
             )
+        ,
+            web_app=WebAppInfo(url=WEBAPP_PREMIUM_URL)
         ),
     ]
 
