@@ -20,7 +20,9 @@ ALLOWED_CALLBACK_PREFIXES = (
     "privacy:",
     "language:",
     "premium:",
+    "stars:",  # ✅ allow Stars flows
 )
+
 
 ALLOWED_TEXT_BUTTONS = {
     "🔐 Данные и приватность",
@@ -107,6 +109,10 @@ class PolicyGateMiddleware(BaseMiddleware):
 
         # -------- CALLBACK --------
         if isinstance(event, CallbackQuery):
+            # ✅ allow Stars pay button even without prefix
+            if event.data == "pay_stars":
+                return await handler(event, data)
+
             if event.data:
                 for p in ALLOWED_CALLBACK_PREFIXES:
                     if event.data.startswith(p):

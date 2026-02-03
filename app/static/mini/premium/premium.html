@@ -9,15 +9,14 @@
 
   <style>
     :root{
-      /* яркая бирюза + розово-фиолетовый (не тёмно) */
       --bg: #071018;
       --panel: rgba(255,255,255,.06);
       --text: rgba(255,255,255,.92);
       --muted: rgba(255,255,255,.62);
 
-      --brand: #2dd4bf;      /* бирюза */
-      --brand2: #ec4899;     /* розовый */
-      --brand3: #a855f7;     /* фиолетовый */
+      --brand: #2dd4bf;
+      --brand2: #ec4899;
+      --brand3: #a855f7;
 
       --success: #22c55e;
       --stroke: rgba(255,255,255,.10);
@@ -138,8 +137,8 @@
     .priceRow{display:flex;align-items:baseline;gap:8px;margin: 10px 0 12px;}
     .price{font-size:46px;font-weight:950;letter-spacing:-.8px;}
     .per{color:var(--muted);font-size:14px;font-weight:800;}
-    .smallLine{color:var(--muted);font-size:13px;margin-top:-6px;}
-    .smallLine strong{color:rgba(255,255,255,.88);font-weight:900}
+    .smallLine{color:var(--muted);font-size:13px;margin-top:-6px;line-height:1.35;}
+    .smallLine strong{color:rgba(255,255,255,.90);font-weight:900}
 
     .gift{
       display:flex;align-items:center;gap:10px;
@@ -182,6 +181,31 @@
     }
     .btn:active{ transform: translateY(1px); }
 
+    /* pay method pills */
+    .payTabs{
+      display:flex;gap:8px;
+      background: rgba(255,255,255,.05);
+      border:1px solid var(--stroke);
+      border-radius:999px;
+      padding:6px;
+      margin: 10px 0 12px;
+    }
+    .payTab{
+      flex:1;border:0;background:transparent;
+      color: var(--muted);
+      padding:10px 10px;border-radius:999px;
+      font-weight:900;font-size:13px;cursor:pointer;
+    }
+    .payTab.active{
+      background: rgba(45,212,191,.18);
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(45,212,191,.30);
+    }
+    .payTab[disabled]{
+      opacity:.45;
+      cursor:not-allowed;
+    }
+
     /* Tokens screen */
     .tokenBox{
       border:1px solid var(--stroke);
@@ -207,7 +231,7 @@
   <div class="topbar">
     <div>
       <h1 class="title">Премиум</h1>
-      <p class="subtitle">Подписка (Бейсик/Про/Макс) или токены под тяжёлые задачи.</p>
+      <p class="subtitle">Выбери подписку (Бейсик/Про/Макс) или токены для тяжёлых задач.</p>
     </div>
     <div class="pill" id="userPill">
       <span class="dot"></span>
@@ -224,7 +248,14 @@
     <div class="carousel" id="plans"></div>
 
     <div class="footer">
-      <p class="payMethod" id="payHint">Оплата: карта (UAH). Stars — только Бейсик.</p>
+      <p class="payMethod" id="payHint">Оплата: карта (UAH) или Stars (только Бейсик).</p>
+
+      <div class="payTabs" id="payTabsSub">
+        <button class="payTab active" data-method="card">💳 Карта</button>
+        <button class="payTab" data-method="stars">⭐ Stars</button>
+        <button class="payTab" data-method="crypto" disabled>🪙 Крипта (скоро)</button>
+      </div>
+
       <button class="btn" id="payBtn">Оплатить</button>
     </div>
   </section>
@@ -237,44 +268,159 @@
       <div class="tokenGrid" id="tokenPacks"></div>
 
       <div class="footer">
-        <p class="payMethod">Оплата: карта (UAH)</p>
+        <p class="payMethod" id="payHintTok">Оплата: карта (UAH).</p>
+
+        <div class="payTabs" id="payTabsTok">
+          <button class="payTab active" data-method="card">💳 Карта</button>
+          <button class="payTab" data-method="crypto" disabled>🪙 Крипта (скоро)</button>
+        </div>
+
         <button class="btn" id="buyTokensBtn">Купить токены</button>
       </div>
     </div>
   </section>
 
   <script>
-    const tg = window.Telegram?.WebApp;
+    const tg = window.Telegram?.WebApp || null;
+
+    function tgPopup(msg){
+      try { tg?.showPopup?.({ message: String(msg) }); } catch(e) {}
+    }
+
+    let tgUserId = null;
     if (tg) {
-      tg.ready();
-      tg.expand();
+      try { tg.ready(); } catch(e) {}
+      try { tg.expand(); } catch(e) {}
+
       const u = tg.initDataUnsafe?.user;
       if (u) {
+        tgUserId = u.id || null;
         document.getElementById('userText').textContent =
           `${u.first_name || 'Пользователь'}${u.username ? ' @' + u.username : ''}`;
       }
     }
 
     // === Настройки валют/Stars ===
-    const CURRENCY = "UAH";         // UAH (для подписок и токенов)
-    const BASIC_STARS = 0;          // <-- ВСТАВИ СЮДА ТОЧНОЕ ЧИСЛО ⭐ ДЛЯ БЕЙСИКА (если нужно)
+    const CURRENCY = "UAH";
+    const BASIC_STARS = 100; // <-- поставь точное число ⭐ для Бейсика
 
     function money(n){ return `${n}₴`; }
 
-    // === Под твою логику планов: basic / pro / max ===
+    /* ---------- Telegram Stars (WebApp) ---------- */
+    async function payByStars(planId, starsAmount, title, description) {
+      if (!tg || typeof tg.openInvoice !== "function") {
+        tgPopup("openInvoice недоступен. Открой WebApp внутри Telegram.");
+        return false;
+      }
+
+      try {
+        const payload = `stars:buy:webapp:${planId}:${Date.now()}`;
+
+        const resp = await fetch("/api/stars/invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            stars: Number(starsAmount || 0),
+            payload,
+            title: title || "Premium",
+            description: description || `Premium (${planId}) через Telegram Stars`,
+          }),
+        });
+
+        let out = null;
+        try { out = await resp.json(); } catch (e) {}
+
+        if (!resp.ok) {
+          tgPopup("Stars API error: " + (out?.detail || resp.status));
+          return false;
+        }
+
+        const link = out?.invoice_link;
+        if (!link) {
+          tgPopup("invoice_link не получен");
+          return false;
+        }
+
+        tg.openInvoice(link, (status) => {
+          console.log("Stars invoice status:", status);
+          tgPopup("Статус оплаты: " + status);
+        });
+
+        return true;
+      } catch (e) {
+        tgPopup("Stars error: " + String(e));
+        return false;
+      }
+    }
+    /* ---------- /Telegram Stars (WebApp) ---------- */
+
+    /* ---------- Monobank Card (WebApp) ---------- */
+    async function payByMono(kind, amountUah, title, description) {
+      if (!tg) {
+        alert("DEV MODE: tg is missing");
+        return false;
+      }
+      if (!tgUserId) {
+        tgPopup("Не удалось определить user id Telegram");
+        return false;
+      }
+
+      try {
+        const resp = await fetch("/api/mono/invoice", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tg_id: Number(tgUserId),
+            kind: String(kind || "unknown"),
+            amount_uah: Number(amountUah || 0),
+            title: title || "DiaryBot Premium",
+            description: description || "Оплата Premium",
+            // можно потом поставить твой домен/страницу успеха:
+            // redirect_url: location.origin + "/static/mini/premium/premium.html"
+          }),
+        });
+
+        let out = null;
+        try { out = await resp.json(); } catch (e) {}
+
+        if (!resp.ok) {
+          tgPopup("Mono API error: " + (out?.detail || resp.status));
+          return false;
+        }
+
+        const url = out?.invoice_url;
+        if (!url) {
+          tgPopup("invoice_url не получен");
+          return false;
+        }
+
+        // Встроенно открываем оплату в Telegram
+        if (typeof tg.openLink === "function") tg.openLink(url);
+        else window.open(url, "_blank");
+
+        return true;
+      } catch (e) {
+        tgPopup("Mono error: " + String(e));
+        return false;
+      }
+    }
+    /* ---------- /Monobank Card (WebApp) ---------- */
+
+    // === планы ===
     const PLANS = [
       {
         id: "basic",
         tag: "⭐ Лучший старт",
         name: "Бейсик",
-        desc: "Старсы или гривны. Оптимально, чтобы быть в потоке каждый день.",
+        desc: "Оптимально, чтобы быть в потоке каждый день.",
         price_uah: 199,
         per: "месяц",
+        under_price: "Ключевые функции и комфортные лимиты",
         gift: "🎁 бонус токенов в подарок",
         bullets: [
           "Доступ к ключевым функциям бота",
-          "Лимиты выше, чем у free",
-          "Старсы доступны (только Бейсик)",
+          "Лимиты выше, чем у Free",
+          "Stars доступны (только Бейсик)",
           "Апгрейд на Про/Макс в 1 клик"
         ]
       },
@@ -282,13 +428,14 @@
         id: "pro",
         tag: "🔥 Для активной работы",
         name: "Про",
-        desc: "Для тех, кто реально использует бота каждый день и хочет больше лимитов.",
+        desc: "Если реально пользуешься ботом каждый день и хочешь больше.",
         price_uah: 499,
         per: "месяц",
+        under_price: "Больше лимитов и меньше ограничений",
         gift: "🎁 больше бонусных токенов",
         bullets: [
           "Повышенные лимиты на действия",
-          "Приоритет в очереди (если есть)",
+          "Комфортнее режим работы",
           "Расширенные возможности по функциям",
           "Лучший баланс цена/возможности"
         ]
@@ -297,15 +444,16 @@
         id: "max",
         tag: "🚀 Максимум",
         name: "Макс",
-        desc: "Максимальные лимиты и самый комфортный режим без ограничений.",
+        desc: "Максимальные лимиты и самый комфортный режим.",
         price_uah: 999,
         per: "месяц",
+        under_price: "Максимум возможностей и лимитов",
         gift: "🎁 максимум бонусов",
         bullets: [
           "Максимальные лимиты",
-          "Самый быстрый доступ к функциям",
+          "Самый комфортный режим",
           "Для тех, кто делает много задач",
-          "Подходит под ежедневную “жёсткую” нагрузку"
+          "Подходит под жёсткую ежедневную нагрузку"
         ]
       },
     ];
@@ -319,6 +467,10 @@
     let selectedMode = "subscription";
     let selectedPlanId = "basic";
     let selectedTokenPackId = "t300";
+
+    // payment method state
+    let payMethodSub = "card";   // card|stars|crypto
+    let payMethodTok = "card";   // card|crypto
 
     const plansEl = document.getElementById("plans");
     function renderPlans() {
@@ -349,6 +501,8 @@
             <div class="per">/ ${p.per}</div>
           </div>
 
+          <div class="smallLine"><strong>${p.under_price || ""}</strong></div>
+
           ${starsLine}
 
           <div class="gift">
@@ -368,7 +522,10 @@
 
         card.addEventListener("click", () => {
           selectedPlanId = p.id;
+          // если ушли с basic — Stars автоматом выключаем
+          if (selectedPlanId !== "basic" && payMethodSub === "stars") payMethodSub = "card";
           renderPlans();
+          updatePayTabs();
           updateButtons();
         });
 
@@ -407,6 +564,7 @@
       }
     }
 
+    // tabs
     const tabs = document.querySelectorAll(".tab");
     const screenSub = document.getElementById("screen-sub");
     const screenTok = document.getElementById("screen-tok");
@@ -430,55 +588,107 @@
       });
     });
 
-    function sendToBot(payload) {
-      const data = JSON.stringify(payload);
-      if (tg) {
-        tg.sendData(data);
-      } else {
-        console.log("WebApp payload:", payload);
-        alert("DEV MODE:\n" + data);
-      }
+    // pay method tabs
+    const payTabsSub = document.getElementById("payTabsSub");
+    const payTabsTok = document.getElementById("payTabsTok");
+
+    function setActivePayTab(container, method){
+      const btns = container.querySelectorAll(".payTab");
+      btns.forEach(b => b.classList.toggle("active", b.dataset.method === method));
     }
+
+    function updatePayTabs(){
+      // subscription: stars only if basic + BASIC_STARS > 0
+      const starsBtn = payTabsSub.querySelector('[data-method="stars"]');
+      const starsAllowed = (selectedPlanId === "basic" && Number(BASIC_STARS) > 0 && tg && typeof tg.openInvoice === "function");
+      starsBtn.disabled = !starsAllowed;
+
+      if (!starsAllowed && payMethodSub === "stars") payMethodSub = "card";
+
+      setActivePayTab(payTabsSub, payMethodSub);
+      setActivePayTab(payTabsTok, payMethodTok);
+    }
+
+    payTabsSub.addEventListener("click", (e) => {
+      const b = e.target.closest(".payTab");
+      if (!b || b.disabled) return;
+      payMethodSub = b.dataset.method;
+      updatePayTabs();
+      updateButtons();
+    });
+
+    payTabsTok.addEventListener("click", (e) => {
+      const b = e.target.closest(".payTab");
+      if (!b || b.disabled) return;
+      payMethodTok = b.dataset.method;
+      updatePayTabs();
+      updateButtons();
+    });
 
     const payBtn = document.getElementById("payBtn");
     const buyTokensBtn = document.getElementById("buyTokensBtn");
     const payHint = document.getElementById("payHint");
+    const payHintTok = document.getElementById("payHintTok");
 
     function updateButtons() {
+      updatePayTabs();
+
       if (selectedMode === "subscription") {
         const plan = PLANS.find(p => p.id === selectedPlanId);
         payBtn.textContent = `Оплатить — ${money(plan.price_uah)}`;
 
-        if (selectedPlanId === "basic") {
-          payHint.textContent = (BASIC_STARS > 0)
-            ? `Оплата: карта (${CURRENCY}) или Telegram Stars (${BASIC_STARS}⭐).`
-            : `Оплата: карта (${CURRENCY}). Stars включим, когда вставишь число ⭐.`;
+        const starsAllowed = (selectedPlanId === "basic" && Number(BASIC_STARS) > 0);
+        if (selectedPlanId === "basic" && starsAllowed) {
+          payHint.textContent = `Оплата: карта (${CURRENCY}) или Telegram Stars (${BASIC_STARS}⭐).`;
         } else {
           payHint.textContent = `Оплата: карта (${CURRENCY}).`;
         }
       } else {
         const pack = TOKEN_PACKS.find(t => t.id === selectedTokenPackId);
         buyTokensBtn.textContent = `Купить — ${money(pack.price_uah)}`;
+        payHintTok.textContent = `Оплата: карта (${CURRENCY}).`;
       }
     }
 
-    payBtn.addEventListener("click", () => {
-      sendToBot({
-        action: "buy_subscription",
-        plan_id: selectedPlanId,   // "basic" | "pro" | "max"
-        pay_currency: "UAH",
-        allow_stars_for_basic: true,
-        source: "webapp"
-      });
+    // --- pay actions ---
+    payBtn.addEventListener("click", async () => {
+      const plan = PLANS.find(p => p.id === selectedPlanId);
+
+      if (payMethodSub === "stars") {
+        if (selectedPlanId !== "basic") { tgPopup("Stars доступны только для Бейсика"); return; }
+        if (!(Number(BASIC_STARS) > 0)) { tgPopup("Stars для Бейсика не настроены"); return; }
+        await payByStars("basic", Number(BASIC_STARS), "Premium", "Premium (Бейсик) через Telegram Stars");
+        return;
+      }
+
+      if (payMethodSub === "crypto") {
+        tgPopup("Крипта скоро будет добавлена");
+        return;
+      }
+
+      // card
+      await payByMono(
+        `sub:${selectedPlanId}`,
+        Number(plan.price_uah),
+        "DiaryBot Premium",
+        `Подписка: ${plan.name} / ${plan.per}`
+      );
     });
 
-    buyTokensBtn.addEventListener("click", () => {
-      sendToBot({
-        action: "buy_tokens",
-        pack_id: selectedTokenPackId, // "t100" | "t300" | ...
-        pay_currency: "UAH",
-        source: "webapp"
-      });
+    buyTokensBtn.addEventListener("click", async () => {
+      const pack = TOKEN_PACKS.find(t => t.id === selectedTokenPackId);
+
+      if (payMethodTok === "crypto") {
+        tgPopup("Крипта скоро будет добавлена");
+        return;
+      }
+
+      await payByMono(
+        `tokens:${pack.id}`,
+        Number(pack.price_uah),
+        "DiaryBot Tokens",
+        `Пакет токенов: ${pack.name}`
+      );
     });
 
     renderPlans();
