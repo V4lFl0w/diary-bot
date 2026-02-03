@@ -94,6 +94,12 @@ def _normalize_lang(code: Optional[str]) -> str:
     return "ru"
 
 
+def _webapp_url(tg_id: int, lang: str) -> str:
+    loc = _normalize_lang(lang)
+    sep = "&" if "?" in WEBAPP_PREMIUM_URL else "?"
+    return f"{WEBAPP_PREMIUM_URL}{sep}tg_id={tg_id}&lang={loc}"
+
+
 TEXTS: Dict[str, Dict[str, str]] = {
     "sub_given": {
         "ru": "Поздравляю! Подписка подтверждена — премиум активирован на 24 часа ✅",
@@ -319,13 +325,7 @@ def _pay_kb(lang: str, tg_id: int, is_premium: bool = False) -> InlineKeyboardMa
         [
             InlineKeyboardButton(
                 text=t_local(lang, "btn_pay"),
-                web_app=WebAppInfo(url=f"{WEBAPP_PREMIUM_URL}?tg_id={tg_id}"),
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=_stars_label(lang),
-                callback_data=CB_PAY_STARS,
+                web_app=WebAppInfo(url=_webapp_url(tg_id, lang)),
             )
         ],
     ]
@@ -351,7 +351,7 @@ def _active_premium_kb(lang: str) -> InlineKeyboardMarkup:
     )
 
 
-def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True, show_details: bool = True) -> InlineKeyboardMarkup:
+def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True, show_details: bool = True, show_stars: bool = True) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=t_local(lang, "btn_sub"), url=CHANNEL_URL)],
     ]
@@ -363,10 +363,7 @@ def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True, show_details: 
     rows.append([InlineKeyboardButton(text=t_local(lang, "btn_check"), callback_data=CB_PREMIUM_CHECK)])
 
     # pay by card (webapp)
-    rows.append([InlineKeyboardButton(text=t_local(lang, "btn_open"), web_app=WebAppInfo(url=f"{WEBAPP_PREMIUM_URL}?tg_id={tg_id}"))])
-
-    # stars
-    rows.append([InlineKeyboardButton(text=_stars_label(lang), callback_data=CB_PAY_STARS)])
+    rows.append([InlineKeyboardButton(text=t_local(lang, "btn_open"), web_app=WebAppInfo(url=_webapp_url(tg_id, lang)))])
     if show_details:
         rows.append([InlineKeyboardButton(text=t_local(lang, "btn_more"), callback_data=CB_PREMIUM_DETAILS)])
 
@@ -652,9 +649,9 @@ async def cmd_premium(
     if active:
         kb = _active_premium_kb(lang_code)  # 👈 вот тут теперь появится cancel
     else:
-        kb = _subscribe_kb(lang_code, m.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=True)
+        kb = _subscribe_kb(lang_code, m.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=True, show_stars=False)
 
-    await m.answer(text, reply_markup=kb, parse_mode=None)
+    await m.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
 # ✅ КРИТИЧНО ДЛЯ V2: обработчик апсейл-кнопки
@@ -673,11 +670,11 @@ async def open_premium_cb(
     if active:
         kb = _active_premium_kb(lang_code)  # 👈 вот тут теперь появится cancel
     else:
-        kb = _subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=True)
+        kb = _subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=True, show_stars=False)
 
     await c.answer()
     if c.message:
-        await cb_reply(c, text, reply_markup=kb, parse_mode=None)
+        await cb_reply(c, text, reply_markup=kb, parse_mode="HTML")
 
 
 
@@ -691,11 +688,11 @@ async def premium_details_cb(
     lang_code = _lang_of(user, c, fallback=lang)
 
     text = _build_menu(lang_code, user)
-    kb = _subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=False)
+    kb = _subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=False, show_stars=True)
 
     await c.answer()
     if c.message:
-        await cb_reply(c, text, reply_markup=kb, parse_mode=None)
+        await cb_reply(c, text, reply_markup=kb, parse_mode="HTML")
 
 
 @router.callback_query(F.data == CB_TRIAL_START)

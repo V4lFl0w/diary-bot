@@ -165,7 +165,7 @@
       margin-top:1px;flex: 0 0 auto;
     }
 
-    .footer{margin-top: 16px;border-top:1px solid rgba(255,255,255,.08);padding-top:14px;}
+    .footer{margin-top: 16px; border-top: 1px solid rgba(255,255,255,.08); padding-top:14px; background: rgba(0,0,0,.12); border-radius: var(--radius2); padding: 14px; }
     .payMethod{color:var(--muted);font-size:13px;margin: 0 0 10px;}
 
     .btn{
@@ -296,6 +296,15 @@
     let LANG = "ru";
     let tgUserId = null;
 
+
+    // --- allow forcing lang via query (?lang=ru|uk|en) to avoid Telegram language_code mismatch
+    try {
+      const qs = new URLSearchParams(window.location.search || "");
+      const forced = String(qs.get("lang") || qs.get("locale") || "").toLowerCase();
+      if (forced) {
+        LANG = forced.startsWith("uk") ? "uk" : (forced.startsWith("en") ? "en" : "ru");
+      }
+    } catch (e) {}
     if (tg) {
       try { tg.ready(); } catch(e) {}
       try { tg.expand(); } catch(e) {}
@@ -428,6 +437,21 @@
     const CURRENCY = "UAH";
     function money(n){ return `${n}₴`; }
 
+
+    // --- crypto UX: show approximate USD (not exact rate)
+    const FX_USD = 40; // ~UAH per $ (approx for UI only)
+    const USD_MIN = 10;
+    function calcUsdApprox(uah){
+      try { return Math.max(USD_MIN, Math.round(Number(uah || 0) / FX_USD)); } catch(e){ return USD_MIN; }
+    }
+    function primaryAmountForPlan(plan){
+      const priceUah = calcPriceUah(plan);
+      const stars = calcStars(plan.id);
+      const usd = calcUsdApprox(priceUah);
+      if (payMethodSub === "stars") return `${stars}⭐`;
+      if (payMethodSub === "crypto") return `~$${usd}`;
+      return money(priceUah);
+    }
     // --- Stars ---
     async function payByStars(planId, starsAmount, title, description) {
       if (!tg || typeof tg.openInvoice !== "function") {
@@ -577,7 +601,7 @@
         bullets: (LANG==="en" ? [
           "Comfortable usage without pauses",
           "Extra bonus tokens for heavy tasks",
-          "Stars / Card / Crypto (min $10)",
+          "Stars / Card / Crypto",
           "Best value for daily intensity",
         ] : (LANG==="uk" ? [
           "Комфортний режим без пауз",
@@ -606,7 +630,7 @@
         bullets: (LANG==="en" ? [
           "Maximum limits and smooth usage",
           "Maximum bonus tokens included",
-          "Stars / Card / Crypto (min $10)",
+          "Stars / Card / Crypto",
           "For creators, teams and power users",
         ] : (LANG==="uk" ? [
           "Максимальні ліміти та плавна робота",
@@ -678,7 +702,7 @@
           </div>
 
           <div class="priceRow">
-            <div class="price">${money(price)}</div>
+            <div class="price">${primaryAmountForPlan(plan)}</div>
             <div class="per">/ ${selectedPeriod === "month" ? t.period_m : (selectedPeriod==="quarter" ? t.period_q : t.period_y)}</div>
           </div>
 
@@ -818,8 +842,10 @@ function updatePayTabs(){
 
   if (cryptoBtn) {
     cryptoBtn.disabled = !cryptoAllowed;
-    cryptoBtn.textContent = t.pay_crypto + (cryptoAllowed ? "" : " (Pro/Max)");
-  }
+    const planObj = PLANS.find(x => x.id === selectedPlanId);
+  const priceUah = planObj ? calcPriceUah(planObj) : 0;
+  const usd = calcUsdApprox(priceUah);
+  cryptoBtn.textContent = t.pay_crypto + (cryptoAllowed ? ` (~$${usd})` : " (Pro/Max)");}
 
   if (tokCard)   tokCard.textContent = t.pay_card;
   if (tokCrypto) tokCrypto.textContent = t.pay_crypto + " (soon)";
@@ -836,6 +862,7 @@ payTabsSub?.addEventListener("click", (e) => {
   if (!b || b.disabled) return;
   payMethodSub = b.dataset.method || "card";
   updatePayTabs();
+  renderPlans();
   updateButtons();
 });
 
@@ -864,10 +891,13 @@ function updateButtons(){
     const priceUah = calcPriceUah(plan);
     const stars = calcStars(selectedPlanId);
 
+    const usd = calcUsdApprox(priceUah);
+
     payBtn.textContent = (payMethodSub === "stars")
       ? `${t.btn_pay} — ${stars}⭐`
-      : `${t.btn_pay} — ${money(priceUah)}`;
-  }
+      : (payMethodSub === "crypto")
+        ? `${t.btn_pay} — ~$${usd}`
+        : `${t.btn_pay} — ${money(priceUah)}`;}
 
   if (buyBtn) {
     const pack = TOKEN_PACKS.find(x => x.id === selectedTokenPackId);
