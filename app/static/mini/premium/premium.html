@@ -139,19 +139,17 @@
 
     
 .gift{
-  display:flex;align-items:center;gap:8px;
   background: rgba(255,255,255,.03);
   border: 1px solid rgba(255,255,255,.06);
-  padding:10px;border-radius:12px;
+  padding:12px;
+  border-radius:12px;
   margin:12px 0 6px;
 }
-
-    .giftIcon{
-      width:32px;height:32px;border-radius:10px;
-      display:grid;place-items:center;
-      background: rgba(168,85,247,.16);
-      border:1px solid rgba(168,85,247,.22);
-    }
+.giftTop{
+  display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+}
+.giftText{font-weight:950;}
+.giftMeta{color:var(--muted);font-size:13px;line-height:1.35;}
     .giftText{font-weight:900;}
 
     .list{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:10px;}
@@ -223,7 +221,55 @@
     }
     .tokenItem strong{font-size:14px}
     .tokenItem span{color:var(--muted);font-size:13px}
-  </style>
+  
+    @keyframes vfPop {
+      from { transform: translateY(10px); opacity: 0; }
+      to   { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes vfGlow {
+      0%   { filter: brightness(1); transform: translateY(0); }
+      50%  { filter: brightness(1.08); transform: translateY(-1px); }
+      100% { filter: brightness(1); transform: translateY(0); }
+    }
+
+    .vf-pop { animation: vfPop .28s ease-out both; }
+    .vf-delay-1 { animation-delay: .02s; }
+    .vf-delay-2 { animation-delay: .06s; }
+    .vf-delay-3 { animation-delay: .10s; }
+
+    .btn.vf-glow { animation: vfGlow 1.6s ease-in-out infinite; }
+
+  
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.presale-line {
+  opacity: 0;
+  animation: fadeUp .4s ease forwards;
+}
+
+.presale-line:nth-child(1){ animation-delay:.05s }
+.presale-line:nth-child(2){ animation-delay:.1s }
+.presale-line:nth-child(3){ animation-delay:.15s }
+.presale-line:nth-child(4){ animation-delay:.2s }
+.presale-line:nth-child(5){ animation-delay:.25s }
+.presale-line:nth-child(6){ animation-delay:.3s }
+
+
+@keyframes planGlow {
+  0%   { box-shadow: 0 0 0 rgba(0,255,180,0); }
+  50%  { box-shadow: 0 0 18px rgba(0,255,180,0.35); }
+  100% { box-shadow: 0 0 0 rgba(0,255,180,0); }
+}
+
+.card.selected {
+  animation: planGlow 2.4s ease-in-out infinite;
+  border-color: rgba(0,255,180,.6) !important;
+}
+
+</style>
 </head>
 
 <body>
@@ -258,7 +304,7 @@
 <div class="payTabs" id="payTabsSub">
         <button class="payTab active" data-method="card">💳 Карта</button>
         <button class="payTab" data-method="stars">⭐ Stars</button>
-        <button class="payTab" data-method="crypto">🪙 Крипта (скоро)</button>
+        <button class="payTab" data-method="crypto">🪙 Крипта</button>
       </div>
 
       <button class="btn" id="payBtn">Оплатить</button>
@@ -277,7 +323,7 @@
 
         <div class="payTabs" id="payTabsTok">
           <button class="payTab active" data-method="card">💳 Карта</button>
-          <button class="payTab" data-method="crypto" disabled>🪙 Крипта (скоро)</button>
+          <button class="payTab" data-method="crypto" disabled>🪙 Крипта</button>
         </div>
 
         <button class="btn" id="buyTokensBtn">Купить токены</button>
@@ -351,9 +397,9 @@
         chosen: "выбрано",
         choose: "выбрать",
         gift_prefix: "+",
-        gift_suffix: " токенов на тяжёлые функции",
+        gift_suffix: " токенов",
         stars_line: "или ",
-        stars_suffix: "⭐ через Telegram Stars",
+        stars_suffix: "⭐ через Stars",
       },
       uk: {
         title: "Преміум",
@@ -376,9 +422,9 @@
         chosen: "обрано",
         choose: "обрати",
         gift_prefix: "+",
-        gift_suffix: " токенів на важкі функції",
+        gift_suffix: " токенів",
         stars_line: "або ",
-        stars_suffix: "⭐ через Telegram Stars",
+        stars_suffix: "⭐ через Stars",
       },
       en: {
         title: "Premium",
@@ -401,9 +447,9 @@
         chosen: "selected",
         choose: "select",
         gift_prefix: "+",
-        gift_suffix: " tokens for heavy features",
+        gift_suffix: " tokens",
         stars_line: "or ",
-        stars_suffix: "⭐ via Telegram Stars",
+        stars_suffix: "⭐ via Stars",
       }
     };
 
@@ -473,7 +519,7 @@
             stars: Number(starsAmount || 0),
             payload,
             title: title || "Premium",
-            description: description || `Premium (${planId}, ${selectedPeriod}) через Telegram Stars`,
+            description: description || `Premium (${planId}, ${selectedPeriod}) через Stars`,
           }),
         });
 
@@ -596,7 +642,7 @@
         id: "pro",
         tag: "🔥 Для активной работы",
         name: (LANG==="en" ? "Pro" : "Про"),
-        desc: (LANG==="en" ? "More power: for creators, work and routines." :
+        desc: (LANG==="en" ? t.pro_subtitle :
               (LANG==="uk" ? "Більше потужності: для роботи та креативу." :
                              "Больше мощности: для работы и креатива.")),
         price_uah: 499,
@@ -684,7 +730,9 @@
       plansEl.innerHTML = "";
       for (const plan of PLANS) {
         const card = document.createElement("div");
-        card.className = "card" + (plan.id === selectedPlanId ? " selected" : "");
+        card.className = "card" + (plan.id === selectedPlanId ? " selected" : "") + " vf-pop " +
+  (plan.id==="basic" ? "vf-delay-1" : (plan.id==="pro" ? "vf-delay-2" : "vf-delay-3"));
+
         card.dataset.plan = plan.id;
 
         const price = calcPriceUah(plan);
@@ -714,10 +762,10 @@
           ${starsLine}
 
           <div class="gift">
-            <div class="giftIcon">🎁</div>
-            <div>${giftLine}<div class="smallLine">${LANG==="en" ? "Tokens are used for images/video/heavy requests." :
-              (LANG==="uk" ? "Токени йдуть на зображення/відео/важкі запити." :
-                            "Токены идут на изображения/видео/тяжёлые запросы.")}</div></div>
+            <div class="giftTop">
+              ${giftLine}
+              <span class="giftMeta">${t.bonus_paid} • ${t.bonus_for_heavy}</span>
+            </div>
           </div>
 
           <ul class="list">
@@ -765,7 +813,9 @@
           selectedTokenPackId = pack.id;
           renderTokenPacks();
           updateButtons();
-        });
+        
+  try { document.getElementById("payBtn")?.classList.add("vf-glow"); } catch(e) {}
+});
 
         tokenPacksEl.appendChild(item);
       }
@@ -845,7 +895,6 @@ function updatePayTabs(){
   }
 
   if (cryptoBtn) {
-    cryptoBtn.disabled = !cryptoAllowed;
     const planObj = PLANS.find(x => x.id === selectedPlanId);
   const priceUah = planObj ? calcPriceUah(planObj) : 0;
   const usd = calcUsdApprox(priceUah);
@@ -864,7 +913,12 @@ function updatePayTabs(){
 payTabsSub?.addEventListener("click", (e) => {
   const b = e.target.closest(".payTab");
   if (!b || b.disabled) return;
-  payMethodSub = b.dataset.method || "card";
+  const method = b.dataset.method || "card";
+  if (method === "crypto") {
+    const cryptoAllowed = (selectedPlanId === "pro" || selectedPlanId === "max");
+    if (!cryptoAllowed) { tgPopup(t.pay_hint_basic_crypto_off); return; }
+  }
+  payMethodSub = method;
   updatePayTabs();
   renderPlans();
   updateButtons();

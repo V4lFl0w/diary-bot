@@ -97,7 +97,7 @@ def _normalize_lang(code: Optional[str]) -> str:
 def _webapp_url(tg_id: int, lang: str) -> str:
     loc = _normalize_lang(lang)
     sep = "&" if "?" in WEBAPP_PREMIUM_URL else "?"
-    return f"{WEBAPP_PREMIUM_URL}{sep}tg_id={tg_id}&lang={loc}"
+    return f"{WEBAPP_PREMIUM_URL}{sep}tg_id={tg_id}&lang={loc}&v=1770158497"
 
 
 TEXTS: Dict[str, Dict[str, str]] = {
@@ -507,10 +507,7 @@ def _build_menu_short(lang: str, user: Dict[str, Any]) -> str:
 
     return (
         f"{title}\n\n"
-        f"{t_local(loc, 'presale')}\n\n"
-        f"— {t_local(loc, 'short_b1')}\n"
-        f"— {t_local(loc, 'short_b2')}\n\n"
-        f"<b>{t_local(loc, 'short_cta')}</b>"
+        f"{t_local(loc, 'presale_lines')}"
     )
 
 def _build_menu(lang: str, user: Dict[str, Any]) -> str:
