@@ -248,12 +248,18 @@
     <div class="carousel" id="plans"></div>
 
     <div class="footer">
-      <p class="payMethod" id="payHint">Оплата: карта (UAH) или Stars (только Бейсик).</p>
+      <p class="payMethod" id="payHint">Оплата: карта (UAH), Stars или крипта (Pro/Max).</p>
 
-      <div class="payTabs" id="payTabsSub">
+      <div class="payTabs" id="periodTabsSub">
+        <button class="payTab active" data-period="month">Месяц</button>
+        <button class="payTab" data-period="quarter">Квартал −10%</button>
+        <button class="payTab" data-period="year">Год −25%</button>
+      </div>
+
+<div class="payTabs" id="payTabsSub">
         <button class="payTab active" data-method="card">💳 Карта</button>
         <button class="payTab" data-method="stars">⭐ Stars</button>
-        <button class="payTab" data-method="crypto" disabled>🪙 Крипта (скоро)</button>
+        <button class="payTab" data-method="crypto">🪙 Крипта (скоро)</button>
       </div>
 
       <button class="btn" id="payBtn">Оплатить</button>
@@ -280,14 +286,17 @@
     </div>
   </section>
 
-  <script>
+    <script>
     const tg = window.Telegram?.WebApp || null;
 
     function tgPopup(msg){
       try { tg?.showPopup?.({ message: String(msg) }); } catch(e) {}
     }
 
+    // --- language detect (ru/uk/en) ---
+    let LANG = "ru";
     let tgUserId = null;
+
     if (tg) {
       try { tg.ready(); } catch(e) {}
       try { tg.expand(); } catch(e) {}
@@ -295,27 +304,139 @@
       const u = tg.initDataUnsafe?.user;
       if (u) {
         tgUserId = u.id || null;
-        document.getElementById('userText').textContent =
-          `${u.first_name || 'Пользователь'}${u.username ? ' @' + u.username : ''}`;
+        const lc = String(u.language_code || "ru").toLowerCase();
+        LANG = lc.startsWith("uk") ? "uk" : (lc.startsWith("en") ? "en" : "ru");
+
+        document.getElementById("userText").textContent =
+          `${u.first_name || "Пользователь"}${u.username ? " @" + u.username : ""}`;
       }
+    } else {
+      const lc = String(navigator.language || "ru").toLowerCase();
+      LANG = lc.startsWith("uk") ? "uk" : (lc.startsWith("en") ? "en" : "ru");
     }
 
-    // === Настройки валют/Stars ===
-    const CURRENCY = "UAH";
-    const BASIC_STARS = 100; // <-- поставь точное число ⭐ для Бейсика
+    const I18N = {
+      ru: {
+        title: "Премиум",
+        subtitle: "Выбери подписку (Бейсик/Про/Макс) или токены для тяжёлых задач.",
+        tab_sub: "Подписка",
+        tab_tok: "Токены",
+        period_m: "Месяц",
+        period_q: "Квартал −10%",
+        period_y: "Год −25%",
+        pay_card: "💳 Карта",
+        pay_stars: "⭐ Stars",
+        pay_crypto: "🪙 Крипта",
+        pay_hint_sub: "Оплата: карта (UAH), Stars или крипта (Pro/Max).",
+        pay_hint_basic_crypto_off: "Крипта доступна только для Pro/Max (минималка $10).",
+        pay_hint_tok: "Оплата: карта (UAH).",
+        btn_pay: "Оплатить",
+        btn_buy: "Купить",
+        tokens_title: "Пакеты токенов",
+        tokens_sub: "Токены списываются за тяжёлые функции (видео/изображения/дорогие запросы).",
+        chosen: "выбрано",
+        choose: "выбрать",
+        gift_prefix: "🎁 Бонус: +",
+        gift_suffix: " токенов на тяжёлые функции",
+        stars_line: "или ",
+        stars_suffix: "⭐ через Telegram Stars",
+      },
+      uk: {
+        title: "Преміум",
+        subtitle: "Обери підписку (Бейсик/Про/Макс) або токени для важких задач.",
+        tab_sub: "Підписка",
+        tab_tok: "Токени",
+        period_m: "Місяць",
+        period_q: "Квартал −10%",
+        period_y: "Рік −25%",
+        pay_card: "💳 Картка",
+        pay_stars: "⭐ Stars",
+        pay_crypto: "🪙 Крипта",
+        pay_hint_sub: "Оплата: картка (UAH), Stars або крипта (Pro/Max).",
+        pay_hint_basic_crypto_off: "Крипта лише для Pro/Max (мінімум $10).",
+        pay_hint_tok: "Оплата: картка (UAH).",
+        btn_pay: "Оплатити",
+        btn_buy: "Купити",
+        tokens_title: "Пакети токенів",
+        tokens_sub: "Токени списуються за важкі функції (відео/зображення/дорогі запити).",
+        chosen: "обрано",
+        choose: "обрати",
+        gift_prefix: "🎁 Бонус: +",
+        gift_suffix: " токенів на важкі функції",
+        stars_line: "або ",
+        stars_suffix: "⭐ через Telegram Stars",
+      },
+      en: {
+        title: "Premium",
+        subtitle: "Choose a plan (Basic/Pro/Max) or tokens for heavy tasks.",
+        tab_sub: "Subscription",
+        tab_tok: "Tokens",
+        period_m: "Month",
+        period_q: "Quarter −10%",
+        period_y: "Year −25%",
+        pay_card: "💳 Card",
+        pay_stars: "⭐ Stars",
+        pay_crypto: "🪙 Crypto",
+        pay_hint_sub: "Pay: card (UAH), Stars, or crypto (Pro/Max).",
+        pay_hint_basic_crypto_off: "Crypto is Pro/Max only (min $10).",
+        pay_hint_tok: "Pay: card (UAH).",
+        btn_pay: "Pay",
+        btn_buy: "Buy",
+        tokens_title: "Token packs",
+        tokens_sub: "Tokens are used for heavy features (video/images/expensive requests).",
+        chosen: "selected",
+        choose: "select",
+        gift_prefix: "🎁 Bonus: +",
+        gift_suffix: " tokens for heavy features",
+        stars_line: "or ",
+        stars_suffix: "⭐ via Telegram Stars",
+      }
+    };
 
+    const t = I18N[LANG] || I18N.ru;
+
+    // apply static texts
+    document.querySelector(".title").textContent = t.title;
+    document.querySelector(".subtitle").textContent = t.subtitle;
+    document.querySelector('.tab[data-tab="sub"]').textContent = t.tab_sub;
+    document.querySelector('.tab[data-tab="tok"]').textContent = t.tab_tok;
+    document.querySelector(".tokenTitle").textContent = t.tokens_title;
+    document.querySelector("#screen-tok .subtitle").textContent = t.tokens_sub;
+
+    // periods (month/quarter/year)
+    const PERIODS = {
+      month:   { months: 1,  discount: 1.00 },
+      quarter: { months: 3,  discount: 0.90 },
+      year:    { months: 12, discount: 0.75 },
+    };
+    let selectedPeriod = "month";
+
+    // Stars base per MONTH (edit these to your economics)
+    const STARS_BASE = {
+      basic: 199,
+      pro:   449,
+      max:   999,
+    };
+
+    // Bonus tokens base per MONTH (real numbers, Apple-style)
+    // Explain: tokens are used for heavy features (images/video/expensive requests)
+    const BONUS_TOKENS_BASE = {
+      basic: 60,
+      pro:   180,
+      max:   450,
+    };
+
+    const CURRENCY = "UAH";
     function money(n){ return `${n}₴`; }
 
-    /* ---------- Telegram Stars (WebApp) ---------- */
+    // --- Stars ---
     async function payByStars(planId, starsAmount, title, description) {
       if (!tg || typeof tg.openInvoice !== "function") {
         tgPopup("openInvoice недоступен. Открой WebApp внутри Telegram.");
         return false;
       }
-
       try {
-        const payload = `stars:buy:webapp:${planId}:${Date.now()}`;
-
+        const payload = `stars:buy:webapp:${planId}:${selectedPeriod}:${Date.now()}`;
         const resp = await fetch("/api/stars/invoice", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -323,7 +444,7 @@
             stars: Number(starsAmount || 0),
             payload,
             title: title || "Premium",
-            description: description || `Premium (${planId}) через Telegram Stars`,
+            description: description || `Premium (${planId}, ${selectedPeriod}) через Telegram Stars`,
           }),
         });
 
@@ -352,9 +473,8 @@
         return false;
       }
     }
-    /* ---------- /Telegram Stars (WebApp) ---------- */
 
-    /* ---------- Monobank Card (WebApp) ---------- */
+    // --- Monobank (card) ---
     async function payByMono(kind, amountUah, title, description) {
       if (!tg) {
         alert("DEV MODE: tg is missing");
@@ -375,8 +495,6 @@
             amount_uah: Number(amountUah || 0),
             title: title || "DiaryBot Premium",
             description: description || "Оплата Premium",
-            // можно потом поставить твой домен/страницу успеха:
-            // redirect_url: location.origin + "/static/mini/premium/premium.html"
           }),
         });
 
@@ -394,7 +512,6 @@
           return false;
         }
 
-        // Встроенно открываем оплату в Telegram
         if (typeof tg.openLink === "function") tg.openLink(url);
         else window.open(url, "_blank");
 
@@ -404,128 +521,191 @@
         return false;
       }
     }
-    /* ---------- /Monobank Card (WebApp) ---------- */
 
-    // === планы ===
+    // --- Bot bridge (for crypto now / later) ---
+    function sendToBot(payload) {
+      const data = JSON.stringify(payload);
+      if (tg) tg.sendData(data);
+      else {
+        console.log("WebApp payload:", payload);
+        alert("DEV MODE:\n" + data);
+      }
+    }
+
+    // Plans (Apple-style bullets + real bonus tokens)
     const PLANS = [
       {
         id: "basic",
         tag: "⭐ Лучший старт",
-        name: "Бейсик",
-        desc: "Оптимально, чтобы быть в потоке каждый день.",
+        name: (LANG==="en" ? "Basic" : (LANG==="uk" ? "Бейсик" : "Бейсик")),
+        desc: (LANG==="en" ? "Daily comfort: core features + stable usage." :
+              (LANG==="uk" ? "Комфорт щодня: основні фічі + стабільна робота." :
+                             "Комфорт каждый день: базовые фичи + стабильная работа.")),
         price_uah: 199,
-        per: "месяц",
-        under_price: "Ключевые функции и комфортные лимиты",
-        gift: "🎁 бонус токенов в подарок",
-        bullets: [
-          "Доступ к ключевым функциям бота",
-          "Лимиты выше, чем у Free",
-          "Stars доступны (только Бейсик)",
-          "Апгрейд на Про/Макс в 1 клик"
-        ]
+        per: "",
+        under_price: (LANG==="en" ? "Core features & smooth flow" :
+                     (LANG==="uk" ? "Основні фічі й спокійний режим" :
+                                    "Ключевые фичи и спокойный режим")),
+        bullets: (LANG==="en" ? [
+          "Everything needed for daily use",
+          "Stable performance & clear limits",
+          "Bonus tokens for heavy features",
+          "Stars / Card — choose your way",
+        ] : (LANG==="uk" ? [
+          "Усе потрібне для щоденного користування",
+          "Стабільна робота та зрозумілі ліміти",
+          "Бонус-токени на важкі функції",
+          "Stars / Картка — як зручно",
+        ] : [
+          "Всё нужное для ежедневного использования",
+          "Стабильная работа и понятные лимиты",
+          "Бонус-токены на тяжёлые функции",
+          "Stars / Карта — как удобно тебе",
+        ]))
       },
       {
         id: "pro",
         tag: "🔥 Для активной работы",
-        name: "Про",
-        desc: "Если реально пользуешься ботом каждый день и хочешь больше.",
+        name: (LANG==="en" ? "Pro" : "Про"),
+        desc: (LANG==="en" ? "More power: for creators, work and routines." :
+              (LANG==="uk" ? "Більше потужності: для роботи та креативу." :
+                             "Больше мощности: для работы и креатива.")),
         price_uah: 499,
-        per: "месяц",
-        under_price: "Больше лимитов и меньше ограничений",
-        gift: "🎁 больше бонусных токенов",
-        bullets: [
-          "Повышенные лимиты на действия",
-          "Комфортнее режим работы",
-          "Расширенные возможности по функциям",
-          "Лучший баланс цена/возможности"
-        ]
+        per: "",
+        under_price: (LANG==="en" ? "More actions, less friction" :
+                     (LANG==="uk" ? "Більше дій, менше обмежень" :
+                                    "Больше действий, меньше ограничений")),
+        bullets: (LANG==="en" ? [
+          "Comfortable usage without pauses",
+          "Extra bonus tokens for heavy tasks",
+          "Stars / Card / Crypto (min $10)",
+          "Best value for daily intensity",
+        ] : (LANG==="uk" ? [
+          "Комфортний режим без пауз",
+          "Більше бонус-токенів на важкі задачі",
+          "Stars / Картка / Крипта (мін. $10)",
+          "Найкраще співвідношення ціна/користь",
+        ] : [
+          "Комфортный режим без пауз",
+          "Больше бонус-токенов на тяжёлые задачи",
+          "Stars / Карта / Крипта (мин. $10)",
+          "Лучшее соотношение цена/польза",
+        ]))
       },
       {
         id: "max",
         tag: "🚀 Максимум",
-        name: "Макс",
-        desc: "Максимальные лимиты и самый комфортный режим.",
+        name: (LANG==="en" ? "Max" : "Макс"),
+        desc: (LANG==="en" ? "Maximum freedom: for heavy daily use." :
+              (LANG==="uk" ? "Максимум свободи: для щоденного навантаження." :
+                             "Максимум свободы: под ежедневную нагрузку.")),
         price_uah: 999,
-        per: "месяц",
-        under_price: "Максимум возможностей и лимитов",
-        gift: "🎁 максимум бонусов",
-        bullets: [
-          "Максимальные лимиты",
-          "Самый комфортный режим",
-          "Для тех, кто делает много задач",
-          "Подходит под жёсткую ежедневную нагрузку"
-        ]
+        per: "",
+        under_price: (LANG==="en" ? "Maximum comfort & capacity" :
+                     (LANG==="uk" ? "Максимальний комфорт і місткість" :
+                                    "Максимальный комфорт и вместимость")),
+        bullets: (LANG==="en" ? [
+          "Maximum limits and smooth usage",
+          "Maximum bonus tokens included",
+          "Stars / Card / Crypto (min $10)",
+          "For creators, teams and power users",
+        ] : (LANG==="uk" ? [
+          "Максимальні ліміти та плавна робота",
+          "Максимум бонус-токенів у комплекті",
+          "Stars / Картка / Крипта (мін. $10)",
+          "Для креаторів і «power users»",
+        ] : [
+          "Максимальные лимиты и плавная работа",
+          "Максимум бонус-токенов в комплекте",
+          "Stars / Карта / Крипта (мин. $10)",
+          "Для креаторов и «power users»",
+        ]))
       },
     ];
 
     const TOKEN_PACKS = [
-      { id: "t100", name: "100 токенов", price_uah: 199, note: "Иногда, точечно" },
-      { id: "t300", name: "300 токенов", price_uah: 499, note: "Оптимально на неделю" },
-      { id: "t800", name: "800 токенов", price_uah: 1099, note: "Активная работа" },
+      { id: "t100", name: {ru:"100 токенов", uk:"100 токенів", en:"100 tokens"}, price_uah: 199, note: {ru:"Точечно", uk:"Точково", en:"Occasional"} },
+      { id: "t300", name: {ru:"300 токенов", uk:"300 токенів", en:"300 tokens"}, price_uah: 499, note: {ru:"Оптимально", uk:"Оптимально", en:"Best value"} },
+      { id: "t800", name: {ru:"800 токенов", uk:"800 токенів", en:"800 tokens"}, price_uah: 1099, note:{ru:"Активно", uk:"Активно", en:"Heavy use"} },
     ];
 
     let selectedMode = "subscription";
     let selectedPlanId = "basic";
     let selectedTokenPackId = "t300";
 
-    // payment method state
-    let payMethodSub = "card";   // card|stars|crypto
-    let payMethodTok = "card";   // card|crypto
+    let payMethodSub = "card";   // card | stars | crypto
+    let payMethodTok = "card";   // card | crypto
+
+    // --- render helpers ---
+    function calcPriceUah(plan){
+      const per = PERIODS[selectedPeriod];
+      return Math.round(plan.price_uah * per.months * per.discount);
+    }
+    function calcStars(planId){
+      const per = PERIODS[selectedPeriod];
+      return Math.round((STARS_BASE[planId] || 0) * per.months * per.discount);
+    }
+    function calcBonusTokens(planId){
+      const per = PERIODS[selectedPeriod];
+      return Math.round((BONUS_TOKENS_BASE[planId] || 0) * per.months * per.discount);
+    }
 
     const plansEl = document.getElementById("plans");
     function renderPlans() {
       plansEl.innerHTML = "";
-      for (const p of PLANS) {
+      for (const plan of PLANS) {
         const card = document.createElement("div");
-        card.className = "card" + (p.id === selectedPlanId ? " selected" : "");
-        card.dataset.plan = p.id;
+        card.className = "card" + (plan.id === selectedPlanId ? " selected" : "");
+        card.dataset.plan = plan.id;
 
-        const starsLine = (p.id === "basic" && BASIC_STARS > 0)
-          ? `<div class="smallLine">или <strong>${BASIC_STARS}⭐</strong> через Telegram Stars</div>`
+        const price = calcPriceUah(plan);
+        const stars = calcStars(plan.id);
+        const bonus = calcBonusTokens(plan.id);
+
+        const starsLine = (stars > 0 && tg && typeof tg.openInvoice === "function")
+          ? `<div class="smallLine">${t.stars_line}<strong>${stars}${t.stars_suffix}</strong></div>`
           : "";
 
+        const giftLine = `<div class="giftText">${t.gift_prefix}${bonus}${t.gift_suffix}</div>`;
+
         card.innerHTML = `
-          ${p.tag ? `<div class="badge">${p.tag}</div>` : ""}
+          ${plan.tag ? `<div class="badge">${plan.tag}</div>` : ""}
           <div class="cardHeader">
             <div>
-              <h3 class="planName">${p.name}</h3>
-              <p class="planDesc">${p.desc}</p>
+              <h3 class="planName">${plan.name}</h3>
+              <p class="planDesc">${plan.desc}</p>
             </div>
-            <div class="check" aria-label="selected">
-              ${p.id === selectedPlanId ? "✓" : ""}
-            </div>
+            <div class="check" aria-label="selected">${plan.id === selectedPlanId ? "✓" : ""}</div>
           </div>
 
           <div class="priceRow">
-            <div class="price">${money(p.price_uah)}</div>
-            <div class="per">/ ${p.per}</div>
+            <div class="price">${money(price)}</div>
+            <div class="per">/ ${selectedPeriod === "month" ? t.period_m : (selectedPeriod==="quarter" ? t.period_q : t.period_y)}</div>
           </div>
 
-          <div class="smallLine"><strong>${p.under_price || ""}</strong></div>
-
+          <div class="smallLine"><strong>${plan.under_price || ""}</strong></div>
           ${starsLine}
 
           <div class="gift">
             <div class="giftIcon">🎁</div>
-            <div class="giftText">${p.gift}</div>
+            <div>${giftLine}<div class="smallLine">${LANG==="en" ? "Tokens are used for images/video/heavy requests." :
+              (LANG==="uk" ? "Токени йдуть на зображення/відео/важкі запити." :
+                            "Токены идут на изображения/видео/тяжёлые запросы.")}</div></div>
           </div>
 
           <ul class="list">
-            ${p.bullets.map(x => `
-              <li class="li">
-                <span class="tick">✓</span>
-                <span>${x}</span>
-              </li>
+            ${plan.bullets.map(x => `
+              <li class="li"><span class="tick">✓</span><span>${x}</span></li>
             `).join("")}
           </ul>
         `;
 
         card.addEventListener("click", () => {
-          selectedPlanId = p.id;
-          // если ушли с basic — Stars автоматом выключаем
-          if (selectedPlanId !== "basic" && payMethodSub === "stars") payMethodSub = "card";
-          renderPlans();
+          selectedPlanId = plan.id;
+          // if crypto chosen but basic -> force card
+          if (selectedPlanId === "basic" && payMethodSub === "crypto") payMethodSub = "card";
           updatePayTabs();
+          renderPlans();
           updateButtons();
         });
 
@@ -536,26 +716,26 @@
     const tokenPacksEl = document.getElementById("tokenPacks");
     function renderTokenPacks() {
       tokenPacksEl.innerHTML = "";
-      for (const t of TOKEN_PACKS) {
+      for (const pack of TOKEN_PACKS) {
         const item = document.createElement("div");
         item.className = "tokenItem";
         item.style.cursor = "pointer";
-        item.style.borderColor = (t.id === selectedTokenPackId) ? "rgba(45,212,191,.55)" : "var(--stroke)";
-        item.style.boxShadow = (t.id === selectedTokenPackId) ? "0 0 0 1px rgba(45,212,191,.25) inset" : "none";
+        item.style.borderColor = (pack.id === selectedTokenPackId) ? "rgba(45,212,191,.55)" : "var(--stroke)";
+        item.style.boxShadow = (pack.id === selectedTokenPackId) ? "0 0 0 1px rgba(45,212,191,.25) inset" : "none";
 
         item.innerHTML = `
           <div>
-            <strong>${t.name}</strong><br/>
-            <span>${t.note}</span>
+            <strong>${pack.name[LANG] || pack.name.ru}</strong><br/>
+            <span>${pack.note[LANG] || pack.note.ru}</span>
           </div>
           <div style="text-align:right">
-            <strong>${money(t.price_uah)}</strong><br/>
-            <span>${t.id === selectedTokenPackId ? "выбрано" : "выбрать"}</span>
+            <strong>${money(pack.price_uah)}</strong><br/>
+            <span>${pack.id === selectedTokenPackId ? (t.chosen) : (t.choose)}</span>
           </div>
         `;
 
         item.addEventListener("click", () => {
-          selectedTokenPackId = t.id;
+          selectedTokenPackId = pack.id;
           renderTokenPacks();
           updateButtons();
         });
@@ -564,7 +744,7 @@
       }
     }
 
-    // tabs
+    // top tabs
     const tabs = document.querySelectorAll(".tab");
     const screenSub = document.getElementById("screen-sub");
     const screenTok = document.getElementById("screen-tok");
@@ -573,7 +753,6 @@
       btn.addEventListener("click", () => {
         tabs.forEach(x => x.classList.remove("active"));
         btn.classList.add("active");
-
         const tab = btn.dataset.tab;
         if (tab === "sub") {
           selectedMode = "subscription";
@@ -588,109 +767,170 @@
       });
     });
 
-    // pay method tabs
+    // period tabs
+    const periodTabsSub = document.getElementById("periodTabsSub");
+    if (periodTabsSub) {
+      const btns = periodTabsSub.querySelectorAll(".payTab");
+      // set labels by language
+      btns.forEach(b => {
+        const p = b.dataset.period;
+        if (p === "month") b.textContent = t.period_m;
+        if (p === "quarter") b.textContent = t.period_q;
+        if (p === "year") b.textContent = t.period_y;
+      });
+      periodTabsSub.addEventListener("click", (e) => {
+        const b = e.target.closest(".payTab");
+        if (!b) return;
+        btns.forEach(x => x.classList.remove("active"));
+        b.classList.add("active");
+        selectedPeriod = b.dataset.period || "month";
+        renderPlans();
+        updateButtons();
+      });
+    }
+
+    // pay tabs
     const payTabsSub = document.getElementById("payTabsSub");
     const payTabsTok = document.getElementById("payTabsTok");
 
-    function setActivePayTab(container, method){
-      const btns = container.querySelectorAll(".payTab");
-      btns.forEach(b => b.classList.toggle("active", b.dataset.method === method));
+    function setActive(container, method){
+      container.querySelectorAll(".payTab").forEach(b => b.classList.toggle("active", b.dataset.method === method));
     }
 
     function updatePayTabs(){
-      // subscription: stars only if basic + BASIC_STARS > 0
-      const starsBtn = payTabsSub.querySelector('[data-method="stars"]');
-      const starsAllowed = (selectedPlanId === "basic" && Number(BASIC_STARS) > 0 && tg && typeof tg.openInvoice === "function");
-      starsBtn.disabled = !starsAllowed;
+      // subscription: crypto only for pro/max
+      const cryptoBtn = payTabsSub?.querySelector('[data-method="crypto"]');
+      if (cryptoBtn) {
+        const allowed = (selectedPlanId === "pro" || selectedPlanId === "max");
+        cryptoBtn.disabled = !allowed;
+        cryptoBtn.textContent = t.pay_crypto + (allowed ? "" : " (Pro/Max)");
+        if (!allowed && payMethodSub === "crypto") payMethodSub = "card";
+      }
 
-      if (!starsAllowed && payMethodSub === "stars") payMethodSub = "card";
+      // stars allowed for ALL plans (if tg supports openInvoice)
+      const starsBtn = payTabsSub?.querySelector('[data-method="stars"]');
+      if (starsBtn) {
+        const allowed = !!(tg && typeof tg.openInvoice === "function" && calcStars(selectedPlanId) > 0);
+        starsBtn.disabled = !allowed;
+      }
 
-      setActivePayTab(payTabsSub, payMethodSub);
-      setActivePayTab(payTabsTok, payMethodTok);
+      // set labels
+      payTabsSub?.querySelector('[data-method="card"]') && (payTabsSub.querySelector('[data-method="card"]').textContent = t.pay_card);
+      payTabsSub?.querySelector('[data-method="stars"]') && (payTabsSub.querySelector('[data-method="stars"]').textContent = t.pay_stars);
+
+      payTabsTok?.querySelector('[data-method="card"]') && (payTabsTok.querySelector('[data-method="card"]').textContent = t.pay_card);
+      payTabsTok?.querySelector('[data-method="crypto"]') && (payTabsTok.querySelector('[data-method="crypto"]').textContent = t.pay_crypto + " (soon)");
+
+      if (payTabsSub) setActive(payTabsSub, payMethodSub);
+      if (payTabsTok) setActive(payTabsTok, payMethodTok);
     }
 
-    payTabsSub.addEventListener("click", (e) => {
+    payTabsSub?.addEventListener("click", (e) => {
       const b = e.target.closest(".payTab");
       if (!b || b.disabled) return;
-      payMethodSub = b.dataset.method;
+      payMethodSub = b.dataset.method || "card";
       updatePayTabs();
       updateButtons();
     });
 
-    payTabsTok.addEventListener("click", (e) => {
+    payTabsTok?.addEventListener("click", (e) => {
       const b = e.target.closest(".payTab");
       if (!b || b.disabled) return;
-      payMethodTok = b.dataset.method;
+      payMethodTok = b.dataset.method || "card";
       updatePayTabs();
       updateButtons();
     });
 
-    const payBtn = document.getElementById("payBtn");
-    const buyTokensBtn = document.getElementById("buyTokensBtn");
     const payHint = document.getElementById("payHint");
     const payHintTok = document.getElementById("payHintTok");
 
-    function updateButtons() {
+    function updateButtons(){
       updatePayTabs();
+      if (payHint) payHint.textContent = t.pay_hint_sub;
+      if (payHintTok) payHintTok.textContent = t.pay_hint_tok;
 
-      if (selectedMode === "subscription") {
-        const plan = PLANS.find(p => p.id === selectedPlanId);
-        payBtn.textContent = `Оплатить — ${money(plan.price_uah)}`;
+      const payBtn = document.getElementById("payBtn");
+      const buyBtn = document.getElementById("buyTokensBtn");
 
-        const starsAllowed = (selectedPlanId === "basic" && Number(BASIC_STARS) > 0);
-        if (selectedPlanId === "basic" && starsAllowed) {
-          payHint.textContent = `Оплата: карта (${CURRENCY}) или Telegram Stars (${BASIC_STARS}⭐).`;
-        } else {
-          payHint.textContent = `Оплата: карта (${CURRENCY}).`;
-        }
-      } else {
-        const pack = TOKEN_PACKS.find(t => t.id === selectedTokenPackId);
-        buyTokensBtn.textContent = `Купить — ${money(pack.price_uah)}`;
-        payHintTok.textContent = `Оплата: карта (${CURRENCY}).`;
+      if (payBtn) {
+        const plan = PLANS.find(x => x.id === selectedPlanId);
+        payBtn.textContent = `${t.btn_pay} — ${money(calcPriceUah(plan))}`;
+      }
+      if (buyBtn) {
+        const pack = TOKEN_PACKS.find(x => x.id === selectedTokenPackId);
+        buyBtn.textContent = `${t.btn_buy} — ${money(pack.price_uah)}`;
       }
     }
 
-    // --- pay actions ---
-    payBtn.addEventListener("click", async () => {
-      const plan = PLANS.find(p => p.id === selectedPlanId);
+    // HARD rebind buttons (no matter what old listeners exist)
+    function hardRebind(id, handler){
+      const old = document.getElementById(id);
+      if (!old) return null;
+      const fresh = old.cloneNode(true);
+      old.parentNode.replaceChild(fresh, old);
+      fresh.addEventListener("click", handler);
+      return fresh;
+    }
 
-      if (payMethodSub === "stars") {
-        if (selectedPlanId !== "basic") { tgPopup("Stars доступны только для Бейсика"); return; }
-        if (!(Number(BASIC_STARS) > 0)) { tgPopup("Stars для Бейсика не настроены"); return; }
-        await payByStars("basic", Number(BASIC_STARS), "Premium", "Premium (Бейсик) через Telegram Stars");
+    hardRebind("payBtn", async () => {
+      const plan = PLANS.find(x => x.id === selectedPlanId);
+      const priceUah = calcPriceUah(plan);
+      const stars = calcStars(selectedPlanId);
+      const bonus = calcBonusTokens(selectedPlanId);
+
+      if (payMethodSub === "crypto") {
+        if (selectedPlanId === "basic") {
+          tgPopup(t.pay_hint_basic_crypto_off);
+          return;
+        }
+        // send to bot (backend will implement later)
+        sendToBot({
+          action: "buy_subscription_crypto",
+          plan_id: selectedPlanId,
+          period: selectedPeriod,
+          amount_usd_min: 10,
+          bonus_tokens: bonus,
+          source: "webapp",
+          currency: "USD",
+        });
         return;
       }
 
-      if (payMethodSub === "crypto") {
-        tgPopup("Крипта скоро будет добавлена");
+      if (payMethodSub === "stars") {
+        if (!stars || stars <= 0) { tgPopup("Stars amount is not configured"); return; }
+        await payByStars(
+          selectedPlanId,
+          stars,
+          "Premium",
+          `Premium (${selectedPlanId}, ${selectedPeriod}) • бонус +${bonus} токенов`
+        );
         return;
       }
 
       // card
       await payByMono(
-        `sub:${selectedPlanId}`,
-        Number(plan.price_uah),
+        `sub:${selectedPlanId}:${selectedPeriod}`,
+        Number(priceUah),
         "DiaryBot Premium",
-        `Подписка: ${plan.name} / ${plan.per}`
+        `${plan.name} • ${selectedPeriod} • бонус +${bonus} токенов`
       );
     });
 
-    buyTokensBtn.addEventListener("click", async () => {
-      const pack = TOKEN_PACKS.find(t => t.id === selectedTokenPackId);
-
+    hardRebind("buyTokensBtn", async () => {
+      const pack = TOKEN_PACKS.find(x => x.id === selectedTokenPackId);
       if (payMethodTok === "crypto") {
-        tgPopup("Крипта скоро будет добавлена");
+        tgPopup("Крипта для токенов добавим позже");
         return;
       }
-
       await payByMono(
         `tokens:${pack.id}`,
         Number(pack.price_uah),
         "DiaryBot Tokens",
-        `Пакет токенов: ${pack.name}`
+        `Пакет: ${pack.name[LANG] || pack.name.ru}`
       );
     });
 
+    // init
     renderPlans();
     renderTokenPacks();
     updateButtons();
