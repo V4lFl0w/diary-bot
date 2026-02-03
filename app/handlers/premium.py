@@ -83,6 +83,7 @@ CB_SUB_CANCEL_CONFIRM = "sub:cancel:confirm"
 CB_TRIAL_START = "premium:trial:start"
 
 
+CB_PREMIUM_DETAILS = "premium:details"
 def _normalize_lang(code: Optional[str]) -> str:
     """Приводим код языка к ru/uk/en с учётом ua → uk."""
     loc = (code or "ru").strip().lower()
@@ -111,7 +112,13 @@ TEXTS: Dict[str, Dict[str, str]] = {
     },
     # Чётко обозначаем, что это именно оплата картой (Stars — отдельная кнопка)
     "btn_pay": {"ru": "Оплатить картой", "uk": "Оплатити карткою", "en": "Pay by card"},
-    "btn_sub": {"ru": "Подписаться", "uk": "Підписатися", "en": "Subscribe"},
+        "btn_open": {"ru": "🚀 Выбрать тариф", "uk": "🚀 Обрати тариф", "en": "🚀 Choose plan"},
+    "btn_more": {"ru": "ℹ️ Подробнее", "uk": "ℹ️ Детальніше", "en": "ℹ️ Details"},
+    "presale": {"ru": "🔥 Предпродажа: зафиксируй цену и бонусы", "uk": "🔥 Передпродаж: зафіксуй ціну та бонуси", "en": "🔥 Pre-sale: lock price + bonuses"},
+    "short_b1": {"ru": "⚡️ Без пауз: больше лимиты и скорость", "uk": "⚡️ Без пауз: більше лімітів і швидкість", "en": "⚡️ No pauses: higher limits & speed"},
+    "short_b2": {"ru": "🎬 Тяжёлые функции: фото/видео/документы", "uk": "🎬 Важкі функції: фото/відео/документи", "en": "🎬 Heavy: images/video/docs"},
+    "short_cta": {"ru": "Жми «🚀 Выбрать тариф» — и забирай бонусы.", "uk": "Тицяй «🚀 Обрати тариф» — і забирай бонуси.", "en": "Tap “🚀 Choose plan” to claim bonuses."},
+"btn_sub": {"ru": "Подписаться", "uk": "Підписатися", "en": "Subscribe"},
     "btn_check": {"ru": "Проверить", "uk": "Перевірити", "en": "Check"},
 }
 
@@ -344,7 +351,7 @@ def _active_premium_kb(lang: str) -> InlineKeyboardMarkup:
     )
 
 
-def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True) -> InlineKeyboardMarkup:
+def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True, show_details: bool = True) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=t_local(lang, "btn_sub"), url=CHANNEL_URL)],
     ]
@@ -356,10 +363,13 @@ def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True) -> InlineKeybo
     rows.append([InlineKeyboardButton(text=t_local(lang, "btn_check"), callback_data=CB_PREMIUM_CHECK)])
 
     # pay by card (webapp)
-    rows.append([InlineKeyboardButton(text=t_local(lang, "btn_pay"), web_app=WebAppInfo(url=f"{WEBAPP_PREMIUM_URL}?tg_id={tg_id}"))])
+    rows.append([InlineKeyboardButton(text=t_local(lang, "btn_open"), web_app=WebAppInfo(url=f"{WEBAPP_PREMIUM_URL}?tg_id={tg_id}"))])
 
     # stars
     rows.append([InlineKeyboardButton(text=_stars_label(lang), callback_data=CB_PAY_STARS)])
+    if show_details:
+        rows.append([InlineKeyboardButton(text=t_local(lang, "btn_more"), callback_data=CB_PREMIUM_DETAILS)])
+
 
     # refund
     rows.append(
@@ -487,6 +497,24 @@ async def _log_event(session: AsyncSession, tg_id: int, name: str, meta: str | N
             except Exception:
                 pass
 
+
+
+
+def _build_menu_short(lang: str, user: Dict[str, Any]) -> str:
+    """
+    Укороченный апсейл-экран для предпродажи (только если премиум НЕ активен).
+    Цель: быстро объяснить ценность и дать 1 сильный CTA.
+    """
+    loc = _normalize_lang(lang)
+    title = {"ru":"💎 Премиум-доступ", "uk":"💎 Преміум-доступ", "en":"💎 Premium access"}.get(loc, "💎 Премиум-доступ")
+
+    return (
+        f"{title}\n\n"
+        f"{t_local(loc, 'presale')}\n\n"
+        f"— {t_local(loc, 'short_b1')}\n"
+        f"— {t_local(loc, 'short_b2')}\n\n"
+        f"<b>{t_local(loc, 'short_cta')}</b>"
+    )
 
 def _build_menu(lang: str, user: Dict[str, Any]) -> str:
     """Текст меню премиума (локализованный)."""
@@ -617,15 +645,14 @@ async def cmd_premium(
 ) -> None:
     user = await _fetch_user(session, m.from_user.id)
     lang_code = _lang_of(user, m, fallback=lang)
-    text = _build_menu(lang_code, user)
-
+    text = _build_menu(lang_code, user) if _is_active(user) else _build_menu_short(lang_code, user)
     active = _is_active(user)
     _resolve_is_admin(m.from_user.id, user)
 
     if active:
         kb = _active_premium_kb(lang_code)  # 👈 вот тут теперь появится cancel
     else:
-        kb = _subscribe_kb(lang_code, m.from_user.id, show_trial=not user.get("premium_trial_given"))
+        kb = _subscribe_kb(lang_code, m.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=True)
 
     await m.answer(text, reply_markup=kb, parse_mode=None)
 
@@ -639,15 +666,32 @@ async def open_premium_cb(
 ) -> None:
     user = await _fetch_user(session, c.from_user.id)
     lang_code = _lang_of(user, c, fallback=lang)
-    text = _build_menu(lang_code, user)
-
+    text = _build_menu(lang_code, user) if _is_active(user) else _build_menu_short(lang_code, user)
     active = _is_active(user)
     _resolve_is_admin(c.from_user.id, user)
 
     if active:
         kb = _active_premium_kb(lang_code)  # 👈 вот тут теперь появится cancel
     else:
-        kb = _subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"))
+        kb = _subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=True)
+
+    await c.answer()
+    if c.message:
+        await cb_reply(c, text, reply_markup=kb, parse_mode=None)
+
+
+
+@router.callback_query(F.data == CB_PREMIUM_DETAILS)
+async def premium_details_cb(
+    c: CallbackQuery,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
+    user = await _fetch_user(session, c.from_user.id)
+    lang_code = _lang_of(user, c, fallback=lang)
+
+    text = _build_menu(lang_code, user)
+    kb = _subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=False)
 
     await c.answer()
     if c.message:

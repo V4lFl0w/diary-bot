@@ -98,16 +98,13 @@
       position:relative;
       box-shadow: 0 10px 30px rgba(0,0,0,.25);
     }
-    .card.selected{
-      border-color: rgba(45,212,191,.70);
-      box-shadow:
-        0 12px 34px rgba(0,0,0,.32),
-        0 0 0 1px rgba(45,212,191,.28) inset;
-      background:
-        radial-gradient(900px 280px at 20% 0%, rgba(45,212,191,.20), transparent 60%),
-        radial-gradient(900px 280px at 90% 10%, rgba(236,72,153,.14), transparent 60%),
-        rgba(255,255,255,.055);
-    }
+    
+.card.selected{
+  border-color: rgba(45,212,191,.45);
+  box-shadow: 0 8px 20px rgba(0,0,0,.25);
+  background: rgba(255,255,255,.06);
+}
+
 
     .badge{
       position:absolute;top:12px;right:12px;
@@ -140,13 +137,15 @@
     .smallLine{color:var(--muted);font-size:13px;margin-top:-6px;line-height:1.35;}
     .smallLine strong{color:rgba(255,255,255,.90);font-weight:900}
 
-    .gift{
-      display:flex;align-items:center;gap:10px;
-      background: rgba(255,255,255,.05);
-      border: 1px solid var(--stroke);
-      padding:12px;border-radius: 14px;
-      margin: 14px 0 10px;
-    }
+    
+.gift{
+  display:flex;align-items:center;gap:8px;
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.06);
+  padding:10px;border-radius:12px;
+  margin:12px 0 6px;
+}
+
     .giftIcon{
       width:32px;height:32px;border-radius:10px;
       display:grid;place-items:center;
@@ -790,77 +789,91 @@
     }
 
     // pay tabs
-    const payTabsSub = document.getElementById("payTabsSub");
-    const payTabsTok = document.getElementById("payTabsTok");
 
-    function setActive(container, method){
-      container.querySelectorAll(".payTab").forEach(b => b.classList.toggle("active", b.dataset.method === method));
-    }
 
-    function updatePayTabs(){
-      // subscription: crypto only for pro/max
-      const cryptoBtn = payTabsSub?.querySelector('[data-method="crypto"]');
-      if (cryptoBtn) {
-        const allowed = (selectedPlanId === "pro" || selectedPlanId === "max");
-        cryptoBtn.disabled = !allowed;
-        cryptoBtn.textContent = t.pay_crypto + (allowed ? "" : " (Pro/Max)");
-        if (!allowed && payMethodSub === "crypto") payMethodSub = "card";
-      }
+const payTabsSub = document.getElementById("payTabsSub");
+const payTabsTok = document.getElementById("payTabsTok");
+function setActive(container, method){
+  container?.querySelectorAll(".payTab")
+    .forEach(b => b.classList.toggle("active", b.dataset.method === method));
+}
 
-      // stars allowed for ALL plans (if tg supports openInvoice)
-      const starsBtn = payTabsSub?.querySelector('[data-method="stars"]');
-      if (starsBtn) {
-        const allowed = !!(tg && typeof tg.openInvoice === "function" && calcStars(selectedPlanId) > 0);
-        starsBtn.disabled = !allowed;
-      }
+function updatePayTabs(){
+  const starsBtn  = payTabsSub?.querySelector('[data-method="stars"]');
+  const cryptoBtn = payTabsSub?.querySelector('[data-method="crypto"]');
+  const cardBtn   = payTabsSub?.querySelector('[data-method="card"]');
 
-      // set labels
-      payTabsSub?.querySelector('[data-method="card"]') && (payTabsSub.querySelector('[data-method="card"]').textContent = t.pay_card);
-      payTabsSub?.querySelector('[data-method="stars"]') && (payTabsSub.querySelector('[data-method="stars"]').textContent = t.pay_stars);
+  const tokCard   = payTabsTok?.querySelector('[data-method="card"]');
+  const tokCrypto = payTabsTok?.querySelector('[data-method="crypto"]');
 
-      payTabsTok?.querySelector('[data-method="card"]') && (payTabsTok.querySelector('[data-method="card"]').textContent = t.pay_card);
-      payTabsTok?.querySelector('[data-method="crypto"]') && (payTabsTok.querySelector('[data-method="crypto"]').textContent = t.pay_crypto + " (soon)");
+  const starsAllowed  = Boolean(tg && typeof tg.openInvoice === "function" && calcStars(selectedPlanId) > 0);
+  const cryptoAllowed = (selectedPlanId === "pro" || selectedPlanId === "max");
 
-      if (payTabsSub) setActive(payTabsSub, payMethodSub);
-      if (payTabsTok) setActive(payTabsTok, payMethodTok);
-    }
+  if (cardBtn)  cardBtn.textContent  = t.pay_card;
 
-    payTabsSub?.addEventListener("click", (e) => {
-      const b = e.target.closest(".payTab");
-      if (!b || b.disabled) return;
-      payMethodSub = b.dataset.method || "card";
-      updatePayTabs();
-      updateButtons();
-    });
+  if (starsBtn) {
+    starsBtn.disabled = !starsAllowed;
+    starsBtn.textContent = t.pay_stars;
+  }
 
-    payTabsTok?.addEventListener("click", (e) => {
-      const b = e.target.closest(".payTab");
-      if (!b || b.disabled) return;
-      payMethodTok = b.dataset.method || "card";
-      updatePayTabs();
-      updateButtons();
-    });
+  if (cryptoBtn) {
+    cryptoBtn.disabled = !cryptoAllowed;
+    cryptoBtn.textContent = t.pay_crypto + (cryptoAllowed ? "" : " (Pro/Max)");
+  }
 
-    const payHint = document.getElementById("payHint");
-    const payHintTok = document.getElementById("payHintTok");
+  if (tokCard)   tokCard.textContent = t.pay_card;
+  if (tokCrypto) tokCrypto.textContent = t.pay_crypto + " (soon)";
 
-    function updateButtons(){
-      updatePayTabs();
-      if (payHint) payHint.textContent = t.pay_hint_sub;
-      if (payHintTok) payHintTok.textContent = t.pay_hint_tok;
+  if (!starsAllowed && payMethodSub === "stars")  payMethodSub = "card";
+  if (!cryptoAllowed && payMethodSub === "crypto") payMethodSub = "card";
 
-      const payBtn = document.getElementById("payBtn");
-      const buyBtn = document.getElementById("buyTokensBtn");
+  if (payTabsSub) setActive(payTabsSub, payMethodSub);
+  if (payTabsTok) setActive(payTabsTok, payMethodTok);
+}
 
-      if (payBtn) {
-        const plan = PLANS.find(x => x.id === selectedPlanId);
-        payBtn.textContent = `${t.btn_pay} — ${money(calcPriceUah(plan))}`;
-      }
-      if (buyBtn) {
-        const pack = TOKEN_PACKS.find(x => x.id === selectedTokenPackId);
-        buyBtn.textContent = `${t.btn_buy} — ${money(pack.price_uah)}`;
-      }
-    }
+payTabsSub?.addEventListener("click", (e) => {
+  const b = e.target.closest(".payTab");
+  if (!b || b.disabled) return;
+  payMethodSub = b.dataset.method || "card";
+  updatePayTabs();
+  updateButtons();
+});
+
+payTabsTok?.addEventListener("click", (e) => {
+  const b = e.target.closest(".payTab");
+  if (!b || b.disabled) return;
+  payMethodTok = b.dataset.method || "card";
+  updatePayTabs();
+  updateButtons();
+});
+
+const payHint = document.getElementById("payHint");
+const payHintTok = document.getElementById("payHintTok");
+
+function updateButtons(){
+  updatePayTabs();
+
+  if (payHint) payHint.textContent = t.pay_hint_sub;
+  if (payHintTok) payHintTok.textContent = t.pay_hint_tok;
+
+  const payBtn = document.getElementById("payBtn");
+  const buyBtn = document.getElementById("buyTokensBtn");
+
+  if (payBtn) {
+    const plan = PLANS.find(x => x.id === selectedPlanId);
+    const priceUah = calcPriceUah(plan);
+    const stars = calcStars(selectedPlanId);
+
+    payBtn.textContent = (payMethodSub === "stars")
+      ? `${t.btn_pay} — ${stars}⭐`
+      : `${t.btn_pay} — ${money(priceUah)}`;
+  }
+
+  if (buyBtn) {
+    const pack = TOKEN_PACKS.find(x => x.id === selectedTokenPackId);
+    buyBtn.textContent = `${t.btn_buy} — ${money(pack.price_uah)}`;
+  }
+}
 
     // HARD rebind buttons (no matter what old listeners exist)
     function hardRebind(id, handler){
@@ -932,6 +945,47 @@
 
     // init
     renderPlans();
+    // VF_SWIPE_SELECT_V2: auto-select plan by centered card while swiping
+    (function(){
+      const carousel = document.getElementById("plans");
+      if (!carousel) return;
+
+      let timer = null;
+
+      function selectCentered(){
+        const cards = Array.from(carousel.querySelectorAll(".card"));
+        if (!cards.length) return;
+
+        const r = carousel.getBoundingClientRect();
+        const centerX = r.left + r.width / 2;
+
+        let best = null;
+        let bestDist = 1e18;
+
+        for (const c of cards) {
+          const cr = c.getBoundingClientRect();
+          const cx = cr.left + cr.width / 2;
+          const d = Math.abs(cx - centerX);
+          if (d < bestDist) { bestDist = d; best = c; }
+        }
+
+        const planId = best?.dataset?.plan;
+        if (planId && planId !== selectedPlanId) {
+          selectedPlanId = planId;
+          // if basic + crypto chosen -> fallback
+          if (selectedPlanId === "basic" && payMethodSub === "crypto") payMethodSub = "card";
+          renderPlans();
+          updatePayTabs();
+          updateButtons();
+        }
+      }
+
+      carousel.addEventListener("scroll", () => {
+        clearTimeout(timer);
+        timer = setTimeout(selectCentered, 120);
+      }, { passive: true });
+    })();
+
     renderTokenPacks();
     updateButtons();
   </script>
