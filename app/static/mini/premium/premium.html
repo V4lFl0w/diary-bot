@@ -165,7 +165,7 @@
       margin-top:1px;flex: 0 0 auto;
     }
 
-    .footer{margin-top: 16px; border-top: 1px solid rgba(255,255,255,.08); padding-top:14px; background: rgba(0,0,0,.12); border-radius: var(--radius2); padding: 14px; }
+    .footer{margin-top: 16px; border:1px solid var(--stroke); padding:14px; background: rgba(255,255,255,.04); border-radius: var(--radius2); }
     .payMethod{color:var(--muted);font-size:13px;margin: 0 0 10px;}
 
     .btn{
@@ -294,6 +294,7 @@
 
     // --- language detect (ru/uk/en) ---
     let LANG = "ru";
+    let forcedLang = null;
     let tgUserId = null;
 
 
@@ -302,7 +303,8 @@
       const qs = new URLSearchParams(window.location.search || "");
       const forced = String(qs.get("lang") || qs.get("locale") || "").toLowerCase();
       if (forced) {
-        LANG = forced.startsWith("uk") ? "uk" : (forced.startsWith("en") ? "en" : "ru");
+        forcedLang = forced.startsWith("uk") ? "uk" : (forced.startsWith("en") ? "en" : "ru");
+        LANG = forcedLang;
       }
     } catch (e) {}
     if (tg) {
@@ -313,14 +315,18 @@
       if (u) {
         tgUserId = u.id || null;
         const lc = String(u.language_code || "ru").toLowerCase();
-        LANG = lc.startsWith("uk") ? "uk" : (lc.startsWith("en") ? "en" : "ru");
+        if (!forcedLang) {
+          LANG = lc.startsWith("uk") ? "uk" : (lc.startsWith("en") ? "en" : "ru");
+        }
 
         document.getElementById("userText").textContent =
           `${u.first_name || "Пользователь"}${u.username ? " @" + u.username : ""}`;
       }
     } else {
       const lc = String(navigator.language || "ru").toLowerCase();
-      LANG = lc.startsWith("uk") ? "uk" : (lc.startsWith("en") ? "en" : "ru");
+      if (!forcedLang) {
+        LANG = lc.startsWith("uk") ? "uk" : (lc.startsWith("en") ? "en" : "ru");
+      }
     }
 
     const I18N = {
@@ -344,7 +350,7 @@
         tokens_sub: "Токены списываются за тяжёлые функции (видео/изображения/дорогие запросы).",
         chosen: "выбрано",
         choose: "выбрать",
-        gift_prefix: "🎁 Бонус: +",
+        gift_prefix: "+",
         gift_suffix: " токенов на тяжёлые функции",
         stars_line: "или ",
         stars_suffix: "⭐ через Telegram Stars",
@@ -369,7 +375,7 @@
         tokens_sub: "Токени списуються за важкі функції (відео/зображення/дорогі запити).",
         chosen: "обрано",
         choose: "обрати",
-        gift_prefix: "🎁 Бонус: +",
+        gift_prefix: "+",
         gift_suffix: " токенів на важкі функції",
         stars_line: "або ",
         stars_suffix: "⭐ через Telegram Stars",
@@ -394,7 +400,7 @@
         tokens_sub: "Tokens are used for heavy features (video/images/expensive requests).",
         chosen: "selected",
         choose: "select",
-        gift_prefix: "🎁 Bonus: +",
+        gift_prefix: "+",
         gift_suffix: " tokens for heavy features",
         stars_line: "or ",
         stars_suffix: "⭐ via Telegram Stars",
@@ -580,10 +586,10 @@
           "Бонус-токени на важкі функції",
           "Stars / Картка — як зручно",
         ] : [
-          "Всё нужное для ежедневного использования",
-          "Стабильная работа и понятные лимиты",
-          "Бонус-токены на тяжёлые функции",
-          "Stars / Карта — как удобно тебе",
+          "Дневник + заметки без лишнего шума",
+          "Напоминания и режим дня (быстро)",
+          "Бонус-токены на фото/видео/документы",
+          "Оплата: карта / Stars (как удобно)",
         ]))
       },
       {
@@ -609,10 +615,10 @@
           "Stars / Картка / Крипта (мін. $10)",
           "Найкраще співвідношення ціна/користь",
         ] : [
-          "Комфортный режим без пауз",
-          "Больше бонус-токенов на тяжёлые задачи",
-          "Stars / Карта / Крипта (мин. $10)",
-          "Лучшее соотношение цена/польза",
+          "Выше лимиты и скорость, меньше ожидания",
+          "Фото-калории + работа с документами",
+          "Stars / Карта / Крипта (Pro/Max)",
+          "Лучший тариф для ежедневной нагрузки",
         ]))
       },
       {
@@ -638,10 +644,10 @@
           "Stars / Картка / Крипта (мін. $10)",
           "Для креаторів і «power users»",
         ] : [
-          "Максимальные лимиты и плавная работа",
-          "Максимум бонус-токенов в комплекте",
-          "Stars / Карта / Крипта (мин. $10)",
-          "Для креаторов и «power users»",
+          "Максимальные лимиты без пауз",
+          "Максимум бонус-токенов на тяжёлые функции",
+          "Stars / Карта / Крипта (Pro/Max)",
+          "Для тех, кто пользуется активно каждый день",
         ]))
       },
     ];
@@ -685,9 +691,7 @@
         const stars = calcStars(plan.id);
         const bonus = calcBonusTokens(plan.id);
 
-        const starsLine = (stars > 0 && tg && typeof tg.openInvoice === "function")
-          ? `<div class="smallLine">${t.stars_line}<strong>${stars}${t.stars_suffix}</strong></div>`
-          : "";
+        const starsLine = "";
 
         const giftLine = `<div class="giftText">${t.gift_prefix}${bonus}${t.gift_suffix}</div>`;
 
