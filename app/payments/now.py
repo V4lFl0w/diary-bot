@@ -2,6 +2,11 @@ import hashlib
 import hmac
 import os
 
+
+def _now_desc() -> str:
+    # Shown to user in NOWPayments invoice
+    return "Premium: Бонус-токены на тяжёлые функции"
+
 import requests
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -40,12 +45,6 @@ def now_create_invoice(tg_id: str):
         headers={"x-api-key": api_key, "Content-Type": "application/json"},
         json=payload,
         timeout=20,
-
-
-def _now_desc() -> str:
-    # Shown to user in NOWPayments invoice
-    # Keep short; bonuses are informational
-    return \"Premium: Бонус-токены на тяжёлые функции\"
     )
     try:
         r.raise_for_status()
