@@ -1064,14 +1064,14 @@ function updateButtons(){
     const usd = calcUsdApprox(priceUah);
 
     payBtn.textContent = (payMethodSub === "stars")
-      ? `${t.btn_pay} — ${stars}⭐`
+      ? `${t.btn_pay} ${stars}⭐`
       : (payMethodSub === "crypto")
-        ? `${t.btn_pay} — ~$${usd}`
-        : `${t.btn_pay} — ${money(priceUah)}`;}
+        ? `${t.btn_pay} ~$${usd}`
+        : `${t.btn_pay} ${money(priceUah)}`;}
 
   if (buyBtn) {
     const pack = TOKEN_PACKS.find(x => x.id === selectedTokenPackId);
-    buyBtn.textContent = `${t.btn_buy} — ${money(pack.price_uah)}`;
+    buyBtn.textContent = `${t.btn_buy} ${money(pack.price_uah)}`;
   }
 }
 
@@ -1105,7 +1105,7 @@ function updateButtons(){
                   const qs = new URLSearchParams(window.location.search || "");
                   const tg_id = qs.get("tg_id") || String(tgUserId || "");
                   if (!tg_id) { tgPopup("tg_id не найден"); return; }
-                  const url = `/payments/now/create?tg_id=${encodeURIComponent(tg_id)}&v=${Date.now()}`;
+                  const url = `/payments/now/create?tg_id=${encodeURIComponent(tg_id)}&plan=${encodeURIComponent(selectedPlanId)}&period=${encodeURIComponent(selectedPeriod)}&v=${Date.now()}`;
                   if (tg && typeof tg.openLink === "function") tg.openLink(url);
                   else window.location.href = url;
                 }catch(e){

@@ -18,15 +18,35 @@ PLAN_PRICES_UAH = {
 # UI shows ~USD, we use a fixed approximate FX for invoice amount.
 FX_USD = 40.0  # ~ UAH per $ (approx)
 
+# VF_NOW_PERIODS_V1
+PERIODS = {
+    "month": {"months": 1, "discount": 1.00},
+    "quarter": {"months": 3, "discount": 0.90},
+    "year": {"months": 12, "discount": 0.75},
+}
 
-def _plan_price_usd(plan: str) -> float:
+
+def _plan_price_usd(plan: str, period: str = "month") -> float:
     p = (plan or "").strip().lower()
-    uah = float(PLAN_PRICES_UAH.get(p, 0) or 0)
-    if uah <= 0:
-        return 10.0
-    usd = uah / FX_USD
-    # round to 2 decimals, min 1.00
-    usd = max(1.0, round(usd, 2))
+
+    # VF_PLAN_NORMALIZE_V2
+    if "pro" in p:
+        p = "pro"
+    elif "max" in p:
+        p = "max"
+    elif "basic" in p:
+        p = "basic"
+
+    per = PERIODS.get((period or "month").strip().lower(), PERIODS["month"])
+    uah_month = float(PLAN_PRICES_UAH.get(p, 0) or 0)
+
+    # VF_NOW_PRICE_FROM_UI_V1
+    uah_total = uah_month * float(per["months"]) * float(per["discount"])
+
+    usd = (uah_total / FX_USD) if uah_total > 0 else 0.0
+
+    # VF_NOW_MIN_USD_V1
+    usd = max(10.0, round(usd, 2))
     return usd
 
 
@@ -45,17 +65,20 @@ def _pub():
     return os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
 
 
-def _price():
-    return os.getenv("NOWP_PRICE_USD", "1.00")
-
-
 @router.get("/payments/now/create")
 def now_create_invoice(tg_id: str, plan: str = "basic", period: str = "month"):
+    # VF_NOW_INPUT_NORMALIZE_V2
+    plan = (plan or "basic").strip().lower()
+    period = (period or "month").strip().lower()
+    if period not in PERIODS:
+        period = "month"
+
     api_key = os.getenv("NOWP_API_KEY", "").strip()
     if not api_key:
         raise HTTPException(status_code=500, detail="NOWP_API_KEY missing")
+
     payload = {
-        "price_amount": _plan_price_usd(plan),
+        "price_amount": _plan_price_usd(plan, period),
         "order_description": _now_desc(),
         "price_currency": "USD",
         "order_id": f"{tg_id}:{plan}:{period}",  # VF_NOW_ORDER_META_V1
@@ -63,6 +86,7 @@ def now_create_invoice(tg_id: str, plan: str = "basic", period: str = "month"):
         "success_url": f"{_pub()}/payments/now/thanks",
         "cancel_url": f"{_pub()}/payments/now/cancel",
     }
+
     r = requests.post(
         f"{_base()}/invoice",
         headers={"x-api-key": api_key, "Content-Type": "application/json"},
@@ -73,6 +97,7 @@ def now_create_invoice(tg_id: str, plan: str = "basic", period: str = "month"):
         r.raise_for_status()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"NOWP create failed: {e}")
+
     data = r.json()
     url = data.get("invoice_url")
     if not url:
