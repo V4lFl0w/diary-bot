@@ -97,7 +97,7 @@ def _normalize_lang(code: Optional[str]) -> str:
 def _webapp_url(tg_id: int, lang: str) -> str:
     loc = _normalize_lang(lang)
     sep = "&" if "?" in WEBAPP_PREMIUM_URL else "?"
-    return f"{WEBAPP_PREMIUM_URL}{sep}tg_id={tg_id}&lang={loc}&v=1770158497"
+    return f"{WEBAPP_PREMIUM_URL}{sep}tg_id={tg_id}&lang={loc}&v={int(datetime.now(timezone.utc).timestamp())}"
 
 
 TEXTS: Dict[str, Dict[str, str]] = {

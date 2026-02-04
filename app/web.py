@@ -11,6 +11,21 @@ from app.hooks import init_hooks
 app = FastAPI()
 
 
+
+# VF_NOSTORE_PREMIUM_HTML_V1
+@app.middleware("http")
+async def _vf_no_store_premium_html(request, call_next):
+    resp = await call_next(request)
+    try:
+        path = str(getattr(getattr(request, "url", None), "path", "") or "")
+    except Exception:
+        path = ""
+    if path.endswith("/static/mini/premium/premium.html"):
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+
 # ✅ Telegram Stars invoices for WebApp
 app.include_router(stars_router)
 app.include_router(mono_router)

@@ -43,8 +43,8 @@ def _register(app: Any) -> None:
             routes = getattr(router, "routes", []) if router is not None else []
 
         existing = {getattr(rt, "path", "") for rt in (routes or [])}
-        need = {"/pay"}
-        if not need.issubset(existing):
+        need = {"/pay", "/pay-crypto"}
+        if ("/pay" not in existing) or ("/pay-crypto" not in existing):
             app.include_router(r)
     except Exception:
         pass

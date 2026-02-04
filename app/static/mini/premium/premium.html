@@ -1066,7 +1066,18 @@ function updateButtons(){
         }
         // send to bot (backend will implement later)
                 /* VF_CRYPTO_POPUP_V1 */
-        tgPopup("Заявка на оплату криптой отправлена в бот ✅");
+        (function(){
+          try{
+            const tg = window.Telegram && window.Telegram.WebApp;
+            const qs = new URLSearchParams(window.location.search);
+            const tg_id = qs.get("tg_id") || "";
+            const url = `/pay-crypto?tg_id=${encodeURIComponent(tg_id)}&v=${Date.now()}`;
+            if (tg && typeof tg.openLink === "function") tg.openLink(url);
+            else window.location.href = url;
+          }catch(e){
+            window.location.href = "/pay-crypto?v=" + Date.now();
+          }
+        })();
 sendToBot({
           action: "buy_subscription_crypto",
           plan_id: selectedPlanId,
