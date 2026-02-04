@@ -1,12 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, List
-
-try:
-    from aiogram import Bot
-except Exception:
-    Bot = None  # type: ignore
+from typing import Optional, Any
 
 try:
     from aiogram.types import LabeledPrice
@@ -23,7 +18,7 @@ class StarsInvoice:
     photo_url: Optional[str] = None
 
 
-async def create_stars_invoice_link(bot: "Bot", inv: StarsInvoice) -> str:
+async def create_stars_invoice_link(bot: Any, inv: Any) -> Any:
     """
     Returns invoice link for Telegram Stars (currency XTR).
     """
@@ -32,9 +27,7 @@ async def create_stars_invoice_link(bot: "Bot", inv: StarsInvoice) -> str:
 
     if inv.stars_amount <= 0:
         raise ValueError("stars_amount must be > 0")
-
-    prices: List[LabeledPrice] = [LabeledPrice(label="Telegram Stars", amount=int(inv.stars_amount))]
-
+    prices = [LabeledPrice(label="Telegram Stars", amount=int(inv.stars_amount))]
     # IMPORTANT: for Stars use currency="XTR"
     link = await bot.create_invoice_link(
         title=inv.title,

@@ -1,7 +1,6 @@
 # app/handlers/media_nav.py
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Optional
 
 from aiogram import Router, F
@@ -12,8 +11,8 @@ router = Router(name="media_nav")
 
 # ВАЖНО:
 # Это простое in-memory хранилище. На прод лучше Redis/DB.
-_MEDIA_CACHE: dict[int, list[dict[str, Any]]] = {}   # user_id -> [cand...]
-_MEDIA_IDX: dict[int, int] = {}                      # user_id -> current idx
+_MEDIA_CACHE: dict[int, list[dict[str, Any]]] = {}  # user_id -> [cand...]
+_MEDIA_IDX: dict[int, int] = {}  # user_id -> current idx
 
 
 def _kb(idx: int, total: int) -> InlineKeyboardMarkup:
@@ -23,7 +22,7 @@ def _kb(idx: int, total: int) -> InlineKeyboardMarkup:
     refine_btn = InlineKeyboardButton(text="🔍 Уточнить", callback_data="media:refine")
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [prev_btn, InlineKeyboardButton(text=f"{idx+1}/{total}", callback_data="media:noop"), next_btn],
+            [prev_btn, InlineKeyboardButton(text=f"{idx + 1}/{total}", callback_data="media:noop"), next_btn],
             [ok_btn],
             [refine_btn],
         ]
@@ -58,7 +57,7 @@ def _poster_url(c: dict[str, Any]) -> Optional[str]:
 
 async def show_media_carousel(
     *,
-    bot,               # aiogram Bot
+    bot,  # aiogram Bot
     user_id: int,
     chat_id: int,
     cands: list[dict[str, Any]],

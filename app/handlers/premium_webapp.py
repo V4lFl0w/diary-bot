@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 router = Router(name="premium_webapp")
 
+
 @router.message(F.web_app_data)
 async def on_webapp_data(m: Message, session: AsyncSession) -> None:
     raw = getattr(getattr(m, "web_app_data", None), "data", None)
@@ -32,6 +33,7 @@ async def on_webapp_data(m: Message, session: AsyncSession) -> None:
     # buy_subscription: открываем меню премиума, где уже есть Stars и карта
     try:
         from app.handlers.premium import cmd_premium  # меню премиума
+
         await cmd_premium(m, session, lang=None)  # cmd_premium сам возьмёт locale/lang
     except Exception:
         await m.answer("⚠️ Не удалось открыть меню Premium. Попробуй команду /premium.")

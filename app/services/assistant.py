@@ -643,10 +643,7 @@ async def run_assistant(
             opts = st.get("items") or []
             if not opts:
                 return MEDIA_NOT_FOUND_REPLY_RU
-            return (
-                build_media_context(opts)
-                + "\n\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить"
-            )
+            return build_media_context(opts) + "\n\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить"
         # 2) Build query (new query vs follow-up hint)# 2) Merge уточнение with previous query
         # 2) Build query (new query vs follow-up hint)
         raw = raw_text
@@ -1204,7 +1201,7 @@ async def run_assistant_vision(
     import re as _re
 
     def _norm_title(x: str) -> str:
-        x = (x or '').lower().strip()
+        x = (x or "").lower().strip()
         x = _re.sub(r"[^\w\s]+", " ", x, flags=_re.U)
         x = _re.sub(r"\s+", " ", x).strip()
         return x
@@ -1212,11 +1209,11 @@ async def run_assistant_vision(
     def _score_item(item: dict, q: str) -> float:
         # vote_average + bonus for title similarity
         try:
-            vote = float(item.get('vote_average') or 0.0)
+            vote = float(item.get("vote_average") or 0.0)
         except Exception:
             vote = 0.0
 
-        t = _norm_title(item.get('title') or item.get('name') or '')
+        t = _norm_title(item.get("title") or item.get("name") or "")
         qn = _norm_title(q)
         bonus = 0.0
         if t and qn:
@@ -1228,7 +1225,7 @@ async def run_assistant_vision(
             if t.startswith(qn) or qn.startswith(t):
                 bonus += 1.25
         # лёгкий бонус за наличие постера (чаще норм тайтл)
-        if (item.get('poster_path') or '').strip():
+        if (item.get("poster_path") or "").strip():
             bonus += 0.25
         return vote + bonus
 
@@ -1368,7 +1365,7 @@ async def run_assistant_vision(
         try:
             # 1) no-SerpAPI first
             cands, tag = await web_to_tmdb_candidates(cand_list[0], use_serpapi=False)
-            _d('vision.web.cands', use_serpapi=False, tag=tag, n=len(cands or []), sample=(cands or [])[:5])
+            _d("vision.web.cands", use_serpapi=False, tag=tag, n=len(cands or []), sample=(cands or [])[:5])
             for c in (cands or [])[:12]:
                 if _is_bad_media_query(c):
                     continue
@@ -1376,7 +1373,7 @@ async def run_assistant_vision(
                 if not _good_tmdb_cand(c):
                     continue
                 items = await _tmdb_best_effort(c, limit=5)
-                items = [i for i in (items or []) if not i.get('adult')]
+                items = [i for i in (items or []) if not i.get("adult")]
                 if items:
                     used_query = c
                     break
@@ -1384,10 +1381,10 @@ async def run_assistant_vision(
             pass
 
         # 2) SerpAPI only if key exists and still nothing
-        if not items and (os.getenv('SERPAPI_API_KEY') or os.getenv('SERPAPI_KEY')):
+        if not items and (os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")):
             try:
                 cands, tag = await web_to_tmdb_candidates(cand_list[0], use_serpapi=True)
-                _d('vision.web.cands_serp', use_serpapi=True, tag=tag, n=len(cands or []), sample=(cands or [])[:5])
+                _d("vision.web.cands_serp", use_serpapi=True, tag=tag, n=len(cands or []), sample=(cands or [])[:5])
                 for c in (cands or [])[:12]:
                     if _is_bad_media_query(c):
                         continue
@@ -1395,7 +1392,7 @@ async def run_assistant_vision(
                     if not _good_tmdb_cand(c):
                         continue
                     items = await _tmdb_best_effort(c, limit=5)
-                    items = [i for i in (items or []) if not i.get('adult')]
+                    items = [i for i in (items or []) if not i.get("adult")]
                     if items:
                         used_query = c
                         break

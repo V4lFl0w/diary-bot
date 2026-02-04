@@ -96,7 +96,6 @@ _BAD_TMDB_CANDIDATES = {
     "synopsis",
     "genre",
     "genres",
-
     # common useless descriptors from lens/vision
     "male characters",
     "female characters",
@@ -108,6 +107,7 @@ _BAD_TMDB_CANDIDATES = {
     "tv show",
     "tv series",
 }
+
 
 def _is_bad_tmdb_candidate(q: str) -> bool:
     q = _norm(q)
@@ -345,13 +345,7 @@ def build_tmdb_queries(
 
     # 3) список “внешних” кандидатов (Lens/Wiki/Serp)
     extras = [tmdb_query_compact(x) for x in (extra_candidates or [])]
-    extras = [
-        x
-        for x in extras
-        if x
-        and not is_bad_tmdb_query(x)
-        and not _is_bad_tmdb_candidate(x)
-    ]
+    extras = [x for x in extras if x and not is_bad_tmdb_query(x) and not _is_bad_tmdb_candidate(x)]
 
     # 4) если есть SxxEyy и есть базовый компакт — делаем уточнённые
     out: list[str] = []

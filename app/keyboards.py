@@ -13,8 +13,7 @@ from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 
 
 WEBAPP_PREMIUM_URL = os.getenv(
-    "WEBAPP_PREMIUM_URL",
-    "https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html"
+    "WEBAPP_PREMIUM_URL", "https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html"
 )
 
 

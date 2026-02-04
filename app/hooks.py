@@ -36,13 +36,13 @@ def _register(app: Any) -> None:
             if not tg_id:
                 return PlainTextResponse("tg_id required", status_code=400)
             return RedirectResponse(url=f"/payments/now/create?tg_id={tg_id}", status_code=303)
+
         routes = getattr(app, "routes", None)
         if routes is None:
             router = getattr(app, "router", None)
             routes = getattr(router, "routes", []) if router is not None else []
 
         existing = {getattr(rt, "path", "") for rt in (routes or [])}
-        need = {"/pay", "/pay-crypto"}
         if ("/pay" not in existing) or ("/pay-crypto" not in existing):
             app.include_router(r)
     except Exception:

@@ -7,6 +7,7 @@ def _now_desc() -> str:
     # Shown to user in NOWPayments invoice
     return "Premium: Бонус-токены на тяжёлые функции"
 
+
 import requests
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -33,7 +34,7 @@ def now_create_invoice(tg_id: str):
         raise HTTPException(status_code=500, detail="NOWP_API_KEY missing")
     payload = {
         "price_amount": _price(),
-        "description": _now_desc(),
+        "order_description": _now_desc(),
         "price_currency": "USD",
         "order_id": str(tg_id),
         "ipn_callback_url": f"{_pub()}/payments/now/webhook",

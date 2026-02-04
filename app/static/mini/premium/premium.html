@@ -105,7 +105,6 @@
   background: rgba(255,255,255,.06);
 }
 
-
     .badge{
       position:absolute;top:12px;right:12px;
       background: rgba(236,72,153,.18);
@@ -257,7 +256,6 @@
 .presale-line:nth-child(5){ animation-delay:.25s }
 .presale-line:nth-child(6){ animation-delay:.3s }
 
-
 @keyframes planGlow {
   0%   { box-shadow: 0 0 0 rgba(0,255,180,0); }
   50%  { box-shadow: 0 0 18px rgba(0,255,180,0.35); }
@@ -268,7 +266,6 @@
   animation: planGlow 2.4s ease-in-out infinite;
   border-color: rgba(0,255,180,.6) !important;
 }
-
 
     /* VF_PAY_UI_V4 */
     .payDivider{
@@ -317,17 +314,7 @@
         0 0 22px rgba(45,212,191,.16);
       transform: translateY(-1px);
     }
-
-  
-    /* VF_FOOTER_CLEAN_V1 */
-    .footer{
-      background: transparent !important;
-      border: 0 !important;
-      box-shadow: none !important;
-      backdrop-filter: none !important;
-    }
-
-    /* VF_PERIOD_ROW_V1 */
+/* VF_PERIOD_ROW_V1 */
     #periodTabsSub{
       background: transparent !important;
       border: 0 !important;
@@ -348,26 +335,17 @@
     }
 
 
-/* VF_FOOTER_GLASS_V1 */
-/* VF_FOOTER_GLASS_V1_FORCE */
-.vfGlassFooter,
-.vfGlassFooter * {
+/* VF_FOOTER_GLASS_V2 */
+/* hide any payment hint text placeholders */
+#payHint, #payHintTok { display:none !important; }
+
+/* single source of truth: glass footer */
+.footer.vfGlassFooter{
+  background: rgba(15,18,25,0.55) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  box-shadow: 0 -10px 30px rgba(0,0,0,0.18) !important;
   -webkit-backdrop-filter: blur(14px) !important;
   backdrop-filter: blur(14px) !important;
-}
-
-:where(.bottomBar,.stickyFooter,.footerBar,.payBar,.footer,.footerWrap,.actionsBar,.ctaBar){
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  background: rgba(255,255,255,0.08);
-  border-top: 1px solid rgba(255,255,255,0.14);
-  box-shadow: 0 -10px 30px rgba(0,0,0,0.18);
-}
-@media (prefers-color-scheme: dark){
-  :where(.bottomBar,.stickyFooter,.footerBar,.payBar,.footer,.footerWrap,.actionsBar,.ctaBar){
-    background: rgba(15,18,25,0.55);
-    border-top: 1px solid rgba(255,255,255,0.10);
-  }
 }
 
 </style>
@@ -393,8 +371,8 @@
   <section class="screen active" id="screen-sub">
     <div class="carousel" id="plans"></div>
 
-    <div class="footer">
-      <p class="payMethod" id="payHint">Оплата: карта (UAH), Stars или крипта (Pro/Max).</p>
+    <div class="footer vfGlassFooter">
+      <p class="payMethod" id="payHint"></p>
 
       <div class="payTabs" id="periodTabsSub">
         <button class="payTab active" data-period="month">Месяц</button>
@@ -421,9 +399,7 @@
 
       <div class="tokenGrid" id="tokenPacks"></div>
 
-      <div class="footer">
-        <p class="payMethod" id="payHintTok">Оплата: карта (UAH).</p>
-
+      <div class="footer vfGlassFooter">
         <div class="payTabs" id="payTabsTok">
           <button class="payTab active" data-method="card">💳 Карта</button>
           <button class="payTab" data-method="crypto" disabled>🪙 Крипта</button>
@@ -445,7 +421,6 @@
     let LANG = "ru";
     let forcedLang = null;
     let tgUserId = null;
-
 
     // --- allow forcing lang via query (?lang=ru|uk|en) to avoid Telegram language_code mismatch
     try {
@@ -491,10 +466,8 @@
         pay_card: "💳 Карта",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Крипта",
-        pay_hint_sub: "Оплата: карта (UAH), Stars или крипта (Pro/Max).",
-        pay_hint_basic_crypto_off: "Крипта доступна только для Pro/Max (минималка $10).",
-        pay_hint_tok: "Оплата: карта (UAH).",
-        btn_pay: "Оплатить",
+pay_hint_basic_crypto_off: "Крипта доступна только для Pro/Max (минималка $10).",
+btn_pay: "Оплатить",
         btn_buy: "Купить",
         tokens_title: "Пакеты токенов",
         tokens_sub: "Токены списываются за тяжёлые функции (видео/изображения/дорогие запросы).",
@@ -517,10 +490,8 @@
         pay_card: "💳 Картка",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Крипта",
-        pay_hint_sub: "Оплата: картка (UAH), Stars або крипта (Pro/Max).",
-        pay_hint_basic_crypto_off: "Крипта лише для Pro/Max (мінімум $10).",
-        pay_hint_tok: "Оплата: картка (UAH).",
-        btn_pay: "Оплатити",
+pay_hint_basic_crypto_off: "Крипта лише для Pro/Max (мінімум $10).",
+btn_pay: "Оплатити",
         btn_buy: "Купити",
         tokens_title: "Пакети токенів",
         tokens_sub: "Токени списуються за важкі функції (відео/зображення/дорогі запити).",
@@ -543,10 +514,8 @@
         pay_card: "💳 Card",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Crypto",
-        pay_hint_sub: "Pay: card (UAH), Stars, or crypto (Pro/Max).",
-        pay_hint_basic_crypto_off: "Crypto is Pro/Max only (min $10).",
-        pay_hint_tok: "Pay: card (UAH).",
-        btn_pay: "Pay",
+pay_hint_basic_crypto_off: "Crypto is Pro/Max only (min $10).",
+btn_pay: "Pay",
         btn_buy: "Buy",
         tokens_title: "Token packs",
         tokens_sub: "Tokens are used for heavy features (video/images/expensive requests).",
@@ -594,7 +563,6 @@
 
     const CURRENCY = "UAH";
     function money(n){ return `${n}₴`; }
-
 
     // --- crypto UX: show approximate USD (not exact rate)
     const FX_USD = 40; // ~UAH per $ (approx for UI only)
@@ -731,24 +699,21 @@
           "Everything needed for daily use",
           "Stable performance & clear limits",
           "Bonus tokens for heavy features",
-          "Stars / Card — choose your way",
         ] : (LANG==="uk" ? [
           "Усе потрібне для щоденного користування",
           "Стабільна робота та зрозумілі ліміти",
           "Бонус-токени на важкі функції",
-          "Оплата: картка / Stars",
         ] : [
           "Дневник + заметки без лишнего шума",
           "Напоминания и режим дня (быстро)",
           "Бонус-токены на фото/видео/документы",
-          "Оплата: карта / Stars",
         ])),
       },
       {
         id: "pro",
         tag: (LANG==="en" ? "🔥 Active mode" : (LANG==="uk" ? "🔥 Для активної роботи" : "🔥 Для активной работы")),
         name: (LANG==="en" ? "Pro" : "Про"),
-        desc: (LANG==="en" ? t.pro_subtitle :
+        desc: (LANG==="en" ? "More power: work & creativity." :
               (LANG==="uk" ? "Більше потужності: для роботи та креативу." :
                              "Больше мощности: для работы и креатива.")),
         price_uah: 499,
@@ -759,19 +724,16 @@
         bullets: (LANG==="en" ? [
           "Comfortable usage without pauses",
           "Extra bonus tokens for heavy tasks",
-          "Stars / Card / Crypto",
           "Best value for daily intensity",
         ] : (LANG==="uk" ? [
           "Комфортний режим без пауз",
           "Більше бонус-токенів на важкі задачі",
-          "Stars / Картка / Крипта (мін. $10)",
           "Найкраще співвідношення ціна/користь",
         ] : [
           "Выше лимиты и скорость, меньше ожидания",
           "Фото-калории + работа с документами",
-          "Stars / Карта / Крипта (Pro/Max)",
           "Лучший тариф для ежедневной нагрузки",
-        ]))
+        ])),
       },
       {
         id: "max",
@@ -797,11 +759,10 @@
           "Максимальные лимиты без пауз",
           "Максимум бонус-токенов на тяжёлые функции",
           "Для тех, кто пользуется активно каждый день",
-        ]))
+        ])),
       },
     ];
-
-    const TOKEN_PACKS = [
+const TOKEN_PACKS = [
       { id: "t100", name: {ru:"100 токенов", uk:"100 токенів", en:"100 tokens"}, price_uah: 199, note: {ru:"Точечно", uk:"Точково", en:"Occasional"} },
       { id: "t300", name: {ru:"300 токенов", uk:"300 токенів", en:"300 tokens"}, price_uah: 499, note: {ru:"Оптимально", uk:"Оптимально", en:"Best value"} },
       { id: "t800", name: {ru:"800 токенов", uk:"800 токенів", en:"800 tokens"}, price_uah: 1099, note:{ru:"Активно", uk:"Активно", en:"Heavy use"} },
@@ -971,7 +932,6 @@
 
     // pay tabs
 
-
 const payTabsSub = document.getElementById("payTabsSub");
 const payTabsTok = document.getElementById("payTabsTok");
 function setActive(container, method){
@@ -1040,9 +1000,7 @@ const payHintTok = document.getElementById("payHintTok");
 
 function updateButtons(){
   updatePayTabs();
-
-  if (payHint) payHint.textContent = t.pay_hint_sub;
-  if (payHintTok) payHintTok.textContent = t.pay_hint_tok;
+  if (payHintTok) payHintTok.textContent = "";
 
   const payBtn = document.getElementById("payBtn");
   const buyBtn = document.getElementById("buyTokensBtn");
@@ -1088,30 +1046,22 @@ function updateButtons(){
           return;
         }
         // send to bot (backend will implement later)
-                /* VF_CRYPTO_POPUP_V1 */
-        (function(){
-          try{
-            const tg = window.Telegram && window.Telegram.WebApp;
-            const qs = new URLSearchParams(window.location.search);
-            const tg_id = qs.get("tg_id") || "";
-            const url = `/pay-crypto?tg_id=${encodeURIComponent(tg_id)}&v=${Date.now()}`;
-            if (tg && typeof tg.openLink === "function") tg.openLink(url);
-            else window.location.href = url;
-          }catch(e){
-            window.location.href = "/pay-crypto?v=" + Date.now();
-          }
-        })();
-sendToBot({
-          action: "buy_subscription_crypto",
-          plan_id: selectedPlanId,
-          period: selectedPeriod,
-          amount_usd_min: 10,
-          bonus_tokens: bonus,
-          source: "webapp",
-          currency: "USD",
-        });
-        return;
-      }
+                
+                /* VF_CRYPTO_OPEN_NOW_V1 */
+                try{
+                  const tg = window.Telegram && window.Telegram.WebApp;
+                  const qs = new URLSearchParams(window.location.search || "");
+                  const tg_id = qs.get("tg_id") || String(tgUserId || "");
+                  if (!tg_id) { tgPopup("tg_id не найден"); return; }
+                  const url = `/payments/now/create?tg_id=${encodeURIComponent(tg_id)}&v=${Date.now()}`;
+                  if (tg && typeof tg.openLink === "function") tg.openLink(url);
+                  else window.location.href = url;
+                }catch(e){
+                  window.location.href = "/payments/now/create?v=" + Date.now();
+                }
+
+                return;
+}
 
       if (payMethodSub === "stars") {
         if (!stars || stars <= 0) { tgPopup("Stars amount is not configured"); return; }

@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot import bot
 from app.keyboards import (
     get_main_kb,
-    get_premium_menu_kb,
     is_admin_btn,
     # shared
     is_back_btn,
@@ -94,7 +93,10 @@ _POSTER_RE = re.compile(r"(?m)^\s*🖼\s+(https?://\S+)\s*$")
 _MEDIA_KNOBS_LINE = "\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить"
 
 # service может возвращать не "Кнопки:", а "👉 Нажми кнопку..."
-_MEDIA_KNOBS_LINE2 = "\n\n👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.\nЕсли кнопок нет — ответь цифрой."
+_MEDIA_KNOBS_LINE2 = (
+    "\n\n👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.\nЕсли кнопок нет — ответь цифрой."
+)
+
 
 def _strip_media_knobs(text: str) -> str:
     if not isinstance(text, str):
@@ -103,6 +105,7 @@ def _strip_media_knobs(text: str) -> str:
     t = t.replace(_MEDIA_KNOBS_LINE, "")
     t = t.replace(_MEDIA_KNOBS_LINE2, "")
     return t.strip()
+
 
 def _needs_media_kb(text: str) -> bool:
     if not isinstance(text, str):
@@ -365,7 +368,6 @@ async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) 
         "Чтобы выйти — напиши «стоп» или /cancel.",
         reply_markup=get_main_kb(lang, is_premium=True, is_admin=is_admin),
     )
-
 
 
 # =============== EXIT ===============

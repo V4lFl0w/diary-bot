@@ -1,5 +1,5 @@
 # app/web.py
-from fastapi import FastAPI, Response
+from fastapi import FastAPI
 from app.payments.stars_webapp import router as stars_router
 from app.payments.mono_webapp import router as mono_router
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +33,7 @@ async def _vf_no_store_premium_html(request, call_next):
         resp.headers["Pragma"] = "no-cache"
         resp.headers["Expires"] = "0"
     return resp
+
 
 # ✅ Telegram Stars invoices for WebApp
 app.include_router(stars_router)

@@ -17,8 +17,7 @@ from __future__ import annotations
 import os
 
 WEBAPP_PREMIUM_URL = os.getenv(
-    "WEBAPP_PREMIUM_URL",
-    "https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html?v=1770212007"
+    "WEBAPP_PREMIUM_URL", "https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html?v=1770212007"
 )
 
 from datetime import datetime, timedelta, timezone
@@ -84,6 +83,8 @@ CB_TRIAL_START = "premium:trial:start"
 
 
 CB_PREMIUM_DETAILS = "premium:details"
+
+
 def _normalize_lang(code: Optional[str]) -> str:
     """Приводим код языка к ru/uk/en с учётом ua → uk."""
     loc = (code or "ru").strip().lower()
@@ -125,11 +126,27 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "btn_pay": {"ru": "🚀 Выбрать тариф", "uk": "🚀 Обрати тариф", "en": "🚀 Choose plan"},
     "btn_open": {"ru": "🚀 Выбрать тариф", "uk": "🚀 Обрати тариф", "en": "🚀 Choose plan"},
     "btn_more": {"ru": "ℹ️ Подробнее", "uk": "ℹ️ Детальніше", "en": "ℹ️ Details"},
-    "presale": {"ru": "🔥 Предпродажа: зафиксируй цену + забери бонус-токены", "uk": "🔥 Передпродаж: зафіксуй ціну та бонуси", "en": "🔥 Pre-sale: lock price + bonuses"},
-    "short_b1": {"ru": "⚡️ Без пауз: больше лимиты и скорость", "uk": "⚡️ Без пауз: більше лімітів і швидкість", "en": "⚡️ No pauses: higher limits & speed"},
-    "short_b2": {"ru": "🎬 Тяжёлые функции: фото/видео/документы", "uk": "🎬 Важкі функції: фото/відео/документи", "en": "🎬 Heavy: images/video/docs"},
-    "short_cta": {"ru": "Жми «🚀 Выбрать тариф» — и забирай бонусы.", "uk": "Тицяй «🚀 Обрати тариф» — і забирай бонуси.", "en": "Tap “🚀 Choose plan” to claim bonuses."},
-"btn_sub": {"ru": "Подписаться", "uk": "Підписатися", "en": "Subscribe"},
+    "presale": {
+        "ru": "🔥 Предпродажа: зафиксируй цену + забери бонус-токены",
+        "uk": "🔥 Передпродаж: зафіксуй ціну та бонуси",
+        "en": "🔥 Pre-sale: lock price + bonuses",
+    },
+    "short_b1": {
+        "ru": "⚡️ Без пауз: больше лимиты и скорость",
+        "uk": "⚡️ Без пауз: більше лімітів і швидкість",
+        "en": "⚡️ No pauses: higher limits & speed",
+    },
+    "short_b2": {
+        "ru": "🎬 Тяжёлые функции: фото/видео/документы",
+        "uk": "🎬 Важкі функції: фото/відео/документи",
+        "en": "🎬 Heavy: images/video/docs",
+    },
+    "short_cta": {
+        "ru": "Жми «🚀 Выбрать тариф» — и забирай бонусы.",
+        "uk": "Тицяй «🚀 Обрати тариф» — і забирай бонуси.",
+        "en": "Tap “🚀 Choose plan” to claim bonuses.",
+    },
+    "btn_sub": {"ru": "Подписаться", "uk": "Підписатися", "en": "Subscribe"},
     "btn_check": {"ru": "Проверить", "uk": "Перевірити", "en": "Check"},
 }
 
@@ -375,7 +392,9 @@ def _active_premium_kb(lang: str) -> InlineKeyboardMarkup:
     )
 
 
-def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True, show_details: bool = True, show_stars: bool = True) -> InlineKeyboardMarkup:
+def _subscribe_kb(
+    lang: str, tg_id: int, show_trial: bool = True, show_details: bool = True, show_stars: bool = True
+) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=t_local(lang, "btn_sub"), url=CHANNEL_URL)],
     ]
@@ -387,10 +406,11 @@ def _subscribe_kb(lang: str, tg_id: int, show_trial: bool = True, show_details: 
     rows.append([InlineKeyboardButton(text=t_local(lang, "btn_check"), callback_data=CB_PREMIUM_CHECK)])
 
     # pay by card (webapp)
-    rows.append([InlineKeyboardButton(text=t_local(lang, "btn_open"), web_app=WebAppInfo(url=_webapp_url(tg_id, lang)))])
+    rows.append(
+        [InlineKeyboardButton(text=t_local(lang, "btn_open"), web_app=WebAppInfo(url=_webapp_url(tg_id, lang)))]
+    )
     if show_details:
         rows.append([InlineKeyboardButton(text=t_local(lang, "btn_more"), callback_data=CB_PREMIUM_DETAILS)])
-
 
     # refund
     rows.append(
@@ -519,20 +539,18 @@ async def _log_event(session: AsyncSession, tg_id: int, name: str, meta: str | N
                 pass
 
 
-
-
 def _build_menu_short(lang: str, user: Dict[str, Any]) -> str:
     """
     Укороченный апсейл-экран для предпродажи (только если премиум НЕ активен).
     Цель: быстро объяснить ценность и дать 1 сильный CTA.
     """
     loc = _normalize_lang(lang)
-    title = {"ru":"💎 Премиум-доступ", "uk":"💎 Преміум-доступ", "en":"💎 Premium access"}.get(loc, "💎 Премиум-доступ")
-
-    return (
-        f"{title}\n\n"
-        f"{t_local(loc, 'presale_lines')}"
+    title = {"ru": "💎 Премиум-доступ", "uk": "💎 Преміум-доступ", "en": "💎 Premium access"}.get(
+        loc, "💎 Премиум-доступ"
     )
+
+    return f"{title}\n\n{t_local(loc, 'presale_lines')}"
+
 
 def _build_menu(lang: str, user: Dict[str, Any]) -> str:
     """Текст меню премиума (локализованный)."""
@@ -670,7 +688,13 @@ async def cmd_premium(
     if active:
         kb = _active_premium_kb(lang_code)  # 👈 вот тут теперь появится cancel
     else:
-        kb = _subscribe_kb(lang_code, m.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=True, show_stars=False)
+        kb = _subscribe_kb(
+            lang_code,
+            m.from_user.id,
+            show_trial=not user.get("premium_trial_given"),
+            show_details=True,
+            show_stars=False,
+        )
 
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
 
@@ -691,12 +715,17 @@ async def open_premium_cb(
     if active:
         kb = _active_premium_kb(lang_code)  # 👈 вот тут теперь появится cancel
     else:
-        kb = _subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=True, show_stars=False)
+        kb = _subscribe_kb(
+            lang_code,
+            c.from_user.id,
+            show_trial=not user.get("premium_trial_given"),
+            show_details=True,
+            show_stars=False,
+        )
 
     await c.answer()
     if c.message:
         await cb_reply(c, text, reply_markup=kb, parse_mode="HTML")
-
 
 
 @router.callback_query(F.data == CB_PREMIUM_DETAILS)
@@ -709,7 +738,9 @@ async def premium_details_cb(
     lang_code = _lang_of(user, c, fallback=lang)
 
     text = _build_menu(lang_code, user)
-    kb = _subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=False, show_stars=True)
+    kb = _subscribe_kb(
+        lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=False, show_stars=True
+    )
 
     await c.answer()
     if c.message:
