@@ -101,6 +101,11 @@ def _webapp_url(tg_id: int, lang: str) -> str:
 
 
 TEXTS: Dict[str, Dict[str, str]] = {
+    "presale_lines": {
+        "ru": "🔋 Больше мощности каждый день\n— быстрее и без пауз\n— токены на тяжёлые функции\n— Pro/Max для активного режима\n— Доступ к расширенным функциям\n— Удобное взаимодействие",
+        "uk": "🔋 Більше потужності щодня\n— швидше і без пауз\n— токени на важкі функції\n— Pro/Max для активного режиму\n— Доступ до розширених функцій\n— Зручна взаємодія",
+        "en": "🔋 More power every day\n— faster, no pauses\n— tokens for heavy features\n— Pro/Max for active mode\n— Access to advanced features\n— Smooth interaction",
+    },
     "sub_given": {
         "ru": "Поздравляю! Подписка подтверждена — премиум активирован на 24 часа ✅",
         "uk": "Вітаю! Підписку підтверджено — преміум активовано на 24 години ✅",
@@ -130,30 +135,30 @@ TEXTS: Dict[str, Dict[str, str]] = {
 
 
 def t_local(lang: str, key: str, **fmt: Any) -> str:
-
-    # special multiline key (presale_lines) may be stored as tuple/list or multiline string
-    if key == "presale_lines":
-        v = None
-        try:
-            v = (TEXTS.get(lang) or {}).get(key)  # type: ignore[name-defined]
-        except Exception:
-            v = None
-        if isinstance(v, (list, tuple)):
-            return "".join(v)
-        if isinstance(v, str):
-            return v.format(**fmt) if fmt else v
-        # fallback: try common dict style
-        try:
-            vv = (TEXTS.get(lang) or {}).get(key, key)  # type: ignore[name-defined]
-            return vv if isinstance(vv, str) else key
-        except Exception:
-            return key
-
-    """Локализатор для этого модуля."""
+    """Локализатор для premium.py (ru/uk/en)."""
     loc = _normalize_lang(lang)
-    base = TEXTS.get(key) or {}
-    v = base.get(loc) or base.get("ru") or key
-    return v.format(**fmt) if fmt else v
+
+    v = None
+
+    # key-first: TEXTS[key][lang]
+    base = TEXTS.get(key)
+    if isinstance(base, dict):
+        v = base.get(loc) or base.get("ru") or base.get("uk") or base.get("en")
+
+    # lang-first (на случай старого формата): TEXTS[lang][key]
+    if v is None:
+        lang_map = TEXTS.get(loc)
+        if isinstance(lang_map, dict):
+            v = lang_map.get(key)
+
+    # list/tuple -> string
+    if isinstance(v, (list, tuple)):
+        v = "".join(str(x) for x in v)
+
+    if isinstance(v, str):
+        return v.format(**fmt) if fmt else v
+
+    return key
 
 
 CHANNEL_USERNAME = getattr(settings, "premium_channel", None) or os.getenv("PREMIUM_CHANNEL") or "@NoticesDiarY"

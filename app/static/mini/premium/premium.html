@@ -318,7 +318,36 @@
       transform: translateY(-1px);
     }
 
-  </style>
+  
+    /* VF_FOOTER_CLEAN_V1 */
+    .footer{
+      background: transparent !important;
+      border: 0 !important;
+      box-shadow: none !important;
+      backdrop-filter: none !important;
+    }
+
+    /* VF_PERIOD_ROW_V1 */
+    #periodTabsSub{
+      background: transparent !important;
+      border: 0 !important;
+      padding: 0 !important;
+      margin: 0 0 6px 0 !important;
+      display:flex;
+      gap:10px;
+    }
+    #periodTabsSub .payTab{
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.10);
+      box-shadow: 0 6px 14px rgba(0,0,0,.18);
+    }
+    #periodTabsSub .payTab.active{
+      background: rgba(45,212,191,.14);
+      border-color: rgba(45,212,191,.28);
+      box-shadow: 0 6px 14px rgba(0,0,0,.18), inset 0 0 0 1px rgba(45,212,191,.18);
+    }
+
+</style>
 </head>
 
 <body>
@@ -451,9 +480,6 @@
         gift_suffix: " токенов",
         stars_line: "или ",
         stars_suffix: "⭐ через Stars",
-        bonus_paid: "Бонус за оплату тарифа",
-        bonus_for_heavy: "на фото/видео/документы"
-
       },
       uk: {
         title: "Преміум",
@@ -479,9 +505,6 @@
         gift_suffix: " токенів",
         stars_line: "або ",
         stars_suffix: "⭐ через Stars",
-        bonus_paid: "Бонус за оплату тарифу",
-        bonus_for_heavy: "на фото/відео/документи"
-
       },
       en: {
         title: "Premium",
@@ -668,7 +691,7 @@
     const PLANS = [
       {
         id: "basic",
-        tag: "⭐ Лучший старт",
+        tag: (LANG==="en" ? "⭐ Best start" : (LANG==="uk" ? "⭐ Найкращий старт" : "⭐ Лучший старт")),
         name: (LANG==="en" ? "Basic" : (LANG==="uk" ? "Бейсик" : "Бейсик")),
         desc: (LANG==="en" ? "Daily comfort: core features + stable usage." :
               (LANG==="uk" ? "Комфорт щодня: основні фічі + стабільна робота." :
@@ -694,13 +717,10 @@
           "Бонус-токены на фото/видео/документы",
           "Оплата: карта / Stars",
         ])),
-        bonus_paid: "Bonus for plan payment",
-        bonus_for_heavy: "for images/video/docs"
-
       },
       {
         id: "pro",
-        tag: "🔥 Для активной работы",
+        tag: (LANG==="en" ? "🔥 Active mode" : (LANG==="uk" ? "🔥 Для активної роботи" : "🔥 Для активной работы")),
         name: (LANG==="en" ? "Pro" : "Про"),
         desc: (LANG==="en" ? t.pro_subtitle :
               (LANG==="uk" ? "Більше потужності: для роботи та креативу." :
@@ -729,7 +749,7 @@
       },
       {
         id: "max",
-        tag: "🚀 Максимум",
+        tag: (LANG==="en" ? "🚀 Maximum" : (LANG==="uk" ? "🚀 Максимум" : "🚀 Максимум")),
         name: (LANG==="en" ? "Max" : "Макс"),
         desc: (LANG==="en" ? "Maximum freedom: for heavy daily use." :
               (LANG==="uk" ? "Максимум свободи: для щоденного навантаження." :
