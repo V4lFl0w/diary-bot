@@ -18,7 +18,7 @@ import os
 
 WEBAPP_PREMIUM_URL = os.getenv(
     "WEBAPP_PREMIUM_URL",
-    "https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html"
+    "https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html?v=1770212007"
 )
 
 from datetime import datetime, timedelta, timezone

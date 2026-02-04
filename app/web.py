@@ -1,5 +1,5 @@
 # app/web.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from app.payments.stars_webapp import router as stars_router
 from app.payments.mono_webapp import router as mono_router
 from fastapi.staticfiles import StaticFiles
@@ -10,6 +10,14 @@ from app.hooks import init_hooks
 
 app = FastAPI()
 
+
+def _no_cache_headers() -> dict:
+    # HTML must not be cached, иначе часть юзеров увидит старую верстку/стили
+    return {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
 
 
 # VF_NOSTORE_PREMIUM_HTML_V1

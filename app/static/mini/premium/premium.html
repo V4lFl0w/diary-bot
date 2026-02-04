@@ -347,6 +347,29 @@
       box-shadow: 0 6px 14px rgba(0,0,0,.18), inset 0 0 0 1px rgba(45,212,191,.18);
     }
 
+
+/* VF_FOOTER_GLASS_V1 */
+/* VF_FOOTER_GLASS_V1_FORCE */
+.vfGlassFooter,
+.vfGlassFooter * {
+  -webkit-backdrop-filter: blur(14px) !important;
+  backdrop-filter: blur(14px) !important;
+}
+
+:where(.bottomBar,.stickyFooter,.footerBar,.payBar,.footer,.footerWrap,.actionsBar,.ctaBar){
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  background: rgba(255,255,255,0.08);
+  border-top: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 -10px 30px rgba(0,0,0,0.18);
+}
+@media (prefers-color-scheme: dark){
+  :where(.bottomBar,.stickyFooter,.footerBar,.payBar,.footer,.footerWrap,.actionsBar,.ctaBar){
+    background: rgba(15,18,25,0.55);
+    border-top: 1px solid rgba(255,255,255,0.10);
+  }
+}
+
 </style>
 </head>
 
@@ -464,6 +487,7 @@
         period_m: "Месяц",
         period_q: "Квартал −10%",
         period_y: "Год −25%",
+        bonus_for_heavy: "Бонус-токены на тяжёлые функции",
         pay_card: "💳 Карта",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Крипта",
@@ -489,6 +513,7 @@
         period_m: "Місяць",
         period_q: "Квартал −10%",
         period_y: "Рік −25%",
+        bonus_for_heavy: "Бонус-токени на важкі функції",
         pay_card: "💳 Картка",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Крипта",
@@ -514,6 +539,7 @@
         period_m: "Month",
         period_q: "Quarter −10%",
         period_y: "Year −25%",
+        bonus_for_heavy: "Bonus tokens for heavy features",
         pay_card: "💳 Card",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Crypto",
@@ -762,17 +788,14 @@
         bullets: (LANG==="en" ? [
           "Maximum limits and smooth usage",
           "Maximum bonus tokens included",
-          "Stars / Card / Crypto",
           "For creators, teams and power users",
         ] : (LANG==="uk" ? [
           "Максимальні ліміти та плавна робота",
           "Максимум бонус-токенів у комплекті",
-          "Stars / Картка / Крипта (мін. $10)",
           "Для креаторів і «power users»",
         ] : [
           "Максимальные лимиты без пауз",
           "Максимум бонус-токенов на тяжёлые функции",
-          "Stars / Карта / Крипта (Pro/Max)",
           "Для тех, кто пользуется активно каждый день",
         ]))
       },
@@ -844,7 +867,7 @@
           <div class="gift">
             <div class="giftTop">
               ${giftLine}
-              <span class="giftMeta">${(t.bonus_paid||"")}${t.bonus_paid?" • ":""}${(t.bonus_for_heavy||"")}</span>
+              <span class="giftMeta">${t.bonus_for_heavy}</span>
             </div>
           </div>
 

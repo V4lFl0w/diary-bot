@@ -28,6 +28,7 @@ def now_create_invoice(tg_id: str):
         raise HTTPException(status_code=500, detail="NOWP_API_KEY missing")
     payload = {
         "price_amount": _price(),
+        "description": _now_desc(),
         "price_currency": "USD",
         "order_id": str(tg_id),
         "ipn_callback_url": f"{_pub()}/payments/now/webhook",
@@ -39,6 +40,12 @@ def now_create_invoice(tg_id: str):
         headers={"x-api-key": api_key, "Content-Type": "application/json"},
         json=payload,
         timeout=20,
+
+
+def _now_desc() -> str:
+    # Shown to user in NOWPayments invoice
+    # Keep short; bonuses are informational
+    return \"Premium: Бонус-токены на тяжёлые функции\"
     )
     try:
         r.raise_for_status()
