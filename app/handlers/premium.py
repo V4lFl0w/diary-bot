@@ -130,6 +130,25 @@ TEXTS: Dict[str, Dict[str, str]] = {
 
 
 def t_local(lang: str, key: str, **fmt: Any) -> str:
+
+    # special multiline key (presale_lines) may be stored as tuple/list or multiline string
+    if key == "presale_lines":
+        v = None
+        try:
+            v = (TEXTS.get(lang) or {}).get(key)  # type: ignore[name-defined]
+        except Exception:
+            v = None
+        if isinstance(v, (list, tuple)):
+            return "".join(v)
+        if isinstance(v, str):
+            return v.format(**fmt) if fmt else v
+        # fallback: try common dict style
+        try:
+            vv = (TEXTS.get(lang) or {}).get(key, key)  # type: ignore[name-defined]
+            return vv if isinstance(vv, str) else key
+        except Exception:
+            return key
+
     """Локализатор для этого модуля."""
     loc = _normalize_lang(lang)
     base = TEXTS.get(key) or {}

@@ -269,7 +269,56 @@
   border-color: rgba(0,255,180,.6) !important;
 }
 
-</style>
+
+    /* VF_PAY_UI_V4 */
+    .payDivider{
+      height:1px;
+      background: rgba(255,255,255,.08);
+      margin: 10px 2px 12px;
+      border-radius: 999px;
+    }
+
+    /* periods stay as pill; payment methods become separate row */
+    #payTabsSub{
+      background: transparent;
+      border: 0;
+      padding: 0;
+      margin: 0;
+      display:flex;
+      gap:10px;
+    }
+    #payTabsSub .payTab{
+      background: rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.10);
+      box-shadow: 0 6px 14px rgba(0,0,0,.18);
+    }
+    #payTabsSub .payTab.active{
+      background: rgba(45,212,191,.14);
+      border-color: rgba(45,212,191,.28);
+      box-shadow: 0 6px 14px rgba(0,0,0,.18), inset 0 0 0 1px rgba(45,212,191,.18);
+    }
+
+    /* make the footer feel less like one big slab */
+    .footer{
+      background: rgba(255,255,255,.035);
+    }
+
+  
+    /* VF_PLAN_GLOW_V1 */
+    .card{
+      transition: box-shadow .18s ease, border-color .18s ease, background .18s ease, transform .18s ease;
+    }
+    .card.selected{
+      border-color: rgba(45,212,191,.55);
+      background: rgba(255,255,255,.06);
+      box-shadow:
+        0 10px 26px rgba(0,0,0,.28),
+        0 0 0 1px rgba(45,212,191,.22) inset,
+        0 0 22px rgba(45,212,191,.16);
+      transform: translateY(-1px);
+    }
+
+  </style>
 </head>
 
 <body>
@@ -300,6 +349,8 @@
         <button class="payTab" data-period="quarter">Квартал −10%</button>
         <button class="payTab" data-period="year">Год −25%</button>
       </div>
+
+<div class="payDivider"></div>
 
 <div class="payTabs" id="payTabsSub">
         <button class="payTab active" data-method="card">💳 Карта</button>
@@ -400,6 +451,9 @@
         gift_suffix: " токенов",
         stars_line: "или ",
         stars_suffix: "⭐ через Stars",
+        bonus_paid: "Бонус за оплату тарифа",
+        bonus_for_heavy: "на фото/видео/документы"
+
       },
       uk: {
         title: "Преміум",
@@ -425,6 +479,9 @@
         gift_suffix: " токенів",
         stars_line: "або ",
         stars_suffix: "⭐ через Stars",
+        bonus_paid: "Бонус за оплату тарифу",
+        bonus_for_heavy: "на фото/відео/документи"
+
       },
       en: {
         title: "Premium",
@@ -630,13 +687,16 @@
           "Усе потрібне для щоденного користування",
           "Стабільна робота та зрозумілі ліміти",
           "Бонус-токени на важкі функції",
-          "Stars / Картка — як зручно",
+          "Оплата: картка / Stars",
         ] : [
           "Дневник + заметки без лишнего шума",
           "Напоминания и режим дня (быстро)",
           "Бонус-токены на фото/видео/документы",
-          "Оплата: карта / Stars (как удобно)",
-        ]))
+          "Оплата: карта / Stars",
+        ])),
+        bonus_paid: "Bonus for plan payment",
+        bonus_for_heavy: "for images/video/docs"
+
       },
       {
         id: "pro",
@@ -764,7 +824,7 @@
           <div class="gift">
             <div class="giftTop">
               ${giftLine}
-              <span class="giftMeta">${t.bonus_paid} • ${t.bonus_for_heavy}</span>
+              <span class="giftMeta">${(t.bonus_paid||"")}${t.bonus_paid?" • ":""}${(t.bonus_for_heavy||"")}</span>
             </div>
           </div>
 
@@ -985,7 +1045,9 @@ function updateButtons(){
           return;
         }
         // send to bot (backend will implement later)
-        sendToBot({
+                /* VF_CRYPTO_POPUP_V1 */
+        tgPopup("Заявка на оплату криптой отправлена в бот ✅");
+sendToBot({
           action: "buy_subscription_crypto",
           plan_id: selectedPlanId,
           period: selectedPeriod,
