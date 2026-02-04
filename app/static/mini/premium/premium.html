@@ -348,6 +348,45 @@
   backdrop-filter: blur(14px) !important;
 }
 
+
+
+/* VF_APPLE_MICRO_POLISH_V1 */
+body{
+  text-rendering: optimizeLegibility;
+  -webkit-text-size-adjust: 100%;
+}
+.title{ letter-spacing:-0.2px }
+.planName{ letter-spacing:-0.3px }
+.price{ letter-spacing:-1.1px }
+
+.btn,.tab,.payTab,.card,.tokenItem{
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:active{ transform:translateY(1px) scale(.99) }
+.tab:active,.payTab:active{ transform:scale(.99) }
+.card:active{ transform:translateY(0) scale(.995) }
+
+.tab:focus-visible,.payTab:focus-visible,.btn:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 3px rgba(45,212,191,.18),0 0 0 1px rgba(255,255,255,.10) inset;
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+}
+
+.carousel{
+  scroll-behavior:smooth;
+  scroll-padding-left:14px;
+  overscroll-behavior-x:contain;
+}
+
+.tokenItem{
+  transition:transform .14s ease,box-shadow .18s ease,border-color .18s ease;
+}
+.tokenItem:active{ transform:scale(.995) }
+
+
 </style>
 </head>
 
@@ -412,6 +451,15 @@
 
     <script>
     const tg = window.Telegram?.WebApp || null;
+
+    function tgPopup(msg){
+      try { tg?.showPopup?.({ message: String(msg) }); } catch(e) {}
+    }
+
+    // VF_HAPTIC_V1
+    function haptic(kind="light"){
+      try { tg?.HapticFeedback?.impactOccurred?.(kind); } catch(e) {}
+    }
 
     function tgPopup(msg){
       try { tg?.showPopup?.({ message: String(msg) }); } catch(e) {}
@@ -840,6 +888,7 @@ const TOKEN_PACKS = [
         `;
 
         card.addEventListener("click", () => {
+          haptic("light");
           selectedPlanId = plan.id;
           // if crypto chosen but basic -> force card
           if (selectedPlanId === "basic" && payMethodSub === "crypto") payMethodSub = "card";
@@ -922,6 +971,7 @@ const TOKEN_PACKS = [
       periodTabsSub.addEventListener("click", (e) => {
         const b = e.target.closest(".payTab");
         if (!b) return;
+        haptic("light");
         btns.forEach(x => x.classList.remove("active"));
         b.classList.add("active");
         selectedPeriod = b.dataset.period || "month";
@@ -976,6 +1026,7 @@ function updatePayTabs(){
 payTabsSub?.addEventListener("click", (e) => {
   const b = e.target.closest(".payTab");
   if (!b || b.disabled) return;
+  haptic("light");
   const method = b.dataset.method || "card";
   if (method === "crypto") {
     const cryptoAllowed = (selectedPlanId === "pro" || selectedPlanId === "max");
@@ -1035,6 +1086,7 @@ function updateButtons(){
     }
 
     hardRebind("payBtn", async () => {
+      haptic("medium");
       const plan = PLANS.find(x => x.id === selectedPlanId);
       const priceUah = calcPriceUah(plan);
       const stars = calcStars(selectedPlanId);
@@ -1057,7 +1109,7 @@ function updateButtons(){
                   if (tg && typeof tg.openLink === "function") tg.openLink(url);
                   else window.location.href = url;
                 }catch(e){
-                  window.location.href = "/payments/now/create?v=" + Date.now();
+                  window.location.href = "/payments/now/create?plan=" + encodeURIComponent(selectedPlanId) + "&period=" + encodeURIComponent(selectedPeriod) + "&v=" + Date.now();
                 }
 
                 return;

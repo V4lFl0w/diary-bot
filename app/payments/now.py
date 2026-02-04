@@ -8,6 +8,28 @@ def _now_desc() -> str:
     return "Premium: Бонус-токены на тяжёлые функции"
 
 
+# VF_NOW_PRICE_V1
+# Plan prices are defined in UAH (UI currency), converted to USD for NOWPayments.
+PLAN_PRICES_UAH = {
+    "basic": 199,
+    "pro": 499,
+    "max": 999,
+}
+# UI shows ~USD, we use a fixed approximate FX for invoice amount.
+FX_USD = 40.0  # ~ UAH per $ (approx)
+
+
+def _plan_price_usd(plan: str) -> float:
+    p = (plan or "").strip().lower()
+    uah = float(PLAN_PRICES_UAH.get(p, 0) or 0)
+    if uah <= 0:
+        return 10.0
+    usd = uah / FX_USD
+    # round to 2 decimals, min 1.00
+    usd = max(1.0, round(usd, 2))
+    return usd
+
+
 import requests
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -28,15 +50,15 @@ def _price():
 
 
 @router.get("/payments/now/create")
-def now_create_invoice(tg_id: str):
+def now_create_invoice(tg_id: str, plan: str = "basic", period: str = "month"):
     api_key = os.getenv("NOWP_API_KEY", "").strip()
     if not api_key:
         raise HTTPException(status_code=500, detail="NOWP_API_KEY missing")
     payload = {
-        "price_amount": _price(),
+        "price_amount": _plan_price_usd(plan),
         "order_description": _now_desc(),
         "price_currency": "USD",
-        "order_id": str(tg_id),
+        "order_id": f"{tg_id}:{plan}:{period}",  # VF_NOW_ORDER_META_V1
         "ipn_callback_url": f"{_pub()}/payments/now/webhook",
         "success_url": f"{_pub()}/payments/now/thanks",
         "cancel_url": f"{_pub()}/payments/now/cancel",
@@ -78,7 +100,8 @@ async def now_webhook(request: Request, x_nowpayments_sig: str = Header(None)):
 
     body = await request.json()
     status = (body.get("payment_status") or "").lower()
-    tg_id = str(body.get("order_id") or "").strip()
+    order_id = str(body.get("order_id") or "").strip()
+    tg_id = (order_id.split(":", 1)[0] or "").strip()
     str(body.get("invoice_id") or body.get("payment_id") or "")
 
     # TODO: integrate DB idempotency by invoice_id
