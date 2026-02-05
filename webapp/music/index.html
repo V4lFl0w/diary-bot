@@ -5,33 +5,63 @@
   <title>ValFlow Music</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    body { background:#0f0f12; color:white; font-family:sans-serif; padding:15px }
-    .track { padding:10px; border-bottom:1px solid #222 }
-    button { background:#1db954; border:none; padding:8px 12px; color:white; border-radius:8px }
+    body { background:#0f0f12; color:#fff; font-family:system-ui,-apple-system,sans-serif; padding:15px; }
+    h2 { margin: 0 0 10px; }
+    .muted { opacity:.7; font-size: 13px; margin-bottom: 12px; }
+    .track { padding:12px; border:1px solid #222; border-radius:12px; margin:10px 0; background:#121218; }
+    .title { font-weight:700; margin-bottom: 6px; }
+    audio { width: 100%; margin-top: 6px; }
   </style>
 </head>
 <body>
 
 <h2>🎵 Мой плейлист</h2>
+<div class="muted" id="status">Загружаю…</div>
 <div id="tracks"></div>
 
 <script>
 const tg = window.Telegram.WebApp;
 tg.expand();
 
-async function loadTracks() {
-  const res = await fetch("/api/music/my");
-  const data = await res.json();
+function uid() {
+  return tg?.initDataUnsafe?.user?.id || null;
+}
 
+async function loadTracks() {
+  const userId = uid();
+  const status = document.getElementById("status");
   const container = document.getElementById("tracks");
   container.innerHTML = "";
+
+  if (!userId) {
+    status.textContent = "Нет user.id. Открой плеер из кнопки в боте.";
+    return;
+  }
+
+  const res = await fetch(`/api/music/my?uid=${encodeURIComponent(userId)}`);
+  if (!res.ok) {
+    status.textContent = "Не удалось загрузить плейлист.";
+    return;
+  }
+
+  const data = await res.json();
+  if (!Array.isArray(data) || data.length === 0) {
+    status.textContent = "Плейлист пуст. Добавь трек в боте.";
+    return;
+  }
+
+  status.textContent = `Треков: ${data.length}`;
 
   data.forEach(t => {
     const div = document.createElement("div");
     div.className = "track";
+
+    const title = (t.title || "Track").replaceAll("<","&lt;").replaceAll(">","&gt;");
+    const src = (t.stream_url || "").trim();
+
     div.innerHTML = `
-      <b>${t.title}</b><br/>
-      <audio controls src="${t.file_id}"></audio>
+      <div class="title">${title}</div>
+      <audio controls preload="none" src="${src}"></audio>
     `;
     container.appendChild(div);
   });
@@ -39,6 +69,5 @@ async function loadTracks() {
 
 loadTracks();
 </script>
-
 </body>
 </html>

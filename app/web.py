@@ -9,10 +9,11 @@ from app.http import router as http_router
 from app.payments.now import router as now_router
 from app.hooks import init_hooks
 
+from app.webapp.music_api import router as music_api_router
+
 app = FastAPI()
 
-
-
+app.include_router(music_api_router)
 # --- webapp static mount ---
 BASE_DIR = Path(__file__).resolve().parent.parent
 WEBAPP_DIR = BASE_DIR / "webapp"

@@ -2,10 +2,11 @@ from __future__ import annotations
 from aiogram.types import WebAppInfo
 
 
-from app.services.music_search import itunes_search
+from app.services.music_search import search_tracks
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import os
+import re
 from typing import Optional
 
 from aiogram import F, Router
@@ -37,8 +38,7 @@ router = Router(name="music")
 
 class MusicStates(StatesGroup):
     waiting_search = State()
-
-
+    waiting_link = State()
 SUPPORTED = {"ru", "uk", "en"}
 PLAYLIST_LIMIT = 50
 WEBAPP_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_BASE_URL") or "").rstrip("/")
@@ -60,6 +60,10 @@ TXT: dict[str, dict[str, str]] = {
     "my_btn": {"ru": "Мой плейлист", "uk": "Мій плейлист", "en": "My playlist"},
     "add_btn": {"ru": "Добавить трек", "uk": "Додати трек", "en": "Add a track"},
     "search_btn": {"ru": "🔎 Поиск", "uk": "🔎 Пошук", "en": "🔎 Search"},
+    "link_btn": {"ru": "➕ По ссылке", "uk": "➕ За посиланням", "en": "➕ By link"},
+    "link_hint": {"ru": "Пришли прямую HTTPS-ссылку на аудио (mp3/ogg/m4a).", "uk": "Надішли пряму HTTPS-лінку на аудіо (mp3/ogg/m4a).", "en": "Send a direct HTTPS link to audio (mp3/ogg/m4a)."},
+    "bad_url": {"ru": "Нужна прямая HTTPS-ссылка на файл (mp3/ogg/m4a).", "uk": "Потрібне пряме HTTPS-посилання на файл (mp3/ogg/m4a).", "en": "Need a direct HTTPS file link (mp3/ogg/m4a)."},
+    "link_saved": {"ru": "Сохранил ссылку в плейлист ✅", "uk": "Зберіг посилання у плейлист ✅", "en": "Saved link to playlist ✅"},
     "search_hint": {
         "ru": "Напиши название трека или артиста.",
         "uk": "Напиши назву треку або артиста.",
@@ -170,6 +174,7 @@ def _menu_kb(l: str) -> InlineKeyboardMarkup:
             ],
             [
                 *( [InlineKeyboardButton(text="🎧 Открыть плеер", web_app=WebAppInfo(url=WEBAPP_MUSIC_URL))] if _is_https_url(WEBAPP_MUSIC_URL) else [] ),
+                InlineKeyboardButton(text=_tr(l, "link_btn"), callback_data="music:link"),
                 InlineKeyboardButton(text=_tr(l, "search_btn"), callback_data="music:search"),
             ],
         ]
@@ -311,6 +316,15 @@ async def on_music_choice(c: CallbackQuery, state: FSMContext, session: AsyncSes
         await cb_edit(c, _tr(l, "menu"), reply_markup=_open_kb(l, kind))
         return
 
+    
+    if kind == "link":
+        if not user:
+            await cb_reply(c, _tr(l, "need_start"))
+            return
+        await state.set_state(MusicStates.waiting_link)
+        await cb_reply(c, _tr(l, "link_hint"))
+        return
+
     if kind == "add":
         await cb_reply(c, _tr(l, "send_audio_hint"))
         return
@@ -319,12 +333,12 @@ async def on_music_choice(c: CallbackQuery, state: FSMContext, session: AsyncSes
         if not user:
             await cb_reply(c, _tr(l, "need_start"))
             return
-
         rows = await _list_tracks(session, user, limit=MY_LIST_LIMIT)
         if not rows:
             await cb_edit(c, f"{_tr(l, 'empty')} {_tr(l, 'send_audio_hint')}")
         else:
-            await cb_edit(c, _tr(l, "your_tracks"), reply_markup=_numbers_kb(l, rows))
+            lines = [f"{i}) {title}" for i, (_id, title) in enumerate(rows, start=1)]
+            await cb_edit(c, _tr(l, "your_tracks") + "\n" + "\n".join(lines), reply_markup=_numbers_kb(l, rows))
         return
     
     # pick from search results: music:s/<n>
@@ -444,6 +458,31 @@ async def on_audio_document(m: Message, session: AsyncSession) -> None:
     await m.answer(_tr(l, "saved"))
 
 
+
+@router.message(MusicStates.waiting_link, F.text)
+async def on_music_link(m: Message, state: FSMContext, session: AsyncSession) -> None:
+    user = await _get_user(session, m.from_user.id)
+    l = _user_lang(user, getattr(m.from_user, "language_code", None))
+    if not user:
+        await m.answer(_tr(l, "need_start"))
+        return
+
+    url = (m.text or "").strip()
+    if not (url.startswith("https://") and re.search(r"\.(mp3|ogg|m4a|aac|wav)(\?|$)", url, re.IGNORECASE)):
+        await m.answer(_tr(l, "bad_url"))
+        return
+
+    title = url.split("/")[-1].split("?")[0] or "Audio link"
+    try:
+        await _save_track(session, user, title, url)
+    except ValueError:
+        await m.answer(_tr(l, "too_many"))
+        return
+
+    await state.set_state(None)
+    await m.answer(_tr(l, "link_saved"))
+
+
 @router.message(MusicStates.waiting_search, F.text)
 async def on_music_search_query(m: Message, state: FSMContext, session: AsyncSession) -> None:
     user = await _get_user(session, m.from_user.id)
@@ -457,7 +496,7 @@ async def on_music_search_query(m: Message, state: FSMContext, session: AsyncSes
         await m.answer(_tr(l, "search_hint"))
         return
 
-    results = await itunes_search(q, limit=10, country="US")
+    results = await search_tracks(q, limit=10)
     if not results:
         await m.answer(_tr(l, "empty"))
         return
