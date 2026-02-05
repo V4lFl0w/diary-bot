@@ -54,7 +54,92 @@ def parse_remind(
 ) -> Optional[ParsedReminder]:
     tz = ZoneInfo(user_tz)
     now = now or datetime.now(tz)
+    # VF_REMIND_NOW_TZ_V2
+    # normalize provided `now` into user's timezone
+    try:
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=tz)
+        else:
+            now = now.astimezone(tz)
+    except Exception:
+        pass
+    # VF_REMIND_NOW_TZ_V1
+    try:
+        if getattr(now, 'tzinfo', None) is not None:
+            now = now.astimezone(tz)
+        else:
+            now = now.replace(tzinfo=tz)
+    except Exception:
+        now = datetime.now(tz)
+
     text_norm = _normalize(text)
+
+    # VF_REMIND_DUAL_TIME_V1
+    # Handle inputs like:
+    #  - "напомни за вокал на 16:00 в 14:00 в четверг"
+    #  - "напомни тренировка на 18:00 в 16:30 завтра"
+    # Strategy: first time = event time (goes into title), second time = remind time (schedule).
+    _VF_DUAL_MARK = "__vf_dual__"
+    if _VF_DUAL_MARK in text_norm:
+        text_norm = (text_norm or "").replace(_VF_DUAL_MARK, "").strip()
+    else:
+        _times = re.findall(r"\b([01]?\d|2[0-3])[:.][0-5]\d\b", text_norm)
+        if len(_times) >= 2:
+            # take first two occurrences in the original string order
+            m_time = list(re.finditer(r"\b([01]?\d|2[0-3])[:.]([0-5]\d)\b", text_norm))
+            if len(m_time) >= 2:
+                event_time = m_time[0].group(0).replace(".", ":")
+                remind_time = m_time[1].group(0).replace(".", ":")
+
+                # remove trigger prefix to get "what + tail"
+                _raw = text_norm
+                _raw = re.sub(r"^\s*(?:напомни(?:ть)?|нагадай|remind(?:\s+me\s+to)?)\s+", "", _raw, flags=re.I).strip()
+
+                # split around first time (event) then second time (remind)
+                # left of first time = what part, right side contains tail and remind time
+                left, _, right1 = _raw.partition(m_time[0].group(0))
+                # right1 still contains remind time; cut it out and keep the tail (date/day words)
+                _, _, tail = right1.partition(m_time[1].group(0))
+                what = (left or "").strip()
+                tail = (tail or "").strip()
+
+                # drop leading prepositions after trigger: "за/про/о/об"
+                what = re.sub(r"^(?:за|про|о|об)\s+", "", what, flags=re.I).strip()
+
+                if what:
+                    # drop leading prepositions after trigger: "за/про/о/об"
+                    what = re.sub(r"^(?:за|про|о|об)\s+", "", what, flags=re.I).strip()
+                    # drop trailing connector like "на" to avoid "на на"
+                    what = re.sub(r"\bна\s*$", "", what, flags=re.I).strip()
+
+                    if not what:
+                        return None
+
+                    title = f"{what} на {event_time}"
+
+                    # Build schedule-only text using ONLY remind_time + tail (weekday/today/tomorrow/etc)
+                    schedule_text = f"{tail} в {remind_time}".strip()
+                    schedule_norm = _normalize(schedule_text)
+
+                    # 1) recurring?
+                    cron2 = _parse_recurring_cron(schedule_norm)
+                    if cron2:
+                        return ParsedReminder(
+                            what=title,
+                            raw_when=text.strip(),
+                            cron=cron2,
+                        )
+
+                    # 2) once?
+                    dt2 = _parse_once_datetime(schedule_norm, now, tz)
+                    if dt2:
+                        return ParsedReminder(
+                            what=title,
+                            raw_when=text.strip(),
+                            next_run_utc=dt2.astimezone(ZoneInfo("UTC")),
+                        )
+
+                    return None
 
     # повторяющиеся (cron)
     cron = _parse_recurring_cron(text_norm)
@@ -134,6 +219,32 @@ _RE_TOMORROW = r"(?:завтра|tomorrow)"
 _RE_EVERY = r"(?:каждый|каждую|каждое|щодня|щоденно|щотижня|щосереди|щопонеділка|кожен|кожного|every|weekdays|daily)"
 
 _DOW_MAP = {
+    # RU short
+    "пн": 1,
+    "вт": 2,
+    "ср": 3,
+    "чт": 4,
+    "пт": 5,
+    "сб": 6,
+    "вс": 0,
+    # UK short
+    "пн.": 1,
+    "вт.": 2,
+    "ср.": 3,
+    "чт.": 4,
+    "пт.": 5,
+    "сб.": 6,
+    "нд": 0,
+    "пн": 1,
+    "вт": 2,
+    "ср": 3,
+    "чт": 4,
+    "пт": 5,
+    "сб": 6,
+    "нд.": 0,
+    "нед": 0,
+    "нед.": 0,
+    
     # RU
     "понедельник": 1,
     "вторник": 2,
@@ -163,10 +274,12 @@ _DOW_MAP = {
 }
 _WEEKDAY_SET = set(_DOW_MAP.keys())
 
+# VF_RE_TIME_V3
 _RE_TIME = re.compile(
-    r"\b(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ampm>am|pm)?\b",
+    r"\b(?P<h>[01]?\d|2[0-3])(?:\s*[:.\- ]\s*(?P<m>[0-5]\d))?\s*(?P<ampm>am|pm)?\b",
     re.I,
 )
+
 _RE_DATE_DOT = re.compile(r"\b(?P<d>\d{1,2})\.(?P<m>\d{1,2})(?:\.(?P<y>\d{4}))?\b")
 _RE_DATE_ISO = re.compile(r"\b(?P<y>\d{4})-(?P<m>\d{1,2})-(?P<d>\d{1,2})\b")
 
@@ -182,10 +295,32 @@ _RE_REL = re.compile(
 
 
 def _normalize(text: str) -> str:
-    t = text.strip().lower().replace("’", "'")
-    t = re.sub(r"\s+", " ", t)
-    return t
+    t = (text or "").strip().lower().replace("’", "'")
 
+    # unify time separators: 14-30 / 9.05 / 14 30 -> 14:30 / 9:05
+    t = re.sub(r"\b(\d{1,2})\s*[-]\s*(\d{2})\b", r"\1:\2", t)
+    t = re.sub(r"\b(\d{1,2})\s+(\d{2})\b", r"\1:\2", t)
+    t = re.sub(r"\b(\d{1,2})[.](\d{2})\b", r"\1:\2", t)
+
+    # normalize weekday shorts with trailing dots: пн. -> пн
+    t = re.sub(r"\b(пн|вт|ср|чт|пт|сб|вс|нд)\.", r"\1", t)
+
+    # weekday shorts -> full names (helps _find_weekday)
+    wd_map = {
+        "пн": "понедельник",
+        "вт": "вторник",
+        "ср": "среда",
+        "чт": "четверг",
+        "пт": "пятница",
+        "сб": "суббота",
+        "вс": "воскресенье",
+        "нд": "неділя",
+    }
+    for k, v in wd_map.items():
+        t = re.sub(rf"\b{re.escape(k)}\b", v, t)
+
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
 
 def _extract_what(
     text_norm: str,
@@ -220,14 +355,16 @@ def _extract_what(
         return None
 
     end = len(text_norm)
+    tail = text_norm[start:]
     for mk in markers:
-        mm = re.search(mk, text_norm[start:])
+        mm = re.search(mk, tail)
         if mm:
             end = min(end, start + mm.start())
 
     what = text_norm[start:end].strip(" ,.;:—-")
+    # clean quotes / hidden chars just in case
+    what = (what or "").strip().strip('"\'').replace("\u200b", "").strip()
     return what or None
-
 
 def _parse_time_fragment(s: str) -> Optional[time]:
     m = _RE_TIME.search(s)
@@ -289,6 +426,29 @@ def _parse_once_datetime(
         dt = _apply_time(date_dt, tm or time(9, 0))
         return dt
 
+
+    # VF_REMIND_WEEKDAY_ONCE_V2
+    # one-time weekday: "в пятницу в 14:30" / "пн в 10"
+    wd = _find_weekday(text_norm)
+    if wd is not None:
+        base = now
+        tm2 = _parse_time_fragment(text_norm) or time(9, 0)
+        # python weekday: Mon=0..Sun=6 ; our map uses Mon=1..Sun=0 (cron style)
+        now_wd = base.weekday()
+        target_wd = 6 if wd == 0 else (wd - 1)
+        days_ahead = (target_wd - now_wd) % 7
+        # If user explicitly says "в <weekday>" and today is that weekday, treat as NEXT week (unless "today" present).
+        # Example: "в четверг в 14:00" (next week if today is Thursday), but "чт в 9:05" -> today (nearest).
+        if days_ahead == 0 and not re.search(rf"\b{_RE_TODAY}\b", text_norm):
+            if re.search(r"\bв\s+(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)\b", text_norm):
+                days_ahead = 7
+
+        dt = _apply_time(base + timedelta(days=days_ahead), tm2)
+        # if same day and time already passed -> next week
+        if days_ahead == 0 and dt <= base:
+            dt = _apply_time(base + timedelta(days=7), tm2)
+        return dt
+
     # сегодня
     if re.search(rf"\b{_RE_TODAY}\b", text_norm):
         dt = _apply_time(now, tm or time(9, 0))
@@ -303,6 +463,22 @@ def _parse_once_datetime(
         if tm:
             base = _apply_time(base, tm)
         return base
+
+    # VF_REMIND_WEEKDAY_ONCE_V1
+    # одноразово: «пн в 10», «в пт 14:30», «чт 9.05» → ближайший такой день недели
+    wd = _find_weekday(text_norm)
+    if wd is not None:
+        base = now
+        # Python: Monday=0..Sunday=6; our map uses Monday=1..Sunday=0
+        py_target = 6 if wd == 0 else wd - 1
+        delta = (py_target - base.weekday()) % 7
+        # если это сегодня, но время уже прошло — переносим на следующую неделю
+        dt_candidate = base + timedelta(days=delta)
+        tm2 = tm or _parse_time_fragment(text_norm)
+        dt_candidate = _apply_time(dt_candidate, tm2 or time(9, 0))
+        if dt_candidate <= now:
+            dt_candidate = dt_candidate + timedelta(days=7)
+        return dt_candidate
 
     # только время → сегодня или завтра, если уже прошло
     if tm:
@@ -354,10 +530,8 @@ def _parse_recurring_cron(text_norm: str) -> Optional[str]:
         if wd is not None:
             return f"{minute} {hour} * * {wd}"
 
-    # просто «в понедельник в 10:00»
-    wd = _find_weekday(text_norm)
-    if wd is not None and re.search(rf"\b{_RE_AT}\b", text_norm):
-        return f"{minute} {hour} * * {wd}"
+    # VF_REMIND_RECURRING_STRICT_V1
+    # plain weekday + time is treated as ONE-TIME (handled in _parse_once_datetime)
 
     return None
 
