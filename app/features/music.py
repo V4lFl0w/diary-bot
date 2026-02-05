@@ -1,4 +1,5 @@
 from __future__ import annotations
+from aiogram.types import WebAppInfo
 
 
 from app.services.music_search import itunes_search
@@ -40,6 +41,7 @@ class MusicStates(StatesGroup):
 
 SUPPORTED = {"ru", "uk", "en"}
 PLAYLIST_LIMIT = 50
+WEBAPP_BASE_URL = os.getenv("WEBAPP_BASE_URL", "http://localhost:8000")
 MY_LIST_LIMIT = 10
 
 TXT: dict[str, dict[str, str]] = {
@@ -162,6 +164,7 @@ def _menu_kb(l: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=_tr(l, "add_btn"), callback_data="music:add"),
             ],
             [
+                InlineKeyboardButton(text="🎧 Открыть плеер", web_app=WebAppInfo(url=f"{WEBAPP_BASE_URL}/webapp/music/index.html")),
                 InlineKeyboardButton(text=_tr(l, "search_btn"), callback_data="music:search"),
             ],
         ]
