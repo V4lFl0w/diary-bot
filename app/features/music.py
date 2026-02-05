@@ -41,7 +41,12 @@ class MusicStates(StatesGroup):
 
 SUPPORTED = {"ru", "uk", "en"}
 PLAYLIST_LIMIT = 50
-WEBAPP_BASE_URL = os.getenv("WEBAPP_BASE_URL", "http://localhost:8000")
+WEBAPP_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_BASE_URL") or "").rstrip("/")
+def _is_https_url(url: str) -> bool:
+    u = (url or "").strip().lower()
+    return u.startswith("https://")
+
+WEBAPP_MUSIC_URL = f"{WEBAPP_BASE_URL}/webapp/music/index.html"
 MY_LIST_LIMIT = 10
 
 TXT: dict[str, dict[str, str]] = {
@@ -164,7 +169,7 @@ def _menu_kb(l: str) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=_tr(l, "add_btn"), callback_data="music:add"),
             ],
             [
-                InlineKeyboardButton(text="🎧 Открыть плеер", web_app=WebAppInfo(url=f"{WEBAPP_BASE_URL}/webapp/music/index.html")),
+                *( [InlineKeyboardButton(text="🎧 Открыть плеер", web_app=WebAppInfo(url=WEBAPP_MUSIC_URL))] if _is_https_url(WEBAPP_MUSIC_URL) else [] ),
                 InlineKeyboardButton(text=_tr(l, "search_btn"), callback_data="music:search"),
             ],
         ]
