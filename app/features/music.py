@@ -283,7 +283,7 @@ async def on_music_search_btn(c: CallbackQuery, state: FSMContext, session: Asyn
 
 
 @router.callback_query(F.data.startswith("music:"))
-async def on_music_choice(c: CallbackQuery, session: AsyncSession) -> None:
+async def on_music_choice(c: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     data = c.data or ""
     kind = data.split(":", 1)[1] if ":" in data else ""
 
@@ -317,6 +317,55 @@ async def on_music_choice(c: CallbackQuery, session: AsyncSession) -> None:
             await cb_edit(c, f"{_tr(l, 'empty')} {_tr(l, 'send_audio_hint')}")
         else:
             await cb_edit(c, _tr(l, "your_tracks"), reply_markup=_numbers_kb(l, rows))
+        return
+    
+    # pick from search results: music:s/<n>
+    if kind.startswith("s/"):
+        if not user:
+            await cb_reply(c, _tr(l, "need_start"))
+            return
+
+        sid = kind.split("/", 1)[1]
+        try:
+            idx = int(sid) - 1
+        except Exception:
+            return
+
+        data = await state.get_data()
+        packed = data.get("music_search_results") or []
+        if not isinstance(packed, list) or idx < 0 or idx >= len(packed):
+            await cb_reply(c, "⚠️ Результаты поиска устарели. Нажми «Поиск» ещё раз.")
+            return
+
+        item = packed[idx] or {}
+        title = str(item.get("title") or "Track").strip()
+        artist = str(item.get("artist") or "").strip()
+        preview = str(item.get("preview_url") or "").strip()
+        url = str(item.get("url") or "").strip()
+
+        caption = title
+        if artist:
+            caption += f" — {artist}"
+
+        # 1) Проиграть превью (если есть)
+        if preview:
+            chat_id = int(getattr(getattr(c, "from_user", None), "id", 0) or 0)
+            if chat_id:
+                await c.bot.send_audio(chat_id=chat_id, audio=preview, caption=caption)
+        elif url:
+            await cb_reply(c, f"🎧 Превью нет, но вот ссылка:\n{url}")
+        else:
+            await cb_reply(c, "⚠️ Нет ни превью, ни ссылки.")
+            return
+
+        # 2) Сохранить в плейлист: сохраняем ТОЛЬКО превью (оно реально воспроизводится)
+        if preview:
+            try:
+                await _save_track(session, user, caption, preview)
+                await cb_reply(c, _tr(l, "saved"))
+            except ValueError:
+                await cb_reply(c, _tr(l, "too_many"))
+
         return
 
     if kind.startswith("play/"):

@@ -45,6 +45,7 @@ async def itunes_search(query: str, *, limit: int = 8, country: str = "US") -> l
         title = str(item.get("trackName") or "").strip()
         artist = str(item.get("artistName") or "").strip() or None
         url = str(item.get("trackViewUrl") or "").strip() or None
+        preview_url = str(item.get("previewUrl") or "").strip() or None
         preview = str(item.get("previewUrl") or "").strip() or None
         art = str(item.get("artworkUrl100") or "").strip() or None
         if not title:
