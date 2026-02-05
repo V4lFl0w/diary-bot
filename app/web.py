@@ -4,15 +4,12 @@ from fastapi import FastAPI
 from app.payments.stars_webapp import router as stars_router
 from app.payments.mono_webapp import router as mono_router
 from fastapi.staticfiles import StaticFiles
+from app.webapp.music_api import router as music_api_router
 
 from app.http import router as http_router
 from app.payments.now import router as now_router
 from app.hooks import init_hooks
-
-from app.webapp.music_api import router as music_api_router
-
 app = FastAPI()
-
 app.include_router(music_api_router)
 # --- webapp static mount ---
 BASE_DIR = Path(__file__).resolve().parent.parent

@@ -6,18 +6,44 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.db import get_session
 from app.models.user import User
 from app.models.user_track import UserTrack
 
 router = APIRouter(prefix="/api/music", tags=["music-webapp"])
 
+
+# --- DB session dependency (auto-resolve) ---
+from typing import AsyncIterator
+from sqlalchemy.ext.asyncio import AsyncSession
+
+def _resolve_async_sessionmaker():
+    # пробуем найти то, что реально экспортится в app.db
+    import app.db as db
+    for name in (
+        "async_sessionmaker",
+        "async_session_maker",
+        "async_session_factory",
+        "async_session",
+        "SessionLocal",
+        "async_session_local",
+    ):
+        sm = getattr(db, name, None)
+        if sm is not None:
+            return sm
+    raise RuntimeError("Cannot resolve async sessionmaker in app.db (no known session factory exported)")
+
+_ASYNC_SESSIONMAKER = _resolve_async_sessionmaker()
+
+async def get_db_session() -> AsyncIterator[AsyncSession]:
+    # поддержим и sessionmaker(), и callable factory
+    async with _ASYNC_SESSIONMAKER() as session:
+        yield session
+# --- /DB session dependency ---
 BOT_TOKEN = (os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
 
 
 @router.get("/my")
-async def my_tracks(uid: int, session: AsyncSession = Depends(get_session)):
+async def my_tracks(uid: int, session: AsyncSession = Depends(get_db_session)):
     user = await session.scalar(select(User).where(User.tg_id == uid).limit(1))
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -46,7 +72,7 @@ async def my_tracks(uid: int, session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/stream/{track_id}")
-async def stream_track(track_id: int, uid: int, session: AsyncSession = Depends(get_session)):
+async def stream_track(track_id: int, uid: int, session: AsyncSession = Depends(get_db_session)):
     if not BOT_TOKEN:
         raise HTTPException(status_code=500, detail="BOT_TOKEN is not set")
 
