@@ -16,7 +16,12 @@ from __future__ import annotations
 
 import os
 
-from app.webapp.urls import versioned_url, WEBAPP_PREMIUM_ENTRY
+from app.webapp.urls import (
+    webapp_base_url,
+    with_version,
+    versioned_abs_url,
+    WEBAPP_PREMIUM_ENTRY,
+)
 
 WEBAPP_PREMIUM_URL = os.getenv("WEBAPP_PREMIUM_URL") or WEBAPP_PREMIUM_ENTRY
 from datetime import datetime, timedelta, timezone
@@ -97,10 +102,16 @@ def _normalize_lang(code: Optional[str]) -> str:
 
 def _webapp_url(tg_id: int, lang: str) -> str:
     loc = _normalize_lang(lang)
-    sep = "&" if "?" in WEBAPP_PREMIUM_URL else "?"
-    base = f"{WEBAPP_PREMIUM_URL}{sep}tg_id={tg_id}&lang={loc}"
-    # стабильный cache-bust по версии деплоя (а не случайный timestamp)
-    return versioned_url(base)
+    # Telegram WebApp button requires ABSOLUTE https:// URL
+    base = webapp_base_url()
+    if base:
+        # Use canonical entry and cache-bust by git sha via ?v=
+        url = versioned_abs_url(WEBAPP_PREMIUM_ENTRY)
+    else:
+        url = with_version("https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html")
+    sep = "&" if "?" in url else "?"
+    # Keep your runtime params (do NOT use v= here; v is reserved for git sha cache bust)
+    return f"{url}{sep}tg_id={tg_id}&lang={loc}&ts={int(datetime.now(timezone.utc).timestamp())}"
 
 
 TEXTS: Dict[str, Dict[str, str]] = {

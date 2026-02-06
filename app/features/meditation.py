@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from app.webapp.urls import WEBAPP_MEDITATION_ENTRY
-
 import os
 from typing import Optional
 from aiogram import F, Router
@@ -12,6 +10,12 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
     WebAppInfo,
+)
+from app.webapp.urls import (
+    webapp_base_url,
+    with_version,
+    versioned_abs_url,
+    WEBAPP_MEDITATION_ENTRY,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,7 +95,11 @@ def _webapp_url() -> str | None:
         return None
     base = base[:-1] if base.endswith("/") else base
     # точный путь оставляю как у тебя было
-    return WEBAPP_MEDITATION_ENTRY
+    return (
+        versioned_abs_url(WEBAPP_MEDITATION_ENTRY)
+        if webapp_base_url()
+        else with_version("https://coral-app-jxzy5.ondigitalocean.app/static/mini/meditation/index.html")
+    )
 
 
 def _open_kb(l: str, url: str) -> InlineKeyboardMarkup:
