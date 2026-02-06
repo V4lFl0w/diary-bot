@@ -1,4 +1,5 @@
 from pathlib import Path
+
 # app/web.py
 from fastapi import FastAPI
 from app.payments.stars_webapp import router as stars_router
@@ -9,6 +10,7 @@ from app.webapp.music_api import router as music_api_router
 from app.http import router as http_router
 from app.payments.now import router as now_router
 from app.hooks import init_hooks
+
 app = FastAPI()
 app.include_router(music_api_router)
 # --- webapp static mount ---
@@ -16,6 +18,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 WEBAPP_DIR = BASE_DIR / "webapp"
 if WEBAPP_DIR.exists():
     app.mount("/webapp", StaticFiles(directory=str(WEBAPP_DIR)), name="webapp")
+
+
 # --- /webapp ---
 def _no_cache_headers() -> dict:
     # HTML must not be cached, иначе часть юзеров увидит старую верстку/стили
