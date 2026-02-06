@@ -42,6 +42,11 @@ class MusicStates(StatesGroup):
 SUPPORTED = {"ru", "uk", "en"}
 PLAYLIST_LIMIT = 50
 WEBAPP_BASE_URL = (os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_BASE_URL") or "").rstrip("/")
+def _is_http_url(url: str) -> bool:
+    u = (url or '').strip().lower()
+    return u.startswith('http://') or u.startswith('https://')
+
+
 def _is_https_url(url: str) -> bool:
     u = (url or "").strip().lower()
     return u.startswith("https://")
@@ -409,7 +414,16 @@ async def on_music_choice(c: CallbackQuery, state: FSMContext, session: AsyncSes
         if not chat_id:
             return
 
-        await c.bot.send_audio(chat_id=chat_id, audio=track.file_id, caption=track.title or None)
+        audio_src = (track.file_id or "").strip()
+        try:
+            # if it is a URL, Telegram will fetch it; if it is file_id, Telegram will reuse it
+            await c.bot.send_audio(chat_id=chat_id, audio=audio_src, caption=track.title or None)
+        except TelegramBadRequest:
+            # fallback: show link instead of crashing
+            if _is_http_url(audio_src):
+                await c.bot.send_message(chat_id=chat_id, text=f"🎧 Не удалось отправить как аудио, вот ссылка:\n{audio_src}")
+            else:
+                raise
         return
 
 

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+
+def _is_http_url(s: str) -> bool:
+    ss = (s or "").strip().lower()
+    return ss.startswith("http://") or ss.startswith("https://")
 import os
 import aiohttp
 from fastapi import APIRouter, HTTPException, Depends
@@ -109,3 +113,12 @@ async def stream_track(track_id: int, uid: int, session: AsyncSession = Depends(
             media_type="audio/mpeg",
             headers=headers,
         )
+
+
+@router.get("/api/version")
+async def api_version():
+    import os, time
+    return {
+        "git": os.getenv("GIT_SHA") or os.getenv("DO_COMMIT_SHA") or os.getenv("HEROKU_SLUG_COMMIT") or "unknown",
+        "ts": int(time.time()),
+    }
