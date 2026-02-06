@@ -1,49 +1,32 @@
 from __future__ import annotations
 
 import os
+
 from app.utils.app_version import get_app_version
+from app.webapp.urls import (
+    webapp_base_url,
+    abs_url,
+    versioned_abs_url,
+    WEBAPP_MUSIC_ENTRY,
+)
+
+APP_VERSION = get_app_version()
 
 
-def _base_url() -> str:
-    return (os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_BASE_URL") or "").rstrip("/")
-
-
-def _version() -> str:
-    # ставь это на деплое (например, git sha), либо оставь пустым
-    return (os.getenv("WEBAPP_VERSION") or os.getenv("GIT_SHA") or "").strip()
+def base_url() -> str:
+    return webapp_base_url()
 
 
 def webapp_url(path: str) -> str:
-    base = _base_url()
-    p = "/" + (path or "").lstrip("/")
-    url = f"{base}{p}" if base else p
-
-    v = _version()
-    if not v:
-        return url
-
-    sep = "&" if "?" in url else "?"
-    return f"{url}{sep}v={v}"
+    return abs_url(path)
 
 
-APP_VERSION = get_app_version()
-WEBAPP_MUSIC_URL = webapp_url(f"/webapp/music/index.html?v={APP_VERSION}")
+WEBAPP_MUSIC_URL = versioned_abs_url(WEBAPP_MUSIC_ENTRY)
 
 
-def get_focus_sleep() -> tuple[str, str]:
-    try:
-        from app.config import settings as cfg
-    except Exception:
-        cfg = None
+def _is_truthy(v: str | None) -> bool:
+    return (v or "").strip().lower() in {"1", "true", "yes", "on"}
 
-    focus = (
-        getattr(cfg, "music_focus_url", None)
-        or os.getenv("MUSIC_FOCUS_URL")
-        or "https://www.youtube.com/watch?v=jfKfPfyJRdk"
-    )
-    sleep = (
-        getattr(cfg, "music_sleep_url", None)
-        or os.getenv("MUSIC_SLEEP_URL")
-        or "https://www.youtube.com/watch?v=5qap5aO4i9A"
-    )
-    return str(focus), str(sleep)
+
+def get_focus_sleep() -> bool:
+    return _is_truthy(os.getenv("MUSIC_FOCUS_SLEEP") or os.getenv("FOCUS_SLEEP"))

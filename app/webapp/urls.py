@@ -1,58 +1,51 @@
 from __future__ import annotations
 
 import os
-from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 
 from app.utils.app_version import get_app_version
 
 
-def public_base_url() -> str:
-    """Public base URL for your app, like https://your-domain.com"""
-    return (os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_BASE_URL") or "").rstrip("/")
+def webapp_base_url() -> str:
+    """Return public base URL (no trailing slash)."""
+    return (
+        (os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_BASE_URL") or "")
+        .strip()
+        .rstrip("/")
+    )
 
 
-def _merge_query(url: str, add: dict[str, str]) -> str:
-    sp = urlsplit(url)
-    q = dict(parse_qsl(sp.query, keep_blank_values=True))
-    q.update({k: v for k, v in add.items() if v is not None})
-    return urlunsplit((sp.scheme, sp.netloc, sp.path, urlencode(q, doseq=True), sp.fragment))
+def with_version(path: str, *, v: str | None = None) -> str:
+    """Add ?v=... (or &v=...) to ANY path."""
+    vv = (v or get_app_version() or "").strip()
+    if not vv:
+        return path
+    sep = "&" if "?" in path else "?"
+    return f"{path}{sep}v={vv}"
 
 
-def versioned_url(path_or_url: str, *, extra: dict[str, str] | None = None) -> str:
-    """Make URL cache-bust stable: always add v=<APP_VERSION>."""
-    base = public_base_url()
-    v = get_app_version()
-
-    u = path_or_url.strip()
-    if u.startswith("http://") or u.startswith("https://"):
-        url = u
-    else:
-        if not base:
-            # If no base set, return as-is (but still version it if it already looks like absolute).
-            # In production you SHOULD set PUBLIC_BASE_URL.
-            url = u
-        else:
-            url = f"{base}{u if u.startswith('/') else '/' + u}"
-
-    params = {"v": v}
-    if extra:
-        params.update(extra)
-
-    return _merge_query(url, params)
+def abs_url(path: str) -> str:
+    """Convert a path to absolute URL if base is configured."""
+    base = webapp_base_url()
+    if not base:
+        return path
+    if path.startswith(("http://", "https://")):
+        return path
+    if not path.startswith("/"):
+        path = "/" + path
+    return f"{base}{path}"
 
 
-def webapp_static(path: str, *, extra: dict[str, str] | None = None) -> str:
-    """Static webapp pages served by our FastAPI under /static/mini/..."""
-    p = path if path.startswith("/") else "/" + path
-    return versioned_url(p, extra=extra)
+def versioned_url(path: str, *, v: str | None = None) -> str:
+    """Path + version (still relative)."""
+    return with_version(path, v=v)
 
 
-def webapp_page(path: str, *, extra: dict[str, str] | None = None) -> str:
-    """Webapp pages served by our FastAPI under /webapp/..."""
-    p = path if path.startswith("/") else "/" + path
-    return versioned_url(p, extra=extra)
+def versioned_abs_url(path: str, *, v: str | None = None) -> str:
+    """Absolute URL + version (recommended for Telegram WebApp buttons)."""
+    return abs_url(with_version(path, v=v))
 
 
-# Canonical entrypoints (use these everywhere)
-WEBAPP_PREMIUM_ENTRY = webapp_static("/static/mini/premium/premium.html")
-WEBAPP_MEDITATION_ENTRY = webapp_static("/static/mini/meditation/index.html")
+# Canonical entrypoints (paths)
+WEBAPP_PREMIUM_ENTRY = "/static/mini/premium/premium.html"
+WEBAPP_MEDITATION_ENTRY = "/static/mini/meditation/index.html"
+WEBAPP_MUSIC_ENTRY = "/webapp/music/index.html"
