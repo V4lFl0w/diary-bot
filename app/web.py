@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
 
@@ -35,13 +34,19 @@ def _no_cache_headers() -> dict[str, str]:
 
 
 @app.middleware("http")
-async def _webapp_no_cache(request: Request, call_next: RequestResponseEndpoint) -> Response:
-    resp = await call_next(request)
+async def _webapp_no_cache(request: Request, call_next):
+    resp: Response = await call_next(request)
 
     p = request.url.path
+
+    # Любые /webapp/* — всегда NO-STORE (HTML, JS, CSS, API, картинки)
     if p.startswith("/webapp/"):
-        if p.endswith(".html") or "/api/" in p or p.endswith("/"):
-            resp.headers.update(_no_cache_headers())
+        for k, v in _no_cache_headers().items():
+            resp.headers[k] = v
+
+        # Убираем условное кеширование (304 Not Modified)
+        resp.headers.pop("ETag", None)
+        resp.headers.pop("Last-Modified", None)
 
     return resp
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Optional, List, Tuple
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,4 +39,8 @@ async def save_track(session: AsyncSession, user: User, title: str, file_id: str
         raise ValueError("limit")
 
     session.add(UserTrack(user_id=user.id, tg_id=user.tg_id, title=title or None, file_id=file_id.strip()))
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        return

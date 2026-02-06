@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import os
+from app.utils.app_version import get_app_version
 
 
 def _base_url() -> str:
-    return (
-        os.getenv("PUBLIC_BASE_URL")
-        or os.getenv("PUBLIC_URL")
-        or os.getenv("WEBAPP_BASE_URL")
-        or ""
-    ).rstrip("/")
+    return (os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_BASE_URL") or "").rstrip("/")
 
 
 def _version() -> str:
@@ -30,7 +26,8 @@ def webapp_url(path: str) -> str:
     return f"{url}{sep}v={v}"
 
 
-WEBAPP_MUSIC_URL = webapp_url("/webapp/music/index.html")
+APP_VERSION = get_app_version()
+WEBAPP_MUSIC_URL = webapp_url(f"/webapp/music/index.html?v={APP_VERSION}")
 
 
 def get_focus_sleep() -> tuple[str, str]:
