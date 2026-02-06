@@ -1,7 +1,8 @@
-from __future__ import annotations
+import os
+import aiohttp
 
 from typing import List, Dict, Any, Optional, AsyncIterator
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.db import async_session
@@ -75,3 +76,49 @@ async def my_playlist(
         )
 
     return {"ok": True, "items": items}
+
+
+@router.get("/search")
+async def search_youtube(q: str = Query(..., min_length=2), limit: int = 12):
+    """Search music videos (original + remixes) via YouTube Data API."""
+    api_key = (os.getenv("YOUTUBE_API_KEY") or "").strip()
+    if not api_key:
+        raise HTTPException(status_code=500, detail="YOUTUBE_API_KEY is not set")
+
+    limit = max(1, min(int(limit or 12), 25))
+
+    url = "https://www.googleapis.com/youtube/v3/search"
+    params = {
+        "part": "snippet",
+        "q": q,
+        "type": "video",
+        "videoCategoryId": "10",  # Music
+        "maxResults": str(limit),
+        "safeSearch": "none",
+        "key": api_key,
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params, timeout=15) as r:  # type: ignore[arg-type]
+            data = await r.json()
+            if r.status != 200:
+                raise HTTPException(status_code=502, detail=data)
+
+    items = []
+    for it in data.get("items", []) or []:
+        vid = (it.get("id") or {}).get("videoId")
+        sn = it.get("snippet") or {}
+        if not vid:
+            continue
+        thumbs = sn.get("thumbnails") or {}
+        thumb = (thumbs.get("high") or thumbs.get("medium") or thumbs.get("default") or {}).get("url")
+        items.append({
+            "video_id": vid,
+            "title": sn.get("title") or "",
+            "channel": sn.get("channelTitle") or "",
+            "thumb": thumb,
+            "published": sn.get("publishedAt"),
+        })
+
+    return {"q": q, "items": items}
+

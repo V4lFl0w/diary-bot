@@ -1,99 +1,423 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="ru">
 <head>
-  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
-  <meta http-equiv="Pragma" content="no-cache" />
-  <meta http-equiv="Expires" content="0" />
-
-  <meta charset="UTF-8" />
-  <title>ValFlow Music</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Diary Music</title>
   <style>
     :root{
-      --bg:#0f0f12;
-      --card:#151520;
-      --stroke:#26263a;
-      --muted:rgba(255,255,255,.72);
-      --text:#fff;
-      --btn:#2b78ff;
-      --btn2:#2a2a38;
+      --bg:#0b0f14;
+      --card:#111824;
+      --card2:#0f1622;
+      --text:#e9eef6;
+      --muted:#9aa7b8;
+      --stroke:#1f2a3a;
+      --chip:#162033;
+      --chipOn:#24324a;
+      --accent:#3aa0ff;
+      --shadow: 0 10px 30px rgba(0,0,0,.45);
+      --r:16px;
     }
-    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui;padding:18px;}
-    .top{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
-    .h1{font-size:22px;font-weight:800;}
-    .sub{font-size:15px;color:var(--muted);}
-    .row{background:var(--card);border:1px solid var(--stroke);border-radius:18px;padding:14px;margin:10px 0;}
-    .title{font-size:18px;font-weight:800;}
-    .meta{font-size:14px;color:var(--muted);margin-top:6px;}
-    .player{width:100%;margin-top:10px;}
-    .btns{margin-top:10px;}
-    button{border:0;border-radius:14px;padding:12px 14px;font-size:16px;font-weight:700;color:#fff;background:var(--btn);}
-    .error{color:#ffd0d0;}
-    .empty{border:1px dashed var(--stroke);border-radius:18px;padding:16px;color:var(--muted);}
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,Arial,sans-serif;
+      background: radial-gradient(900px 500px at 20% -10%, rgba(58,160,255,.25), transparent 60%),
+                  radial-gradient(900px 500px at 120% 0%, rgba(120,80,255,.22), transparent 60%),
+                  var(--bg);
+      color:var(--text);
+    }
+    .wrap{
+      max-width:980px;
+      margin:0 auto;
+      padding:16px 16px 90px;
+    }
+    .top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      padding:8px 4px 10px;
+    }
+    .brand{
+      display:flex; align-items:center; gap:10px;
+      font-weight:700; letter-spacing:.2px;
+    }
+    .logo{
+      width:34px;height:34px;border-radius:10px;
+      background: linear-gradient(135deg, rgba(58,160,255,.95), rgba(120,80,255,.9));
+      box-shadow: var(--shadow);
+    }
+    .brand small{display:block;color:var(--muted);font-weight:600;letter-spacing:.3px}
+    .actions{display:flex;align-items:center;gap:10px}
+    .btn{
+      border:1px solid var(--stroke);
+      background: rgba(255,255,255,.02);
+      color:var(--text);
+      padding:10px 12px;
+      border-radius:12px;
+      cursor:pointer;
+      font-weight:600;
+    }
+    .btn:active{transform:translateY(1px)}
+    .search{
+      display:flex; gap:10px;
+      padding:12px;
+      border:1px solid var(--stroke);
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+    }
+    .search input{
+      width:100%;
+      border:0;
+      outline:0;
+      background:transparent;
+      color:var(--text);
+      font-size:16px;
+    }
+    .chips{
+      display:flex;
+      gap:8px;
+      overflow:auto;
+      padding:12px 2px 0;
+      -webkit-overflow-scrolling: touch;
+    }
+    .chip{
+      white-space:nowrap;
+      border:1px solid var(--stroke);
+      background: var(--chip);
+      color:var(--text);
+      padding:8px 10px;
+      border-radius:999px;
+      font-weight:700;
+      cursor:pointer;
+      user-select:none;
+      opacity:.95;
+    }
+    .chip.on{background:var(--chipOn); border-color: rgba(58,160,255,.35)}
+    .grid{
+      margin-top:14px;
+      display:grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap:14px;
+    }
+    @media (max-width:860px){
+      .grid{grid-template-columns:1fr}
+    }
+    .panel{
+      border:1px solid var(--stroke);
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      border-radius: var(--r);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .panel h3{
+      margin:0;
+      padding:14px 14px 10px;
+      font-size:16px;
+      letter-spacing:.2px;
+    }
+    .panel .sub{
+      padding:0 14px 12px;
+      color:var(--muted);
+      font-weight:600;
+      font-size:13px;
+    }
+    .list{
+      border-top:1px solid var(--stroke);
+      padding:10px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      max-height: 420px;
+      overflow:auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .item{
+      display:flex;
+      gap:10px;
+      padding:10px;
+      border:1px solid rgba(255,255,255,.05);
+      background: rgba(17,24,36,.55);
+      border-radius:14px;
+      cursor:pointer;
+    }
+    .thumb{
+      width:70px;height:70px;border-radius:12px;
+      background: rgba(255,255,255,.06);
+      flex:0 0 auto;
+      overflow:hidden;
+    }
+    .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+    .meta{min-width:0;flex:1}
+    .title{
+      font-weight:800;
+      font-size:14px;
+      line-height:1.25;
+      margin:2px 0 6px;
+      overflow:hidden;
+
+      /* standard (где поддерживается) */
+      line-clamp: 2;
+
+      /* webkit fallback (Telegram iOS / Safari) */
+      display:-webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+
+      /* fallback на случай отсутствия clamp */
+      max-height: 2.5em;
+      }
+    .chan{
+      color:var(--muted);
+      font-weight:700;
+      font-size:12px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .tag{
+      margin-left:auto;
+      align-self:flex-start;
+      font-size:11px;
+      font-weight:800;
+      color: rgba(58,160,255,.95);
+      border:1px solid rgba(58,160,255,.25);
+      padding:5px 8px;
+      border-radius:999px;
+      background: rgba(58,160,255,.08);
+    }
+
+    .player{
+      padding:0;
+    }
+    .playerbox{
+      padding:14px;
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+    }
+    .now{
+      min-width:0; flex:1;
+    }
+    .now .t{font-weight:900;margin:0 0 6px;font-size:15px;line-height:1.25}
+    .now .c{color:var(--muted);font-weight:700;font-size:12px}
+    .iframe{
+      border-top:1px solid var(--stroke);
+      background: rgba(0,0,0,.2);
+      aspect-ratio: 16/9;
+      width:100%;
+    }
+    iframe{width:100%;height:100%;border:0;display:block}
+
+    .footerbar{
+      position:fixed;
+      left:0;right:0;bottom:0;
+      padding:10px 12px;
+      background: rgba(9,12,16,.7);
+      border-top:1px solid rgba(255,255,255,.08);
+      backdrop-filter: blur(12px);
+    }
+    .foot{
+      max-width:980px;margin:0 auto;
+      display:flex;gap:10px;align-items:center;justify-content:space-between;
+    }
+    .status{color:var(--muted);font-weight:700;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   </style>
 </head>
-
 <body>
-  <div class="top">
-    <div class="h1">🎵 Мой плейлист</div>
-    <div class="sub" id="subtitle">Загрузка…</div>
+  <div class="wrap">
+    <div class="top">
+      <div class="brand">
+        <div class="logo"></div>
+        <div>
+          Diary Music
+          <small>поиск треков, ремиксов и версий</small>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="btnMy">Мой плейлист</button>
+        <button class="btn" id="btnClear">Очистить</button>
+      </div>
+    </div>
+
+    <div class="search">
+      <input id="q" placeholder="Артист + трек (например: Luxor 100 причин)" autocomplete="off" />
+      <button class="btn" id="btnGo">Найти</button>
+    </div>
+
+    <div class="chips" id="chips">
+      <div class="chip on" data-q="Energise">Energise</div>
+      <div class="chip" data-q="Relax">Relax</div>
+      <div class="chip" data-q="Feel good">Feel good</div>
+      <div class="chip" data-q="Work out">Work out</div>
+      <div class="chip" data-q="Focus">Focus</div>
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h3>Подборка</h3>
+        <div class="sub" id="subLeft">Нажми чип или введи запрос — покажу варианты (ориг/ремиксы/лайвы)</div>
+        <div class="list" id="list"></div>
+      </div>
+
+      <div class="panel player">
+        <h3>Сейчас играет</h3>
+        <div class="playerbox">
+          <div class="thumb" id="nowThumb"></div>
+          <div class="now">
+            <p class="t" id="nowTitle">Выбери трек слева</p>
+            <div class="c" id="nowChan">—</div>
+          </div>
+        </div>
+        <div class="iframe" id="iframeWrap">
+          <iframe id="yt" src="about:blank" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="error" id="error" style="display:none"></div>
-  <div id="list"></div>
+  <div class="footerbar">
+    <div class="foot">
+      <div class="status" id="status">Готово.</div>
+      <div class="status" id="ver"></div>
+    </div>
+  </div>
 
 <script>
 (function(){
-  const tg = window.Telegram?.WebApp || null;
-  tg?.ready?.();
+  const $ = (id)=>document.getElementById(id);
+  const list = $("list");
+  const status = $("status");
+  const q = $("q");
+  const yt = $("yt");
+  const nowTitle = $("nowTitle");
+  const nowChan = $("nowChan");
+  const nowThumb = $("nowThumb");
+  const ver = $("ver");
 
-  const subtitle = document.getElementById('subtitle');
-  const errorBox = document.getElementById('error');
-  const list = document.getElementById('list');
+  // Telegram WebApp safe init
+  try {
+    if (window.Telegram && Telegram.WebApp) {
+      Telegram.WebApp.ready();
+      Telegram.WebApp.expand();
+    }
+  } catch(e){}
 
-  function showError(msg){
-    errorBox.style.display='block';
-    errorBox.textContent=msg;
-    subtitle.textContent='Ошибка';
+  const state = {
+    lastQuery: "",
+    items: [],
+    queue: [],   // simple local queue (session)
+    appVersion: (new URLSearchParams(location.search).get("v") || "")
+  };
+  ver.textContent = state.appVersion ? ("v=" + state.appVersion) : "";
+
+  function setStatus(t){ status.textContent = t; }
+
+  function esc(s){
+    return (s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
   }
 
-  function sendPlay(id){
-    try{ tg?.sendData(JSON.stringify({action:'play',id})) }catch(e){}
-  }
-
-  function render(items){
-    list.innerHTML='';
-    if(!items?.length){
-      subtitle.textContent='Плейлист пуст';
-      list.innerHTML='<div class="empty">Добавь трек в боте</div>';
+  function renderList(items){
+    list.innerHTML = "";
+    if (!items || !items.length){
+      list.innerHTML = '<div style="padding:10px;color:var(--muted);font-weight:700">Ничего не нашёл. Попробуй точнее: “Артист трек remix”</div>';
       return;
     }
-    subtitle.textContent=`Треков: ${items.length}`;
-    for(const it of items){
-      const r=document.createElement('div');r.className='row';
-      r.innerHTML=`<div class="title">${it.title||'Track'}</div>
-                   <div class="meta">${it.is_url?'Источник: ссылка':'Источник: Telegram'}</div>`;
-      if(it.is_url){
-        const a=document.createElement('audio');
-        a.controls=true;a.src=it.file_id;a.className='player';
-        r.appendChild(a);
-      }
-      const b=document.createElement('div');b.className='btns';
-      b.innerHTML='<button>▶️ Играть в Telegram</button>';
-      b.firstChild.onclick=()=>sendPlay(it.id);
-      r.appendChild(b);
-      list.appendChild(r);
+    for (const it of items){
+      const el = document.createElement("div");
+      el.className = "item";
+      el.innerHTML = `
+        <div class="thumb">${it.thumb ? `<img src="${esc(it.thumb)}" />` : ""}</div>
+        <div class="meta">
+          <div class="title">${esc(it.title)}</div>
+          <div class="chan">${esc(it.channel)}</div>
+        </div>
+        <div class="tag">PLAY</div>
+      `;
+      el.addEventListener("click", ()=>play(it));
+      list.appendChild(el);
     }
   }
 
-  const tgId = tg?.initDataUnsafe?.user?.id;
-  if(!tgId){ showError('Открой плеер из Telegram'); return; }
+  function play(it){
+    if (!it || !it.video_id) return;
+    state.queue.unshift(it);
+    nowTitle.textContent = it.title || "—";
+    nowChan.textContent = it.channel || "—";
+    nowThumb.innerHTML = it.thumb ? `<img src="${esc(it.thumb)}" />` : "";
+    // embed
+    const src = "https://www.youtube.com/embed/" + encodeURIComponent(it.video_id) + "?autoplay=1&rel=0";
+    yt.src = src;
+    setStatus("▶️ " + (it.title || "Playing"));
+  }
 
-  const v = new URLSearchParams(window.location.search).get('v') || String(Date.now());
-  fetch(`/webapp/music/api/my?tg_id=${tgId}&v=${encodeURIComponent(v)}`, { cache: 'no-store' })
-    .then(r=>r.ok?r.json():Promise.reject(r.status))
-    .then(j=>render(j.items))
-    .catch(e=>showError('Ошибка загрузки плейлиста'));
+  async function search(query){
+    query = (query || "").trim();
+    if (query.length < 2) return;
+    state.lastQuery = query;
+    setStatus("Поиск: " + query + " …");
+
+    const u = new URL("/webapp/music/api/search", location.origin);
+    u.searchParams.set("q", query);
+    u.searchParams.set("limit", "14");
+
+    try{
+      const r = await fetch(u.toString(), { method:"GET", headers:{ "Accept":"application/json" } });
+      const j = await r.json();
+      const items = (j && j.items) ? j.items : [];
+      state.items = items;
+      renderList(items);
+      setStatus(items.length ? ("Найдено: " + items.length) : "Ничего не найдено");
+    }catch(e){
+      console.error(e);
+      setStatus("Ошибка поиска. Проверь API ключ/сервер.");
+    }
+  }
+
+  // Debounce typing
+  let t = null;
+  q.addEventListener("input", ()=>{
+    clearTimeout(t);
+    t = setTimeout(()=>search(q.value), 450);
+  });
+
+  $("btnGo").addEventListener("click", ()=>search(q.value));
+  $("btnClear").addEventListener("click", ()=>{
+    q.value = "";
+    list.innerHTML = "";
+    yt.src = "about:blank";
+    nowTitle.textContent = "Выбери трек слева";
+    nowChan.textContent = "—";
+    nowThumb.innerHTML = "";
+    setStatus("Очищено.");
+  });
+
+  // "Мой плейлист" — пока просто показывает текущую очередь (session)
+  $("btnMy").addEventListener("click", ()=>{
+    if (!state.queue.length){
+      setStatus("Плейлист пуст. Запусти пару треков — появится история.");
+      return;
+    }
+    renderList(state.queue.slice(0, 20));
+    setStatus("История прослушивания (сессия)");
+  });
+
+  // chips
+  const chips = $("chips");
+  chips.addEventListener("click", (e)=>{
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    for (const x of chips.querySelectorAll(".chip")) x.classList.remove("on");
+    chip.classList.add("on");
+    const v = chip.getAttribute("data-q") || "";
+    q.value = v;
+    search(v);
+  });
+
+  // initial
+  search("Energise");
 })();
 </script>
 </body>
