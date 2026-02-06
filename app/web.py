@@ -24,6 +24,17 @@ WEBAPP_DIR = BASE_DIR / "webapp"
 if WEBAPP_DIR.exists():
     app.mount("/webapp", StaticFiles(directory=str(WEBAPP_DIR)), name="webapp")
 
+# Static assets: prefer repo-root ./static, fallback to ./app/static
+STATIC_CANDIDATES = (
+    BASE_DIR / "static",
+    BASE_DIR / "app" / "static",
+)
+
+for _d in STATIC_CANDIDATES:
+    if _d.exists():
+        app.mount("/static", StaticFiles(directory=str(_d)), name="static")
+        break
+
 
 def _no_cache_headers() -> dict[str, str]:
     return {
@@ -40,16 +51,16 @@ async def _webapp_no_cache(request: Request, call_next):
     p = request.url.path
 
     # Любые /webapp/* — всегда NO-STORE (HTML, JS, CSS, API, картинки)
-    if p.startswith("/webapp/"):
+    if p.startswith("/webapp/") or p.startswith("/static/mini/"):
         for k, v in _no_cache_headers().items():
             resp.headers[k] = v
 
         # Убираем условное кеширование (304 Not Modified)
         # MutableHeaders не поддерживает .pop(), поэтому удаляем безопасно
-        if 'etag' in resp.headers:
-            del resp.headers['etag']
-        if 'last-modified' in resp.headers:
-            del resp.headers['last-modified']
+        if "etag" in resp.headers:
+            del resp.headers["etag"]
+        if "last-modified" in resp.headers:
+            del resp.headers["last-modified"]
 
     return resp
 
