@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.webapp.urls import WEBAPP_MEDITATION_ENTRY
+
 import os
 from typing import Optional
 from aiogram import F, Router
@@ -89,7 +91,7 @@ def _webapp_url() -> str | None:
         return None
     base = base[:-1] if base.endswith("/") else base
     # точный путь оставляю как у тебя было
-    return f"{base}/static/mini/meditation/index.html"
+    return WEBAPP_MEDITATION_ENTRY
 
 
 def _open_kb(l: str, url: str) -> InlineKeyboardMarkup:

@@ -9,12 +9,11 @@ import re
 from typing import Dict, Optional
 
 import os
+from app.webapp.urls import versioned_url, WEBAPP_PREMIUM_ENTRY
 from aiogram.types import KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
 
 
-WEBAPP_PREMIUM_URL = os.getenv(
-    "WEBAPP_PREMIUM_URL", "https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html"
-)
+WEBAPP_PREMIUM_URL = os.getenv("WEBAPP_PREMIUM_URL") or WEBAPP_PREMIUM_ENTRY
 
 
 # -------------------------------------------------------------------
@@ -382,7 +381,7 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False, tg_id: int | None =
                     "en": "💳 Pay by card",
                 },
             ),
-            web_app=WebAppInfo(url=f"{WEBAPP_PREMIUM_URL}?tg_id={tg_id}"),
+            web_app=WebAppInfo(url=versioned_url(f"{WEBAPP_PREMIUM_URL}?tg_id={tg_id}")),
         ),
     ]
     row2 = [

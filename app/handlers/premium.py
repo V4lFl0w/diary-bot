@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import os
 
-WEBAPP_PREMIUM_URL = os.getenv(
-    "WEBAPP_PREMIUM_URL", "https://coral-app-jxzy5.ondigitalocean.app/static/mini/premium/premium.html?v=1770212007"
-)
+from app.webapp.urls import versioned_url, WEBAPP_PREMIUM_ENTRY
 
+WEBAPP_PREMIUM_URL = os.getenv("WEBAPP_PREMIUM_URL") or WEBAPP_PREMIUM_ENTRY
 from datetime import datetime, timedelta, timezone
+
 from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo
 
@@ -98,7 +98,9 @@ def _normalize_lang(code: Optional[str]) -> str:
 def _webapp_url(tg_id: int, lang: str) -> str:
     loc = _normalize_lang(lang)
     sep = "&" if "?" in WEBAPP_PREMIUM_URL else "?"
-    return f"{WEBAPP_PREMIUM_URL}{sep}tg_id={tg_id}&lang={loc}&v={int(datetime.now(timezone.utc).timestamp())}"
+    base = f"{WEBAPP_PREMIUM_URL}{sep}tg_id={tg_id}&lang={loc}"
+    # стабильный cache-bust по версии деплоя (а не случайный timestamp)
+    return versioned_url(base)
 
 
 TEXTS: Dict[str, Dict[str, str]] = {
