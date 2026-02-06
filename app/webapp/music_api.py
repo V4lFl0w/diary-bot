@@ -13,7 +13,6 @@ from app.models.user_track import UserTrack
 # Дальше можно усилить до verify initData подписи.
 
 
-
 for _mod, _name in (
     ("app.db", "get_db_session"),
     ("app.db.session", "get_db_session"),
@@ -39,7 +38,6 @@ async def _session_dep() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-
 @router.get("/health")
 async def health() -> Dict[str, str]:
     return {"ok": "1"}
@@ -55,9 +53,11 @@ async def my_playlist(
         return {"ok": True, "items": []}
 
     rows = (
-        (await session.execute(
-            select(UserTrack).where(UserTrack.user_id == user.id).order_by(UserTrack.id.desc()).limit(200)
-        ))
+        (
+            await session.execute(
+                select(UserTrack).where(UserTrack.user_id == user.id).order_by(UserTrack.id.desc()).limit(200)
+            )
+        )
         .scalars()
         .all()
     )
@@ -65,11 +65,13 @@ async def my_playlist(
     items: List[Dict[str, Any]] = []
     for t in rows:
         fid = (t.file_id or "").strip()
-        items.append({
-            "id": t.id,
-            "title": (t.title or "Track"),
-            "file_id": fid,
-            "is_url": fid.startswith("http://") or fid.startswith("https://"),
-        })
+        items.append(
+            {
+                "id": t.id,
+                "title": (t.title or "Track"),
+                "file_id": fid,
+                "is_url": fid.startswith("http://") or fid.startswith("https://"),
+            }
+        )
 
     return {"ok": True, "items": items}

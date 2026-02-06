@@ -14,8 +14,8 @@ class TrackResult:
     title: str
     artist: str = ""
     source: str = ""
-    url: str = ""         # страница/источник
-    audio_url: str = ""   # ПРЯМАЯ ссылка на full аудио (mp3/m4a/ogg/aac/wav)
+    url: str = ""  # страница/источник
+    audio_url: str = ""  # ПРЯМАЯ ссылка на full аудио (mp3/m4a/ogg/aac/wav)
 
     def display_title(self) -> str:
         t = (self.title or "").strip() or "Track"
@@ -82,7 +82,9 @@ async def _jamendo_search(q: str, limit: int) -> List[TrackResult]:
                     continue
                 if not _is_audio_url(audio):
                     continue
-                out.append(TrackResult(title=name, artist=artist, source="jamendo", url=share or audio, audio_url=audio))
+                out.append(
+                    TrackResult(title=name, artist=artist, source="jamendo", url=share or audio, audio_url=audio)
+                )
                 if len(out) >= limit:
                     break
     return out
@@ -92,7 +94,7 @@ async def _jamendo_search(q: str, limit: int) -> List[TrackResult]:
 async def _archive_search(q: str, limit: int) -> List[TrackResult]:
     search_url = "https://archive.org/advancedsearch.php"
     params = {
-        "q": f'({q}) AND mediatype:(audio)',
+        "q": f"({q}) AND mediatype:(audio)",
         "fl[]": ["identifier", "title", "creator"],
         "rows": str(max(limit, 10)),
         "page": "1",

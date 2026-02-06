@@ -14,41 +14,18 @@
       --btn:#2b78ff;
       --btn2:#2a2a38;
     }
-    body{
-      margin:0;
-      background:var(--bg);
-      color:var(--text);
-      font-family:system-ui,-apple-system,sans-serif;
-      padding:18px;
-    }
-    .top{display:flex; flex-direction:column; gap:6px; margin-bottom:14px;}
-    .h1{font-size:22px; font-weight:800;}
-    .sub{font-size:15px; color:var(--muted);}
-
-    .card{
-      background:var(--card);
-      border:1px solid var(--stroke);
-      border-radius:18px;
-      padding:14px;
-      margin:10px 0;
-    }
-    .row{background:var(--card); border:1px solid var(--stroke); border-radius:18px; padding:14px; margin:10px 0;}
-    .title{font-size:18px; font-weight:800; line-height:1.2;}
-    .meta{font-size:14px; color:var(--muted); margin-top:8px;}
-    .player{width:100%; margin-top:12px;}
-    .btns{display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;}
-    button{
-      border:0;
-      border-radius:14px;
-      padding:12px 14px;
-      font-size:16px;
-      font-weight:700;
-      color:#fff;
-      background:var(--btn2);
-    }
-    .primary{background:var(--btn);}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui;padding:18px;}
+    .top{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+    .h1{font-size:22px;font-weight:800;}
+    .sub{font-size:15px;color:var(--muted);}
+    .row{background:var(--card);border:1px solid var(--stroke);border-radius:18px;padding:14px;margin:10px 0;}
+    .title{font-size:18px;font-weight:800;}
+    .meta{font-size:14px;color:var(--muted);margin-top:6px;}
+    .player{width:100%;margin-top:10px;}
+    .btns{margin-top:10px;}
+    button{border:0;border-radius:14px;padding:12px 14px;font-size:16px;font-weight:700;color:#fff;background:var(--btn);}
     .error{color:#ffd0d0;}
-    .empty{background:var(--card); border:1px dashed var(--stroke); border-radius:18px; padding:16px; font-size:16px; color:var(--muted);}
+    .empty{border:1px dashed var(--stroke);border-radius:18px;padding:16px;color:var(--muted);}
   </style>
 </head>
 
@@ -58,107 +35,60 @@
     <div class="sub" id="subtitle">Загрузка…</div>
   </div>
 
-  <div class="card error" id="error" style="display:none"></div>
+  <div class="error" id="error" style="display:none"></div>
   <div id="list"></div>
 
 <script>
 (function(){
-  const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-  try { tg && tg.ready && tg.ready(); } catch(e){}
+  const tg = window.Telegram?.WebApp || null;
+  tg?.ready?.();
 
   const subtitle = document.getElementById('subtitle');
   const errorBox = document.getElementById('error');
   const list = document.getElementById('list');
 
   function showError(msg){
-    errorBox.style.display = 'block';
-    errorBox.textContent = msg;
-    subtitle.textContent = 'Ошибка';
+    errorBox.style.display='block';
+    errorBox.textContent=msg;
+    subtitle.textContent='Ошибка';
   }
 
-  function sendPlayToBot(trackId){
-    if (!tg) return;
-    const payload = { action: "play", id: trackId };
-    try { tg.sendData(JSON.stringify(payload)); } catch(e){}
+  function sendPlay(id){
+    try{ tg?.sendData(JSON.stringify({action:'play',id})) }catch(e){}
   }
 
   function render(items){
-    list.innerHTML = '';
-    if (!items || !items.length){
-      subtitle.textContent = 'Плейлист пуст. Добавь трек в боте.';
-      const empty = document.createElement('div');
-      empty.className = 'empty';
-      empty.textContent = 'Пока пусто.';
-      list.appendChild(empty);
+    list.innerHTML='';
+    if(!items?.length){
+      subtitle.textContent='Плейлист пуст';
+      list.innerHTML='<div class="empty">Добавь трек в боте</div>';
       return;
     }
-    subtitle.textContent = `Треков: ${items.length}`;
-
-    for (const it of items){
-      const row = document.createElement('div');
-      row.className = 'row';
-
-      const title = document.createElement('div');
-      title.className = 'title';
-      title.textContent = it.title || 'Track';
-
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.textContent = it.is_url ? 'Источник: ссылка (full)' : 'Источник: Telegram';
-
-      row.appendChild(title);
-      row.appendChild(meta);
-
-      if (it.is_url && it.file_id){
-        const audio = document.createElement('audio');
-        audio.className = 'player';
-        audio.controls = true;
-        audio.src = it.file_id;
-        row.appendChild(audio);
-      } else {
-        const btns = document.createElement('div');
-        btns.className = 'btns';
-
-        const playBtn = document.createElement('button');
-        playBtn.className = 'primary';
-        playBtn.textContent = '▶️ Играть в Telegram';
-        playBtn.onclick = () => sendPlayToBot(it.id);
-
-        btns.appendChild(playBtn);
-        row.appendChild(btns);
+    subtitle.textContent=`Треков: ${items.length}`;
+    for(const it of items){
+      const r=document.createElement('div');r.className='row';
+      r.innerHTML=`<div class="title">${it.title||'Track'}</div>
+                   <div class="meta">${it.is_url?'Источник: ссылка':'Источник: Telegram'}</div>`;
+      if(it.is_url){
+        const a=document.createElement('audio');
+        a.controls=true;a.src=it.file_id;a.className='player';
+        r.appendChild(a);
       }
-
-      list.appendChild(row);
+      const b=document.createElement('div');b.className='btns';
+      b.innerHTML='<button>▶️ Играть в Telegram</button>';
+      b.firstChild.onclick=()=>sendPlay(it.id);
+      r.appendChild(b);
+      list.appendChild(r);
     }
   }
 
-  async function load(){
-    subtitle.textContent = 'Загрузка…';
+  const tgId = tg?.initDataUnsafe?.user?.id;
+  if(!tgId){ showError('Открой плеер из Telegram'); return; }
 
-    let tgId = null;
-    try {
-      tgId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null;
-    } catch(e){ tgId = null; }
-
-    if (!tgId){
-      showError('Не удалось определить пользователя Telegram. Открой мини-приложение из бота.');
-      return;
-    }
-
-    const base = window.location.origin;
-    const url = base + `/webapp/music/api/my?tg_id=${encodeURIComponent(tgId)}`;
-
-    try{
-      const r = await fetch(url, { credentials: 'include' });
-      const js = await r.json();
-      if (!js || !js.ok) throw new Error('bad response');
-      render(js.items || []);
-    } catch(e){
-      showError('Не удалось загрузить плейлист. Проверь деплой/API.');
-    }
-  }
-
-  load();
+  fetch(`/webapp/music/api/my?tg_id=${tgId}`)
+    .then(r=>r.ok?r.json():Promise.reject(r.status))
+    .then(j=>render(j.items))
+    .catch(e=>showError('Ошибка загрузки плейлиста'));
 })();
 </script>
 </body>
