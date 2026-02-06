@@ -65,7 +65,7 @@ def parse_remind(
         pass
     # VF_REMIND_NOW_TZ_V1
     try:
-        if getattr(now, 'tzinfo', None) is not None:
+        if getattr(now, "tzinfo", None) is not None:
             now = now.astimezone(tz)
         else:
             now = now.replace(tzinfo=tz)
@@ -235,16 +235,9 @@ _DOW_MAP = {
     "пт.": 5,
     "сб.": 6,
     "нд": 0,
-    "пн": 1,
-    "вт": 2,
-    "ср": 3,
-    "чт": 4,
-    "пт": 5,
-    "сб": 6,
     "нд.": 0,
     "нед": 0,
     "нед.": 0,
-    
     # RU
     "понедельник": 1,
     "вторник": 2,
@@ -322,6 +315,7 @@ def _normalize(text: str) -> str:
     t = re.sub(r"\s+", " ", t).strip()
     return t
 
+
 def _extract_what(
     text_norm: str,
     recurring: bool,
@@ -363,8 +357,9 @@ def _extract_what(
 
     what = text_norm[start:end].strip(" ,.;:—-")
     # clean quotes / hidden chars just in case
-    what = (what or "").strip().strip('"\'').replace("\u200b", "").strip()
+    what = (what or "").strip().strip("\"'").replace("\u200b", "").strip()
     return what or None
+
 
 def _parse_time_fragment(s: str) -> Optional[time]:
     m = _RE_TIME.search(s)
@@ -425,7 +420,6 @@ def _parse_once_datetime(
     if date_dt:
         dt = _apply_time(date_dt, tm or time(9, 0))
         return dt
-
 
     # VF_REMIND_WEEKDAY_ONCE_V2
     # one-time weekday: "в пятницу в 14:30" / "пн в 10"
