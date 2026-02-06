@@ -45,8 +45,11 @@ async def _webapp_no_cache(request: Request, call_next):
             resp.headers[k] = v
 
         # Убираем условное кеширование (304 Not Modified)
-        resp.headers.pop("ETag", None)
-        resp.headers.pop("Last-Modified", None)
+        # MutableHeaders не поддерживает .pop(), поэтому удаляем безопасно
+        if 'etag' in resp.headers:
+            del resp.headers['etag']
+        if 'last-modified' in resp.headers:
+            del resp.headers['last-modified']
 
     return resp
 
