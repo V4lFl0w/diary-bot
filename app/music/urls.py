@@ -4,10 +4,33 @@ import os
 
 
 def _base_url() -> str:
-    return (os.getenv("PUBLIC_BASE_URL") or os.getenv("PUBLIC_URL") or os.getenv("WEBAPP_BASE_URL") or "").rstrip("/")
+    return (
+        os.getenv("PUBLIC_BASE_URL")
+        or os.getenv("PUBLIC_URL")
+        or os.getenv("WEBAPP_BASE_URL")
+        or ""
+    ).rstrip("/")
 
 
-WEBAPP_MUSIC_URL = f"{_base_url()}/webapp/music/index.html"
+def _version() -> str:
+    # ставь это на деплое (например, git sha), либо оставь пустым
+    return (os.getenv("WEBAPP_VERSION") or os.getenv("GIT_SHA") or "").strip()
+
+
+def webapp_url(path: str) -> str:
+    base = _base_url()
+    p = "/" + (path or "").lstrip("/")
+    url = f"{base}{p}" if base else p
+
+    v = _version()
+    if not v:
+        return url
+
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}v={v}"
+
+
+WEBAPP_MUSIC_URL = webapp_url("/webapp/music/index.html")
 
 
 def get_focus_sleep() -> tuple[str, str]:

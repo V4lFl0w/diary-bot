@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import json
 from typing import Any
@@ -329,10 +328,18 @@ async def on_music_link(m: Message, state: FSMContext, session: AsyncSession) ->
         return
 
     url = (m.text or "").strip()
-    if not (url.startswith("https://") and re.search(r"\.(mp3|ogg|m4a|aac|wav)(\?|$)", url, re.IGNORECASE)):
-        await m.answer(tr(l, "bad_url"))
+
+    # 1) Если это НЕ прямая ссылка на аудио-файл — не бесим юзера.
+    # Переводим в поиск (страницы типа YouTube/sefon/и т.д.)
+    is_direct_audio = bool(
+        url.startswith("https://") and re.search(r"\.(mp3|ogg|m4a|aac|wav)(\?|$)", url, re.IGNORECASE)
+    )
+    if not is_direct_audio:
+        await state.set_state(MusicStates.waiting_search)
+        await m.answer("Это ссылка на страницу, а не на аудио-файл. Напиши: Артист — Трек")
         return
 
+    # 2) Прямая ссылка на файл — сохраняем
     title = url.split("/")[-1].split("?")[0] or "Audio link"
     try:
         await save_track(session, user, title, url)
@@ -360,8 +367,6 @@ async def on_music_search_query(m: Message, state: FSMContext, session: AsyncSes
     results = await search_tracks(q, limit=10)
     if not results:
         hint = tr(l, "empty")
-        if not (os.getenv("JAMENDO_CLIENT_ID") or "").strip():
-            hint += "\n\n⚠️ Jamendo выключен (нет JAMENDO_CLIENT_ID)."
         await m.answer(hint)
         return
 
