@@ -5,69 +5,161 @@
   <title>ValFlow Music</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    body { background:#0f0f12; color:#fff; font-family:system-ui,-apple-system,sans-serif; padding:15px; }
-    h2 { margin: 0 0 10px; }
-    .muted { opacity:.7; font-size: 13px; margin-bottom: 12px; }
-    .track { padding:12px; border:1px solid #222; border-radius:12px; margin:10px 0; background:#121218; }
-    .title { font-weight:700; margin-bottom: 6px; }
-    audio { width: 100%; margin-top: 6px; }
+    :root{
+      --bg:#0f0f12;
+      --card:#151520;
+      --stroke:#26263a;
+      --muted:rgba(255,255,255,.72);
+      --text:#fff;
+      --btn:#2b78ff;
+      --btn2:#2a2a38;
+    }
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family:system-ui,-apple-system,sans-serif;
+      padding:18px;
+    }
+    .top{display:flex; flex-direction:column; gap:6px; margin-bottom:14px;}
+    .h1{font-size:22px; font-weight:800;}
+    .sub{font-size:15px; color:var(--muted);}
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--stroke);
+      border-radius:18px;
+      padding:14px;
+      margin:10px 0;
+    }
+    .row{background:var(--card); border:1px solid var(--stroke); border-radius:18px; padding:14px; margin:10px 0;}
+    .title{font-size:18px; font-weight:800; line-height:1.2;}
+    .meta{font-size:14px; color:var(--muted); margin-top:8px;}
+    .player{width:100%; margin-top:12px;}
+    .btns{display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;}
+    button{
+      border:0;
+      border-radius:14px;
+      padding:12px 14px;
+      font-size:16px;
+      font-weight:700;
+      color:#fff;
+      background:var(--btn2);
+    }
+    .primary{background:var(--btn);}
+    .error{color:#ffd0d0;}
+    .empty{background:var(--card); border:1px dashed var(--stroke); border-radius:18px; padding:16px; font-size:16px; color:var(--muted);}
   </style>
 </head>
-<body>
 
-<h2>🎵 Мой плейлист</h2>
-<div class="muted" id="status">Загружаю…</div>
-<div id="tracks"></div>
+<body>
+  <div class="top">
+    <div class="h1">🎵 Мой плейлист</div>
+    <div class="sub" id="subtitle">Загрузка…</div>
+  </div>
+
+  <div class="card error" id="error" style="display:none"></div>
+  <div id="list"></div>
 
 <script>
-const tg = window.Telegram.WebApp;
-tg.expand();
+(function(){
+  const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  try { tg && tg.ready && tg.ready(); } catch(e){}
 
-function uid() {
-  return tg?.initDataUnsafe?.user?.id || null;
-}
+  const subtitle = document.getElementById('subtitle');
+  const errorBox = document.getElementById('error');
+  const list = document.getElementById('list');
 
-async function loadTracks() {
-  const userId = uid();
-  const status = document.getElementById("status");
-  const container = document.getElementById("tracks");
-  container.innerHTML = "";
-
-  if (!userId) {
-    status.textContent = "Нет user.id. Открой плеер из кнопки в боте.";
-    return;
+  function showError(msg){
+    errorBox.style.display = 'block';
+    errorBox.textContent = msg;
+    subtitle.textContent = 'Ошибка';
   }
 
-  const res = await fetch(`/api/music/my?uid=${encodeURIComponent(userId)}`);
-  if (!res.ok) {
-    status.textContent = "Не удалось загрузить плейлист.";
-    return;
+  function sendPlayToBot(trackId){
+    if (!tg) return;
+    const payload = { action: "play", id: trackId };
+    try { tg.sendData(JSON.stringify(payload)); } catch(e){}
   }
 
-  const data = await res.json();
-  if (!Array.isArray(data) || data.length === 0) {
-    status.textContent = "Плейлист пуст. Добавь трек в боте.";
-    return;
+  function render(items){
+    list.innerHTML = '';
+    if (!items || !items.length){
+      subtitle.textContent = 'Плейлист пуст. Добавь трек в боте.';
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'Пока пусто.';
+      list.appendChild(empty);
+      return;
+    }
+    subtitle.textContent = `Треков: ${items.length}`;
+
+    for (const it of items){
+      const row = document.createElement('div');
+      row.className = 'row';
+
+      const title = document.createElement('div');
+      title.className = 'title';
+      title.textContent = it.title || 'Track';
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = it.is_url ? 'Источник: ссылка (full)' : 'Источник: Telegram';
+
+      row.appendChild(title);
+      row.appendChild(meta);
+
+      if (it.is_url && it.file_id){
+        const audio = document.createElement('audio');
+        audio.className = 'player';
+        audio.controls = true;
+        audio.src = it.file_id;
+        row.appendChild(audio);
+      } else {
+        const btns = document.createElement('div');
+        btns.className = 'btns';
+
+        const playBtn = document.createElement('button');
+        playBtn.className = 'primary';
+        playBtn.textContent = '▶️ Играть в Telegram';
+        playBtn.onclick = () => sendPlayToBot(it.id);
+
+        btns.appendChild(playBtn);
+        row.appendChild(btns);
+      }
+
+      list.appendChild(row);
+    }
   }
 
-  status.textContent = `Треков: ${data.length}`;
+  async function load(){
+    subtitle.textContent = 'Загрузка…';
 
-  data.forEach(t => {
-    const div = document.createElement("div");
-    div.className = "track";
+    let tgId = null;
+    try {
+      tgId = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null;
+    } catch(e){ tgId = null; }
 
-    const title = (t.title || "Track").replaceAll("<","&lt;").replaceAll(">","&gt;");
-    const src = (t.stream_url || "").trim();
+    if (!tgId){
+      showError('Не удалось определить пользователя Telegram. Открой мини-приложение из бота.');
+      return;
+    }
 
-    div.innerHTML = `
-      <div class="title">${title}</div>
-      <audio controls preload="none" src="${src}"></audio>
-    `;
-    container.appendChild(div);
-  });
-}
+    const base = window.location.origin;
+    const url = base + `/webapp/music/api/my?tg_id=${encodeURIComponent(tgId)}`;
 
-loadTracks();
+    try{
+      const r = await fetch(url, { credentials: 'include' });
+      const js = await r.json();
+      if (!js || !js.ok) throw new Error('bad response');
+      render(js.items || []);
+    } catch(e){
+      showError('Не удалось загрузить плейлист. Проверь деплой/API.');
+    }
+  }
+
+  load();
+})();
 </script>
 </body>
 </html>

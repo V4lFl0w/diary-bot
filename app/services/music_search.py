@@ -1,201 +1,185 @@
 from __future__ import annotations
 
-import json
 import os
 import re
+import asyncio
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import List
 
 import aiohttp
 
 
-@dataclass(frozen=True)
-class SearchTrack:
-    source: str
+@dataclass
+class TrackResult:
     title: str
-    artist: str | None
-    url: str | None          # страница трека
-    preview_url: str | None  # то, что реально проигрывается (full или preview)
-    artwork_url: str | None
+    artist: str = ""
+    source: str = ""
+    url: str = ""         # страница/источник
+    audio_url: str = ""   # ПРЯМАЯ ссылка на full аудио (mp3/m4a/ogg/aac/wav)
+
+    def display_title(self) -> str:
+        t = (self.title or "").strip() or "Track"
+        a = (self.artist or "").strip()
+        return f"{t} — {a}" if a else t
 
 
-_AUDIO_EXT_RE = re.compile(r"\.(mp3|ogg|m4a|aac|wav)(\?|$)", re.IGNORECASE)
+_AUDIO_EXT_RE = re.compile(r"\.(mp3|m4a|ogg|aac|wav)(\?|$)", re.IGNORECASE)
 
 
-def is_direct_audio_url(u: str) -> bool:
-    s = (u or "").strip()
-    if not s.startswith("https://"):
+def _is_audio_url(u: str) -> bool:
+    if not u:
         return False
-    return bool(_AUDIO_EXT_RE.search(s))
+    u = u.strip()
+    if not (u.startswith("https://") or u.startswith("http://")):
+        return False
+    return bool(_AUDIO_EXT_RE.search(u))
 
 
-async def itunes_search(query: str, *, limit: int = 8, country: str = "US") -> list[SearchTrack]:
-    q = (query or "").strip()
-    if not q:
-        return []
-
-    params = {
-        "term": q,
-        "media": "music",
-        "entity": "song",
-        "limit": str(max(1, min(limit, 25))),
-        "country": country,
-    }
-
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as s:
-        async with s.get("https://itunes.apple.com/search", params=params) as r:
-            if r.status != 200:
-                return []
-            text = await r.text()
-
+async def _head_is_audio(session: aiohttp.ClientSession, url: str) -> bool:
     try:
-        data: dict[str, Any] = json.loads(text)
+        async with session.head(url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=10)) as r:
+            ct = (r.headers.get("Content-Type") or "").lower()
+            if "audio/" in ct:
+                return True
+            if "text/html" in ct:
+                return False
+            return _is_audio_url(str(r.url))
     except Exception:
+        return _is_audio_url(url)
+
+
+# ---------------- JAMENDO (FULL TRACKS) ----------------
+# Jamendo требует client_id. Без него вернём пусто.
+JAMENDO_CLIENT_ID = os.getenv("JAMENDO_CLIENT_ID", "").strip()
+
+
+async def _jamendo_search(q: str, limit: int) -> List[TrackResult]:
+    if not JAMENDO_CLIENT_ID:
         return []
-
-    out: list[SearchTrack] = []
-    for item in (data.get("results") or [])[:limit]:
-        title = str(item.get("trackName") or "").strip()
-        artist = str(item.get("artistName") or "").strip() or None
-        url = str(item.get("trackViewUrl") or "").strip() or None
-        preview = str(item.get("previewUrl") or "").strip() or None
-        art = str(item.get("artworkUrl100") or "").strip() or None
-        if not title:
-            continue
-        out.append(SearchTrack(
-            source="itunes",
-            title=title,
-            artist=artist,
-            url=url,
-            preview_url=preview,  # это preview, НЕ full
-            artwork_url=art,
-        ))
-    return out
-
-
-async def jamendo_search(query: str, *, limit: int = 8) -> list[SearchTrack]:
-    client_id = (os.getenv("JAMENDO_CLIENT_ID") or "").strip()
-    if not client_id:
-        return []
-
-    q = (query or "").strip()
-    if not q:
-        return []
-
+    url = "https://api.jamendo.com/v3.0/tracks/"
     params = {
-        "client_id": client_id,
+        "client_id": JAMENDO_CLIENT_ID,
         "format": "json",
-        "limit": str(max(1, min(limit, 25))),
-        "include": "musicinfo",
+        "limit": str(limit),
         "search": q,
-        "audioformat": "mp32",  # Jamendo даёт playable stream
+        "audioformat": "mp32",  # mp3
+        "include": "musicinfo",
     }
-
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
-        async with s.get("https://api.jamendo.com/v3.0/tracks/", params=params) as r:
+    out: List[TrackResult] = []
+    timeout = aiohttp.ClientTimeout(total=12)
+    async with aiohttp.ClientSession(timeout=timeout) as s:
+        async with s.get(url, params=params) as r:
             if r.status != 200:
                 return []
-            data = await r.json()
-
-    out: list[SearchTrack] = []
-    for item in (data.get("results") or [])[:limit]:
-        title = str(item.get("name") or "").strip()
-        artist = str(item.get("artist_name") or "").strip() or None
-        page = str(item.get("shareurl") or "").strip() or None
-        audio = str(item.get("audio") or "").strip() or None  # direct stream url
-        art = str(item.get("image") or "").strip() or None
-        if not title or not audio or not audio.startswith("http"):
-            continue
-        # Jamendo иногда отдаёт http — чинем на https
-        if audio.startswith("http://"):
-            audio = "https://" + audio[len("http://"):]
-        out.append(SearchTrack(
-            source="jamendo",
-            title=title,
-            artist=artist,
-            url=page,
-            preview_url=audio,  # это FULL stream
-            artwork_url=art,
-        ))
+            js = await r.json()
+            items = js.get("results") or []
+            for it in items:
+                name = (it.get("name") or "").strip()
+                artist = (it.get("artist_name") or "").strip()
+                audio = (it.get("audio") or "").strip()  # direct mp3
+                share = (it.get("shareurl") or "").strip()
+                if not name or not audio:
+                    continue
+                if not _is_audio_url(audio):
+                    continue
+                out.append(TrackResult(title=name, artist=artist, source="jamendo", url=share or audio, audio_url=audio))
+                if len(out) >= limit:
+                    break
     return out
 
 
-async def archive_search(query: str, *, limit: int = 8) -> list[SearchTrack]:
-    # Internet Archive: берём items через advancedsearch, потом metadata -> files -> mp3/ogg
-    q = (query or "").strip()
-    if not q:
-        return []
-
+# ---------------- INTERNET ARCHIVE (FULL FILES) ----------------
+async def _archive_search(q: str, limit: int) -> List[TrackResult]:
+    search_url = "https://archive.org/advancedsearch.php"
     params = {
-        "q": f'title:("{q}") AND mediatype:(audio)',
-        "fl[]": ["identifier", "title"],
-        "rows": str(max(1, min(limit, 25))),
+        "q": f'({q}) AND mediatype:(audio)',
+        "fl[]": ["identifier", "title", "creator"],
+        "rows": str(max(limit, 10)),
         "page": "1",
         "output": "json",
     }
 
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=12)) as s:
-        async with s.get("https://archive.org/advancedsearch.php", params=params) as r:
+    timeout = aiohttp.ClientTimeout(total=15)
+    out: List[TrackResult] = []
+    async with aiohttp.ClientSession(timeout=timeout) as s:
+        async with s.get(search_url, params=params) as r:
             if r.status != 200:
                 return []
-            data = await r.json()
-
-        docs = (data.get("response") or {}).get("docs") or []
-        out: list[SearchTrack] = []
-
-        for d in docs[:limit]:
-            ident = str(d.get("identifier") or "").strip()
-            if not ident:
-                continue
-
-            async with s.get(f"https://archive.org/metadata/{ident}") as r2:
-                if r2.status != 200:
+            js = await r.json()
+            docs = (js.get("response") or {}).get("docs") or []
+            for d in docs:
+                ident = (d.get("identifier") or "").strip()
+                title = (d.get("title") or "").strip() or "Track"
+                creator = (d.get("creator") or "").strip()
+                if not ident:
                     continue
-                meta = await r2.json()
 
-            files = meta.get("files") or []
-            # ищем mp3/ogg
-            best: Optional[str] = None
-            for f in files:
-                name = str(f.get("name") or "")
-                if not name:
+                meta_url = f"https://archive.org/metadata/{ident}"
+                try:
+                    async with s.get(meta_url) as mr:
+                        if mr.status != 200:
+                            continue
+                        mj = await mr.json()
+                except Exception:
                     continue
-                if name.lower().endswith((".mp3", ".ogg", ".m4a", ".aac", ".wav")):
-                    best = f"https://archive.org/download/{ident}/{name}"
+
+                files = mj.get("files") or []
+                best_audio = ""
+                for f in files:
+                    name = (f.get("name") or "").strip()
+                    if not name:
+                        continue
+                    if not _AUDIO_EXT_RE.search(name):
+                        continue
+                    low = name.lower()
+                    if "64kb" in low or "vbr" in low:
+                        continue
+                    best_audio = f"https://archive.org/download/{ident}/{name}"
+                    if _is_audio_url(best_audio):
+                        break
+
+                if not best_audio:
+                    continue
+
+                ok = await _head_is_audio(s, best_audio)
+                if not ok:
+                    continue
+
+                page = f"https://archive.org/details/{ident}"
+                out.append(TrackResult(title=title, artist=creator, source="archive", url=page, audio_url=best_audio))
+                if len(out) >= limit:
                     break
 
-            if not best:
-                continue
-
-            title = str(d.get("title") or ident).strip()
-            out.append(SearchTrack(
-                source="archive",
-                title=title,
-                artist=None,
-                url=f"https://archive.org/details/{ident}",
-                preview_url=best,  # full file
-                artwork_url=None,
-            ))
-
-        return out
+    return out
 
 
-async def search_tracks(query: str, *, limit: int = 10) -> list[SearchTrack]:
-    q = (query or "").strip()
+async def search_tracks(q: str, limit: int = 10) -> List[TrackResult]:
+    q = (q or "").strip()
     if not q:
         return []
+    limit = max(1, min(int(limit or 10), 10))
 
-    # 1) Если дали прямую ссылку на аудио — это сразу “full”
-    if is_direct_audio_url(q):
-        name = q.split("/")[-1].split("?")[0]
-        return [SearchTrack(source="link", title=name or "Audio link", artist=None, url=q, preview_url=q, artwork_url=None)]
+    tasks = [
+        _jamendo_search(q, limit=limit),
+        _archive_search(q, limit=limit),
+    ]
+    res = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # 2) Внешние full источники (легальные)
-    jam = await jamendo_search(q, limit=limit)
-    arc = await archive_search(q, limit=limit)
+    merged: List[TrackResult] = []
+    for part in res:
+        if isinstance(part, Exception):
+            continue
+        for t in part:
+            if t and t.audio_url and _is_audio_url(t.audio_url):
+                merged.append(t)
 
-    # 3) iTunes preview (в конце, как fallback)
-    it = await itunes_search(q, limit=limit)
+    seen = set()
+    uniq: List[TrackResult] = []
+    for t in merged:
+        key = t.audio_url.strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(t)
 
-    merged = jam + arc + it
-    return merged[:limit]
+    return uniq[:limit]

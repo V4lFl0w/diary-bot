@@ -1,124 +1,75 @@
 from __future__ import annotations
 
-
-def _is_http_url(s: str) -> bool:
-    ss = (s or "").strip().lower()
-    return ss.startswith("http://") or ss.startswith("https://")
-import os
-import aiohttp
-from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from typing import List, Dict, Any, Optional, AsyncIterator
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.db import async_session
+
 from app.models.user import User
 from app.models.user_track import UserTrack
 
-router = APIRouter(prefix="/api/music", tags=["music-webapp"])
+# MVP-авторизация: tg_id прилетает с фронта (Telegram WebApp initDataUnsafe.user.id)
+# Дальше можно усилить до verify initData подписи.
 
 
-# --- DB session dependency (auto-resolve) ---
-from typing import AsyncIterator
-from sqlalchemy.ext.asyncio import AsyncSession
 
-def _resolve_async_sessionmaker():
-    # пробуем найти то, что реально экспортится в app.db
-    import app.db as db
-    for name in (
-        "async_sessionmaker",
-        "async_session_maker",
-        "async_session_factory",
-        "async_session",
-        "SessionLocal",
-        "async_session_local",
-    ):
-        sm = getattr(db, name, None)
-        if sm is not None:
-            return sm
-    raise RuntimeError("Cannot resolve async sessionmaker in app.db (no known session factory exported)")
+for _mod, _name in (
+    ("app.db", "get_db_session"),
+    ("app.db.session", "get_db_session"),
+    ("app.db", "get_session"),
+    ("app.db.session", "get_session"),
+    ("app.db", "get_async_session"),
+    ("app.db.session", "get_async_session"),
+):
+    try:
+        m = __import__(_mod, fromlist=[_name])
+        fn = getattr(m, _name, None)
+        if fn:
+            get_db_session = fn  # type: ignore
+            break
+    except Exception:
+        continue
 
-_ASYNC_SESSIONMAKER = _resolve_async_sessionmaker()
+router = APIRouter(prefix="/webapp/music/api", tags=["webapp-music"])
 
-async def get_db_session() -> AsyncIterator[AsyncSession]:
-    # поддержим и sessionmaker(), и callable factory
-    async with _ASYNC_SESSIONMAKER() as session:
+
+async def _session_dep() -> AsyncIterator[AsyncSession]:
+    async with async_session() as session:
         yield session
-# --- /DB session dependency ---
-BOT_TOKEN = (os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+
+
+
+@router.get("/health")
+async def health() -> Dict[str, str]:
+    return {"ok": "1"}
 
 
 @router.get("/my")
-async def my_tracks(uid: int, session: AsyncSession = Depends(get_db_session)):
-    user = await session.scalar(select(User).where(User.tg_id == uid).limit(1))
+async def my_playlist(
+    tg_id: int = Query(..., description="Telegram user id (from initDataUnsafe.user.id)"),
+    session: AsyncSession = Depends(_session_dep),
+) -> Dict[str, Any]:
+    user: Optional[User] = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        return {"ok": True, "items": []}
 
     rows = (
         (await session.execute(
-            select(UserTrack)
-            .where(UserTrack.user_id == user.id)
-            .order_by(UserTrack.id.desc())
-            .limit(50)
+            select(UserTrack).where(UserTrack.user_id == user.id).order_by(UserTrack.id.desc()).limit(200)
         ))
         .scalars()
         .all()
     )
 
-    out = []
+    items: List[Dict[str, Any]] = []
     for t in rows:
         fid = (t.file_id or "").strip()
-        if fid.startswith("https://"):
-            stream_url = fid  # внешняя ссылка (mp3/ogg/m4a) — WebApp играет напрямую
-        else:
-            stream_url = f"/api/music/stream/{t.id}?uid={uid}"  # telegram file_id -> стрим через бэк
+        items.append({
+            "id": t.id,
+            "title": (t.title or "Track"),
+            "file_id": fid,
+            "is_url": fid.startswith("http://") or fid.startswith("https://"),
+        })
 
-        out.append({"id": t.id, "title": t.title or "Track", "stream_url": stream_url})
-    return out
-
-
-@router.get("/stream/{track_id}")
-async def stream_track(track_id: int, uid: int, session: AsyncSession = Depends(get_db_session)):
-    if not BOT_TOKEN:
-        raise HTTPException(status_code=500, detail="BOT_TOKEN is not set")
-
-    user = await session.scalar(select(User).where(User.tg_id == uid).limit(1))
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    track = await session.scalar(
-        select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == track_id).limit(1)
-    )
-    if not track:
-        raise HTTPException(status_code=404, detail="Track not found")
-
-    file_id = (track.file_id or "").strip()
-
-    if file_id.startswith("https://"):
-        raise HTTPException(status_code=400, detail="Track is external URL")
-
-    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as s:
-        async with s.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile", params={"file_id": file_id}) as r:
-            data = await r.json()
-            if not data.get("ok"):
-                raise HTTPException(status_code=502, detail=f"Telegram getFile failed: {data}")
-            path = data["result"]["file_path"]
-
-        file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{path}"
-        resp = await s.get(file_url)
-        if resp.status != 200:
-            raise HTTPException(status_code=502, detail=f"Telegram file download failed: {resp.status}")
-
-        headers = {"Cache-Control": "no-store"}
-        return StreamingResponse(
-            resp.content.iter_chunked(64 * 1024),
-            media_type="audio/mpeg",
-            headers=headers,
-        )
-
-
-@router.get("/api/version")
-async def api_version():
-    import os, time
-    return {
-        "git": os.getenv("GIT_SHA") or os.getenv("DO_COMMIT_SHA") or os.getenv("HEROKU_SLUG_COMMIT") or "unknown",
-        "ts": int(time.time()),
-    }
+    return {"ok": True, "items": items}
