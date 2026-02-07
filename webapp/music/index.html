@@ -349,21 +349,63 @@ try{
       Telegram.WebApp.expand();
     }
   } catch(e){}
-
   function getTgId(){
     try{
-      const tg = window.Telegram && Telegram.WebApp ? Telegram.WebApp : null;
-      const id = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null;
-      if (id) return id;
+      const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+
+      // 1) initDataUnsafe
+      const id1 = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null;
+      if (id1) return Number(id1);
+
+      // 2) parse initData: user=<urlencoded_json>
+      const init = tg ? tg.initData : null;
+      if (init){
+        const params = new URLSearchParams(init);
+        const u = params.get("user");
+        if (u){
+          try{
+            const obj = JSON.parse(decodeURIComponent(u));
+            if (obj && obj.id) return Number(obj.id);
+          }catch(e){}
+        }
+      }
     }catch(e){}
-    const qp = new URLSearchParams(location.search);
-    const qid = qp.get("tg_id");
-    return qid ? parseInt(qid, 10) : null;
+
+    // 3) fallback query ?tg_id=
+    try{
+      const qp = new URLSearchParams(location.search);
+      const qid = qp.get("tg_id");
+      return qid ? parseInt(qid, 10) : null;
+    }catch(e){}
+    return null;
   }
+
+
 
   const _tgid = getTgId();
 
 
+
+  function apiFetch(url, opts){
+    const tg_id = getTgId();
+    // авто-добавка tg_id в query (для бекенда)
+    try{
+      const u = new URL(url, location.origin);
+      if (tg_id && !u.searchParams.get("tg_id")){
+        u.searchParams.set("tg_id", String(tg_id));
+      }
+      url = u.toString();
+    }catch(e){}
+
+    opts = opts || {};
+    const h = Object.assign({}, (opts.headers || {}));
+    h["Accept"] = h["Accept"] || "application/json";
+    if (tg_id){
+      h["X-TG-ID"] = String(tg_id);
+    }
+    opts.headers = h;
+    return fetch(url, opts);
+  }
   const state = {
     selected: null,
     lastQuery: "",
@@ -447,7 +489,7 @@ try{
           const u = new URL("/webapp/music/api/resolve", location.origin);
           u.searchParams.set("tg_id", String(state.tg_id));
           u.searchParams.set("track_id", String(it.track_id));
-          const r = await fetch(u.toString(), { method:"GET", headers:{ "Accept":"application/json" } });
+          const r = await apiFetch(u.toString(), { method:"GET" });
           const j = await r.json();
           const url = j && j.url ? j.url : null;
           if (url){
@@ -484,7 +526,7 @@ try{
     u.searchParams.set("limit", "14");
 
     try{
-      const r = await fetch(u.toString(), { method:"GET", headers:{ "Accept":"application/json" } });
+      const r = await apiFetch(u.toString(), { method:"GET" });
       const j = await r.json();
       const items = (j && j.items) ? j.items : [];
       state.items = items;
@@ -525,7 +567,7 @@ try{
     u.searchParams.set("tg_id", String(tg_id));
     u.searchParams.set("track_id", String(it.track_id));
     try{
-      const r = await fetch(u.toString(), { method:"POST", headers:{ "Accept":"application/json" } });
+      const r = await apiFetch(u.toString(), { method:"POST" });
       const j = await r.json();
       if (j && j.ok){
         setStatus("Отправил в Telegram ✅ Открой чат — трек уже там.");
@@ -582,7 +624,7 @@ $("btnClear").addEventListener("click", ()=>{
     const u = new URL("/webapp/music/api/my", location.origin);
     u.searchParams.set("tg_id", String(state.tg_id));
     try{
-      const r = await fetch(u.toString(), { method:"GET", headers:{ "Accept":"application/json" } });
+      const r = await apiFetch(u.toString(), { method:"GET" });
       const j = await r.json();
       const items = (j && j.items) ? j.items : [];
       state.my = items.map(x=>({
