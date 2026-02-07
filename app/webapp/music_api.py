@@ -218,47 +218,94 @@ async def _tg_send_audio(chat_id: int, audio_ref: str, caption: str = "") -> Dic
 from app.services.music_full_sender import send_or_fetch_full_track
 
 
+
+
+from typing import Optional, Dict, Any
+from fastapi import Query, Header, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.models.user import User
+from app.models.user_track import UserTrack
+from app.webapp.music_api import router, session_dep
+from app.services.downloader import download_from_youtube
+from aiogram.types import FSInputFile
+from app.webapp.music_api import _tg_send_audio
+from app.bot import bot
+
+
 @router.post("/play")
 async def play_track(
-    tg_id: Optional[int] = Query(None, description="Telegram user id"),
-    track_id: int = Query(..., description="UserTrack.id"),
-    kind: str = Query("my", description="my|search"),
-    audio_url: Optional[str] = Query(None, description="direct https audio url for search"),
+    tg_id: Optional[int] = Query(None),
     x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
+    track_id: Optional[int] = Query(None, description="UserTrack.id"),
+    kind: str = Query("my", description="my|search"),
+    title: Optional[str] = Query(None),
+    query: Optional[str] = Query(None),
     session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
     tg_id = tg_id or x_tg_id
     if not tg_id:
-        raise HTTPException(status_code=400, detail="tg_id missing (open mini app inside Telegram)")
+        raise HTTPException(status_code=400, detail="tg_id missing")
 
-    # Ветка "search": MiniApp нашёл прямой full-audio URL (https://...mp3/ogg/m4a/...)
-    if kind == "search":
-        au = (audio_url or "").strip()
-        if not au.startswith("https://"):
-            raise HTTPException(status_code=409, detail="NO_DIRECT_AUDIO_URL")
-        ok_ext = (".mp3", ".ogg", ".m4a", ".aac", ".wav")
-        if not any(au.lower().split("?")[0].endswith(x) for x in ok_ext):
-            raise HTTPException(status_code=409, detail="AUDIO_URL_NOT_AUDIO_FILE")
-
-        data = await _tg_send_audio(chat_id=int(tg_id), audio_ref=au, caption="🎧 Full track")
-        try:
-            fid = (((data or {}).get("result") or {}).get("audio") or {}).get("file_id")
-        except Exception:
-            fid = None
-        return {"ok": True, "sent": True, "file_id": fid}
-
-    # Ветка "my": берём UserTrack из БД и отправляем (file_id или yt-dlp->file_id)
-    user: Optional[User] = (await session.execute(select(User).where(User.tg_id == int(tg_id)))).scalar_one_or_none()
+    user = (
+        await session.execute(
+            select(User).where(User.tg_id == tg_id)
+        )
+    ).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
 
-    track: Optional[UserTrack] = (
-        (await session.execute(
-            select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == int(track_id))
-        )).scalar_one_or_none()
-    )
-    if not track:
-        raise HTTPException(status_code=404, detail="track not found")
+    # ===== MY PLAYLIST =====
+    if kind == "my":
+        if not track_id:
+            raise HTTPException(status_code=400, detail="track_id required")
 
-    await send_or_fetch_full_track(session=session, user=user, track=track)
-    return {"ok": True}
+        track = (
+            await session.execute(
+                select(UserTrack).where(
+                    UserTrack.user_id == user.id,
+                    UserTrack.id == track_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not track:
+            raise HTTPException(status_code=404, detail="track not found")
+
+        if not track.file_id:
+            raise HTTPException(status_code=409, detail="track has no file_id")
+
+        await _tg_send_audio(
+            chat_id=tg_id,
+            audio_ref=track.file_id,
+            caption=f"🎧 {track.title or 'Track'}",
+        )
+        return {"ok": True, "source": "my"}
+
+    # ===== SEARCH (yt-dlp → cache) =====
+    if kind == "search":
+        if not title or not query:
+            raise HTTPException(status_code=400, detail="title and query required")
+
+        audio_path = download_from_youtube(query)
+
+        msg = await bot.send_audio(
+            chat_id=tg_id,
+            audio=FSInputFile(audio_path),
+            title=title,
+        )
+
+        file_id = msg.audio.file_id
+
+        track = UserTrack(
+            user_id=user.id,
+            tg_id=tg_id,
+            title=title,
+            file_id=file_id,
+        )
+        session.add(track)
+        await session.commit()
+
+        return {"ok": True, "source": "search", "cached": True}
+
+    raise HTTPException(status_code=400, detail="unknown kind")
