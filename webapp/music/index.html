@@ -363,6 +363,19 @@ try{
 
   const _tgid = getTgId();
 
+
+  const state = {
+    selected: null,
+    lastQuery: "",
+    items: [],
+    queue: [],   // simple local queue (session)
+    appVersion: (new URLSearchParams(location.search).get("v") || ""),
+    mode: "audio",
+    tg_id: _tgid,
+    my: []
+  };
+
+
   function setMode(m){
     state.mode = m;
     if (m === "audio"){
@@ -388,17 +401,6 @@ try{
   modeYT.addEventListener("click", ()=>setMode("youtube"));
   setMode("audio");
 
-
-  const state = {
-    selected: null,
-    lastQuery: "",
-    items: [],
-    queue: [],   // simple local queue (session)
-    appVersion: (new URLSearchParams(location.search).get("v") || ""),
-    mode: "audio",
-    tg_id: _tgid,
-    my: []
-  };
   ver.textContent = state.appVersion ? ("v=" + state.appVersion) : "";
 
   function setStatus(t){ status.textContent = t; }
@@ -431,6 +433,7 @@ try{
 
   async function play(it){
     if (!it) return;
+    state.selected = it;
     state.queue.unshift(it);
     nowTitle.textContent = it.title || "—";
     nowChan.textContent = it.channel || "—";
