@@ -11,8 +11,15 @@ def download_from_youtube(query: str) -> Path:
         "-x",
         "--audio-format", "mp3",
         "-o", tmp.name,
-        f"ytsearch1:{query}"
+        f"ytsearch1:{query}",
     ]
 
-    subprocess.check_call(cmd)
+    try:
+        subprocess.check_call(cmd)
+    except FileNotFoundError as e:
+        # yt-dlp is missing on server
+        raise RuntimeError("YTDLP_NOT_INSTALLED") from e
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError("YTDLP_FAILED") from e
+
     return Path(tmp.name)

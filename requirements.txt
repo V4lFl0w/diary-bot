@@ -17,3 +17,4 @@ openai>=1.0.0
 requests==2.32.3
 Pillow
 boto3>=1.28.0
+yt-dlp

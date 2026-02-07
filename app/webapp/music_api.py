@@ -215,6 +215,40 @@ async def _tg_send_audio(chat_id: int, audio_ref: str, caption: str = "") -> Dic
     return data
 
 
+async def _tg_send_audio_file(chat_id: int, file_path, title: str = "", caption: str = "") -> Dict[str, Any]:
+    """Send local audio file via Telegram Bot API (multipart). Returns raw API JSON."""
+    token = await _bot_token()
+    url = f"{TELEGRAM_API}/bot{token}/sendAudio"
+
+    import aiohttp
+
+    form = aiohttp.FormData()
+    form.add_field("chat_id", str(chat_id))
+    if caption:
+        form.add_field("caption", caption[:1024])
+    if title:
+        form.add_field("title", title[:255])
+
+    fp = str(file_path)
+    with open(fp, "rb") as f:
+        form.add_field(
+            "audio",
+            f,
+            filename=(title or "track") + ".mp3",
+            content_type="audio/mpeg",
+        )
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+              url,
+              data=form,
+              timeout=aiohttp.ClientTimeout(total=120),
+        ) as r:
+                data = await r.json()
+                if r.status != 200 or not data.get("ok"):
+                    raise HTTPException(status_code=502, detail={"tg_sendAudio_file": data})
+                return data
+
+
 from app.services.music_full_sender import send_or_fetch_full_track
 
 
@@ -287,19 +321,30 @@ async def play_track(
         if not title or not query:
             raise HTTPException(status_code=400, detail="title and query required")
 
-        audio_path = download_from_youtube(query)
+        try:
+            audio_path = download_from_youtube(query)
+        except RuntimeError as e:
+            msg = str(e) or "YTDLP_ERROR"
+            raise HTTPException(status_code=503, detail=msg)
 
-        msg = await bot.send_audio(
-            chat_id=tg_id,
-            audio=FSInputFile(audio_path),
+        data = await _tg_send_audio_file(
+            chat_id=int(tg_id),
+            file_path=audio_path,
             title=title,
+            caption=f"🎧 {title}",
         )
 
-        file_id = msg.audio.file_id
+        # extract file_id from Bot API response
+        try:
+            file_id = (((data or {}).get("result") or {}).get("audio") or {}).get("file_id")
+        except Exception:
+            file_id = None
+        if not file_id:
+            raise HTTPException(status_code=502, detail={"no_file_id_in_sendAudio": data})
 
         track = UserTrack(
             user_id=user.id,
-            tg_id=tg_id,
+            tg_id=int(tg_id),
             title=title,
             file_id=file_id,
         )
@@ -309,3 +354,4 @@ async def play_track(
         return {"ok": True, "source": "search", "cached": True}
 
     raise HTTPException(status_code=400, detail="unknown kind")
+
