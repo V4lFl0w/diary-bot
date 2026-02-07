@@ -276,6 +276,7 @@ async def play_track(
     kind: str = Query("my", description="my|search"),
     title: Optional[str] = Query(None),
     query: Optional[str] = Query(None),
+    video_id: Optional[str] = Query(None),
     session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
     tg_id = tg_id or x_tg_id
@@ -326,7 +327,16 @@ async def play_track(
         except RuntimeError as e:
             code = str(e) or "YTDLP_ERROR"
             if code == "YTDLP_YT_BOT_CHECK":
-                raise HTTPException(status_code=409, detail=code)
+                yurl = f"https://www.youtube.com/watch?v={video_id}" if (video_id or "").strip() else None
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": code,
+                        "video_id": video_id,
+                        "youtube_url": yurl,
+                        "hint": "YouTube anti-bot блокирует скачивание. Открой в YouTube или добавь аудио/прямую ссылку в плейлист.",
+                    },
+                )
             if code == "YTDLP_NOT_INSTALLED":
                 raise HTTPException(status_code=503, detail=code)
             raise HTTPException(status_code=502, detail=code)
