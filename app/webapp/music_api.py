@@ -2,7 +2,7 @@ import os
 import aiohttp
 
 from typing import List, Dict, Any, Optional, AsyncIterator
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.db import async_session
@@ -53,10 +53,16 @@ async def _tg_get_file_url(file_id: str) -> str:
 
 @router.get("/resolve")
 async def resolve_track(
-    tg_id: int = Query(..., description="Telegram user id"),
-    track_id: int = Query(..., description="UserTrack.id"),
+    tg_id: Optional[int] = Query(None, description="Telegram user id"),
+    
+    x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
+track_id: int = Query(..., description="UserTrack.id"),
     session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
+    tg_id = tg_id or x_tg_id
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="tg_id missing (open mini app inside Telegram)")
+
     # verify owner
     user: Optional[User] = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     if not user:
@@ -96,9 +102,15 @@ async def health() -> Dict[str, str]:
 
 @router.get("/my")
 async def my_playlist(
-    tg_id: int = Query(..., description="Telegram user id (from initDataUnsafe.user.id)"),
-    session: AsyncSession = Depends(session_dep),
+    tg_id: Optional[int] = Query(None, description="Telegram user id (from initDataUnsafe.user.id)"),
+    
+    x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
+session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
+    tg_id = tg_id or x_tg_id
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="tg_id missing (open mini app inside Telegram)")
+
     user: Optional[User] = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     if not user:
         return {"ok": True, "items": []}
@@ -209,10 +221,16 @@ from app.services.music_full_sender import send_or_fetch_full_track
 
 @router.post("/play")
 async def play_track(
-    tg_id: int = Query(..., description="Telegram user id"),
-    track_id: int = Query(..., description="UserTrack.id"),
+    tg_id: Optional[int] = Query(None, description="Telegram user id"),
+    
+    x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
+track_id: int = Query(..., description="UserTrack.id"),
     session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
+    tg_id = tg_id or x_tg_id
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="tg_id missing (open mini app inside Telegram)")
+
     user: Optional[User] = (
         await session.execute(
             select(User).where(User.tg_id == tg_id)
