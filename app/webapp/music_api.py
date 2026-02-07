@@ -204,35 +204,39 @@ async def _tg_send_audio(chat_id: int, audio_ref: str, caption: str = "") -> Dic
     return data
 
 
+from app.services.music_full_sender import send_or_fetch_full_track
+
+
 @router.post("/play")
 async def play_track(
     tg_id: int = Query(..., description="Telegram user id"),
     track_id: int = Query(..., description="UserTrack.id"),
     session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
-    """
-    PROD flow:
-    - MiniApp asks server to 'play' a saved track.
-    - Server verifies owner and sends audio to user via Telegram.
-    """
-    user: Optional[User] = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
+    user: Optional[User] = (
+        await session.execute(
+            select(User).where(User.tg_id == tg_id)
+        )
+    ).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
 
-    t: Optional[UserTrack] = (
-        (await session.execute(
-            select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == track_id)
-        )).scalar_one_or_none()
-    )
-    if not t:
+    track: Optional[UserTrack] = (
+        await session.execute(
+            select(UserTrack).where(
+                UserTrack.user_id == user.id,
+                UserTrack.id == track_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not track:
         raise HTTPException(status_code=404, detail="track not found")
 
-    audio_ref = (t.file_id or "").strip()
-    if not audio_ref:
-        raise HTTPException(status_code=400, detail="empty track file_id")
+    await send_or_fetch_full_track(
+        session=session,
+        user=user,
+        track=track,
+    )
 
-    title = (t.title or "Track").strip()
-    await _tg_send_audio(chat_id=tg_id, audio_ref=audio_ref, caption=f"🎧 {title}")
-
-    return {"ok": True, "sent": True}
+    return {"ok": True}
 
