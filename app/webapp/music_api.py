@@ -14,24 +14,15 @@ from app.models.user_track import UserTrack
 # Дальше можно усилить до verify initData подписи.
 
 
-for _mod, _name in (
-    ("app.db", "get_db_session"),
-    ("app.db.session", "get_db_session"),
-    ("app.db", "get_session"),
-    ("app.db.session", "get_session"),
-    ("app.db", "get_async_session"),
-    ("app.db.session", "get_async_session"),
-):
-    try:
-        m = __import__(_mod, fromlist=[_name])
-        fn = getattr(m, _name, None)
-        if fn:
-            get_db_session = fn  # type: ignore
-            break
-    except Exception:
-        continue
 
 router = APIRouter(prefix="/webapp/music/api", tags=["webapp-music"])
+
+from typing import AsyncIterator
+from app.db import async_session
+
+async def session_dep() -> AsyncIterator[AsyncSession]:
+    async with async_session() as session:
+        yield session
 
 import urllib.parse
 
@@ -64,7 +55,7 @@ async def _tg_get_file_url(file_id: str) -> str:
 async def resolve_track(
     tg_id: int = Query(..., description="Telegram user id"),
     track_id: int = Query(..., description="UserTrack.id"),
-    session: AsyncSession = Depends(_session_dep),
+    session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
     # verify owner
     user: Optional[User] = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
@@ -106,7 +97,7 @@ async def health() -> Dict[str, str]:
 @router.get("/my")
 async def my_playlist(
     tg_id: int = Query(..., description="Telegram user id (from initDataUnsafe.user.id)"),
-    session: AsyncSession = Depends(_session_dep),
+    session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
     user: Optional[User] = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     if not user:
@@ -217,7 +208,7 @@ async def _tg_send_audio(chat_id: int, audio_ref: str, caption: str = "") -> Dic
 async def play_track(
     tg_id: int = Query(..., description="Telegram user id"),
     track_id: int = Query(..., description="UserTrack.id"),
-    session: AsyncSession = Depends(_session_dep),
+    session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
     """
     PROD flow:
