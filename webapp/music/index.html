@@ -244,6 +244,10 @@
   
 .iframe{pointer-events:none;}
 .iframe.active{pointer-events:auto;}
+  /* CLICK_FIX */
+  body::before, body::after { pointer-events: none !important; }
+  .wrap, .wrap * { pointer-events: auto; }
+  button, input, .chip, .item, a { pointer-events: auto !important; }
 </style>
 
 </head>
@@ -320,7 +324,8 @@
   </div>
 
 <script>
-(function(){
+window.addEventListener('DOMContentLoaded', function(){
+try{
   const $ = (id)=>document.getElementById(id);
   const list = $("list");
   const status = $("status");
@@ -328,6 +333,7 @@
   const aud = $("aud");
   const audioWrap = $("audioWrap");
   const iframeWrap = $("iframeWrap");
+  const yt = $("yt");
   const modeAudio = $("modeAudio");
   const modeYT = $("modeYT");
 
@@ -355,7 +361,7 @@
     return qid ? parseInt(qid, 10) : null;
   }
 
-  state.tg_id = getTgId();
+  const _tgid = getTgId();
 
   function setMode(m){
     state.mode = m;
@@ -363,15 +369,16 @@
       modeAudio.classList.add("on");
       modeYT.classList.remove("on");
       audioWrap.style.display = "block";
-      iframeWrap.style.display = "none";
-      yt.src = "about:blank";
-    iframeWrap.classList.remove("active");
+      if (audioWrap) audioWrap.style.display = "block";
+      if (iframeWrap) iframeWrap.style.display = "none";
+      if (yt) yt.src = "about:blank";
+      if (iframeWrap) iframeWrap.classList.remove("active");
     } else {
       modeYT.classList.add("on");
       modeAudio.classList.remove("on");
-      iframeWrap.style.display = "block";
-      audioWrap.style.display = "none";
-      aud.pause();
+      if (iframeWrap) iframeWrap.style.display = "block";
+      if (audioWrap) audioWrap.style.display = "none";
+      if (aud) aud.pause();
       aud.removeAttribute("src");
       aud.load();
     }
@@ -389,7 +396,7 @@
     queue: [],   // simple local queue (session)
     appVersion: (new URLSearchParams(location.search).get("v") || ""),
     mode: "audio",
-    tg_id: null,
+    tg_id: _tgid,
     my: []
   };
   ver.textContent = state.appVersion ? ("v=" + state.appVersion) : "";
@@ -459,7 +466,7 @@
     // --- YouTube mode ---
     if (!it.video_id) return;
     const src = "https://www.youtube.com/embed/" + encodeURIComponent(it.video_id) + "?autoplay=1&rel=0";
-    yt.src = src;
+    if (yt) yt.src = src;
     setStatus("▶️ YouTube: " + (it.title || "Playing"));
   }
 
@@ -554,8 +561,8 @@
 $("btnClear").addEventListener("click", ()=>{
     q.value = "";
     list.innerHTML = "";
-    yt.src = "about:blank";
-    iframeWrap.classList.remove("active");
+    if (yt) yt.src = "about:blank";
+    if (iframeWrap) iframeWrap.classList.remove("active");
     nowTitle.textContent = "Выбери трек слева";
     nowChan.textContent = "—";
     nowThumb.innerHTML = "";
@@ -617,7 +624,13 @@ $("btnClear").addEventListener("click", ()=>{
 
   // initial
   search("Energise");
-})();
+
+} catch(e){
+  console.error(e);
+  const s = document.getElementById("status");
+  if (s) s.textContent = "JS error: " + (e && e.message ? e.message : e);
+}
+});
 </script>
 </body>
 </html>
