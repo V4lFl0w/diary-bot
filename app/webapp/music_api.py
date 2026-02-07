@@ -324,8 +324,12 @@ async def play_track(
         try:
             audio_path = download_from_youtube(query)
         except RuntimeError as e:
-            msg = str(e) or "YTDLP_ERROR"
-            raise HTTPException(status_code=503, detail=msg)
+            code = str(e) or "YTDLP_ERROR"
+            if code == "YTDLP_YT_BOT_CHECK":
+                raise HTTPException(status_code=409, detail=code)
+            if code == "YTDLP_NOT_INSTALLED":
+                raise HTTPException(status_code=503, detail=code)
+            raise HTTPException(status_code=502, detail=code)
 
         data = await _tg_send_audio_file(
             chat_id=int(tg_id),

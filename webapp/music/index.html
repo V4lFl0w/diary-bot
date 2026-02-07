@@ -578,7 +578,8 @@ try{
         }
       }catch(e){
         console.error(e);
-        setStatus("Ошибка /play. Проверь сервер.");
+        if (j && (j.detail === "YTDLP_YT_BOT_CHECK")) { setStatus("YouTube блокирует скачивание (anti-bot). Открой в YouTube ↗️ или добавь прямую ссылку на mp3/ogg/m4a в плейлист через бота."); return; }
+    setStatus("Ошибка /play. Проверь сервер.");
       }
       return;
     }
