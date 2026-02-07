@@ -33,6 +33,65 @@ for _mod, _name in (
 
 router = APIRouter(prefix="/webapp/music/api", tags=["webapp-music"])
 
+import urllib.parse
+
+TELEGRAM_API = "https://api.telegram.org"
+
+async def _tg_get_file_url(file_id: str) -> str:
+    token = (os.getenv("TG_TOKEN") or os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
+    if not token:
+        raise HTTPException(status_code=500, detail="Bot token is not set on server")
+
+    file_id = (file_id or "").strip()
+    if not file_id:
+        raise HTTPException(status_code=400, detail="empty file_id")
+
+    url = f"{TELEGRAM_API}/bot{token}/getFile"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params={"file_id": file_id}, timeout=15) as r:  # type: ignore[arg-type]
+            data = await r.json()
+            if r.status != 200 or not data.get("ok"):
+                raise HTTPException(status_code=502, detail={"tg_getFile": data})
+
+    file_path = ((data.get("result") or {}).get("file_path") or "").strip()
+    if not file_path:
+        raise HTTPException(status_code=502, detail={"tg_getFile": "no file_path", "raw": data})
+
+    return f"{TELEGRAM_API}/file/bot{token}/{urllib.parse.quote(file_path)}"
+
+
+@router.get("/resolve")
+async def resolve_track(
+    tg_id: int = Query(..., description="Telegram user id"),
+    track_id: int = Query(..., description="UserTrack.id"),
+    session: AsyncSession = Depends(_session_dep),
+) -> Dict[str, Any]:
+    # verify owner
+    user: Optional[User] = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    t: Optional[UserTrack] = (
+        (await session.execute(
+            select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == track_id)
+        )).scalar_one_or_none()
+    )
+    if not t:
+        raise HTTPException(status_code=404, detail="track not found")
+
+    fid = (t.file_id or "").strip()
+    if not fid:
+        raise HTTPException(status_code=400, detail="empty track file_id")
+
+    # direct https link
+    if fid.startswith("https://"):
+        return {"ok": True, "url": fid, "kind": "url"}
+
+    # telegram file_id -> direct file url
+    url = await _tg_get_file_url(fid)
+    return {"ok": True, "url": url, "kind": "tg_file"}
+
+
 
 async def _session_dep() -> AsyncIterator[AsyncSession]:
     async with async_session() as session:
@@ -121,4 +180,68 @@ async def search_youtube(q: str = Query(..., min_length=2), limit: int = 12):
         })
 
     return {"q": q, "items": items}
+
+
+async def _bot_token() -> str:
+    token = (os.getenv("TG_TOKEN") or os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
+    if not token:
+        raise HTTPException(status_code=500, detail="Bot token is not set on server")
+    return token
+
+
+async def _tg_send_audio(chat_id: int, audio_ref: str, caption: str = "") -> Dict[str, Any]:
+    """
+    Send audio via Telegram Bot API.
+    audio_ref can be:
+      - Telegram file_id
+      - direct https:// URL to audio file
+    """
+    token = await _bot_token()
+    url = f"{TELEGRAM_API}/bot{token}/sendAudio"
+    payload: Dict[str, Any] = {
+        "chat_id": str(chat_id),
+        "audio": audio_ref,
+    }
+    if caption:
+        payload["caption"] = caption[:1024]
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, data=payload, timeout=20) as r:  # type: ignore[arg-type]
+            data = await r.json()
+            if r.status != 200 or not data.get("ok"):
+                raise HTTPException(status_code=502, detail={"tg_sendAudio": data})
+    return data
+
+
+@router.post("/play")
+async def play_track(
+    tg_id: int = Query(..., description="Telegram user id"),
+    track_id: int = Query(..., description="UserTrack.id"),
+    session: AsyncSession = Depends(_session_dep),
+) -> Dict[str, Any]:
+    """
+    PROD flow:
+    - MiniApp asks server to 'play' a saved track.
+    - Server verifies owner and sends audio to user via Telegram.
+    """
+    user: Optional[User] = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    t: Optional[UserTrack] = (
+        (await session.execute(
+            select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == track_id)
+        )).scalar_one_or_none()
+    )
+    if not t:
+        raise HTTPException(status_code=404, detail="track not found")
+
+    audio_ref = (t.file_id or "").strip()
+    if not audio_ref:
+        raise HTTPException(status_code=400, detail="empty track file_id")
+
+    title = (t.title or "Track").strip()
+    await _tg_send_audio(chat_id=tg_id, audio_ref=audio_ref, caption=f"🎧 {title}")
+
+    return {"ok": True, "sent": True}
 

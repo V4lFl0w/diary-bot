@@ -223,7 +223,24 @@
       max-width:980px;margin:0 auto;
       display:flex;gap:10px;align-items:center;justify-content:space-between;
     }
-    .status{color:var(--muted);font-weight:700;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    
+    .modebar{
+      display:flex; gap:8px; padding:0 14px 12px;
+    }
+    .modebtn{
+      border:1px solid var(--stroke);
+      background: var(--chip);
+      color:var(--text);
+      padding:8px 10px;
+      border-radius:999px;
+      font-weight:800;
+      cursor:pointer;
+      user-select:none;
+      opacity:.95;
+      font-size:12px;
+    }
+    .modebtn.on{background:var(--chipOn); border-color: rgba(58,160,255,.35)}
+.status{color:var(--muted);font-weight:700;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   </style>
 </head>
 <body>
@@ -264,6 +281,10 @@
 
       <div class="panel player">
         <h3>Сейчас играет</h3>
+        <div class="modebar">
+          <div class="modebtn on" id="modeAudio">Audio</div>
+          <div class="modebtn" id="modeYT">YouTube</div>
+        </div>
         <div class="playerbox">
           <div class="thumb" id="nowThumb"></div>
           <div class="now">
@@ -271,8 +292,17 @@
             <div class="c" id="nowChan">—</div>
           </div>
         </div>
-        <div class="iframe" id="iframeWrap">
-          <iframe id="yt" src="about:blank" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        <div style="padding:0 14px 14px; display:none" id="audioWrap">
+          <audio id="aud" controls style="width:100%"></audio>
+        </div>
+        <div style="padding:12px 14px 14px;border-top:1px solid var(--stroke)">
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn" id="btnPlayTG">▶️ Play в Telegram</button>
+            <button class="btn" id="btnOpenYT">↗️ Открыть в YouTube</button>
+          </div>
+          <div style="margin-top:10px;color:var(--muted);font-weight:700;font-size:12px;line-height:1.35">
+            ⚡ Для фонового прослушивания используем Telegram-плеер (самый надёжный вариант).
+          </div>
         </div>
       </div>
     </div>
@@ -291,7 +321,12 @@
   const list = $("list");
   const status = $("status");
   const q = $("q");
-  const yt = $("yt");
+  const aud = $("aud");
+  const audioWrap = $("audioWrap");
+  const iframeWrap = $("iframeWrap");
+  const modeAudio = $("modeAudio");
+  const modeYT = $("modeYT");
+
   const nowTitle = $("nowTitle");
   const nowChan = $("nowChan");
   const nowThumb = $("nowThumb");
@@ -305,11 +340,52 @@
     }
   } catch(e){}
 
+  function getTgId(){
+    try{
+      const tg = window.Telegram && Telegram.WebApp ? Telegram.WebApp : null;
+      const id = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null;
+      if (id) return id;
+    }catch(e){}
+    const qp = new URLSearchParams(location.search);
+    const qid = qp.get("tg_id");
+    return qid ? parseInt(qid, 10) : null;
+  }
+
+  state.tg_id = getTgId();
+
+  function setMode(m){
+    state.mode = m;
+    if (m === "audio"){
+      modeAudio.classList.add("on");
+      modeYT.classList.remove("on");
+      audioWrap.style.display = "block";
+      iframeWrap.style.display = "none";
+      yt.src = "about:blank";
+    } else {
+      modeYT.classList.add("on");
+      modeAudio.classList.remove("on");
+      iframeWrap.style.display = "block";
+      audioWrap.style.display = "none";
+      aud.pause();
+      aud.removeAttribute("src");
+      aud.load();
+    }
+  }
+
+  modeAudio.addEventListener("click", ()=>setMode("audio"));
+  modeYT.addEventListener("click", ()=>setMode("youtube"));
+  setMode("audio");
+
+
   const state = {
+    selected: null,
     lastQuery: "",
     items: [],
     queue: [],   // simple local queue (session)
-    appVersion: (new URLSearchParams(location.search).get("v") || "")
+    appVersion: (new URLSearchParams(location.search).get("v") || ""),
+    mode: "audio",
+    tg_id: null,
+    my: []
   };
   ver.textContent = state.appVersion ? ("v=" + state.appVersion) : "";
 
@@ -341,16 +417,45 @@
     }
   }
 
-  function play(it){
-    if (!it || !it.video_id) return;
+  async function play(it){
+    if (!it) return;
     state.queue.unshift(it);
     nowTitle.textContent = it.title || "—";
     nowChan.textContent = it.channel || "—";
     nowThumb.innerHTML = it.thumb ? `<img src="${esc(it.thumb)}" />` : "";
-    // embed
+
+    // --- Audio mode (works best for "My playlist") ---
+    if (state.mode === "audio"){
+      // if this is a saved track from /my
+      if (it.kind === "my" && it.track_id && state.tg_id){
+        try{
+          const u = new URL("/webapp/music/api/resolve", location.origin);
+          u.searchParams.set("tg_id", String(state.tg_id));
+          u.searchParams.set("track_id", String(it.track_id));
+          const r = await fetch(u.toString(), { method:"GET", headers:{ "Accept":"application/json" } });
+          const j = await r.json();
+          const url = j && j.url ? j.url : null;
+          if (url){
+            aud.src = url;
+            await aud.play().catch(()=>{});
+            setStatus("🎧 Audio: " + (it.title || "Playing"));
+            return;
+          }
+        }catch(e){
+          console.error(e);
+        }
+        setStatus("Audio недоступно. Открой трек в YouTube или добавь https mp3/ogg/m4a.");
+      }
+
+      // fallback: for search items we don't have audio -> preview on YouTube
+      setMode("youtube");
+    }
+
+    // --- YouTube mode ---
+    if (!it.video_id) return;
     const src = "https://www.youtube.com/embed/" + encodeURIComponent(it.video_id) + "?autoplay=1&rel=0";
     yt.src = src;
-    setStatus("▶️ " + (it.title || "Playing"));
+    setStatus("▶️ YouTube: " + (it.title || "Playing"));
   }
 
   async function search(query){
@@ -384,25 +489,113 @@
   });
 
   $("btnGo").addEventListener("click", ()=>search(q.value));
-  $("btnClear").addEventListener("click", ()=>{
+  
+  async function playInTelegram(){
+    const it = state.selected;
+    if (!it){
+      setStatus("Сначала выбери трек.");
+      return;
+    }
+    if (it.kind !== "my" || !it.track_id){
+      setStatus("Для фонового воспроизведения добавь трек в плейлист (через бота).");
+      return;
+    }
+    const tg_id = getTgId();
+    if (!tg_id){
+      setStatus("Открой mini app внутри Telegram (нет tg_id).");
+      return;
+    }
+    setStatus("Отправляю в Telegram…");
+    const u = new URL("/webapp/music/api/play", location.origin);
+    u.searchParams.set("tg_id", String(tg_id));
+    u.searchParams.set("track_id", String(it.track_id));
+    try{
+      const r = await fetch(u.toString(), { method:"POST", headers:{ "Accept":"application/json" } });
+      const j = await r.json();
+      if (j && j.ok){
+        setStatus("Отправил в Telegram ✅ Открой чат — трек уже там.");
+      } else {
+        setStatus("Не получилось отправить. Проверь бота/сервер.");
+      }
+    }catch(e){
+      console.error(e);
+      setStatus("Ошибка /play. Проверь сервер.");
+    }
+  }
+
+  function openInYouTube(){
+    const it = state.selected;
+    if (!it || !it.video_id){
+      setStatus("Выбери трек из поиска YouTube.");
+      return;
+    }
+    const url = "https://www.youtube.com/watch?v=" + encodeURIComponent(it.video_id);
+    try{
+      const tg = window.Telegram && Telegram.WebApp ? Telegram.WebApp : null;
+      if (tg && tg.openLink){
+        tg.openLink(url);
+      } else {
+        window.open(url, "_blank");
+      }
+    }catch(e){
+      window.open(url, "_blank");
+    }
+    setStatus("Открыл YouTube ↗️");
+  }
+
+  $("btnPlayTG").addEventListener("click", playInTelegram);
+  $("btnOpenYT").addEventListener("click", openInYouTube);
+
+$("btnClear").addEventListener("click", ()=>{
     q.value = "";
     list.innerHTML = "";
     yt.src = "about:blank";
     nowTitle.textContent = "Выбери трек слева";
     nowChan.textContent = "—";
     nowThumb.innerHTML = "";
+    state.selected = null;
     setStatus("Очищено.");
   });
 
-  // "Мой плейлист" — пока просто показывает текущую очередь (session)
-  $("btnMy").addEventListener("click", ()=>{
-    if (!state.queue.length){
-      setStatus("Плейлист пуст. Запусти пару треков — появится история.");
+  async function loadMy(){
+    if (!state.tg_id){
+      setStatus("Открой mini app внутри Telegram (нет tg_id).");
       return;
     }
-    renderList(state.queue.slice(0, 20));
-    setStatus("История прослушивания (сессия)");
-  });
+    setStatus("Загружаю твой плейлист…");
+    const u = new URL("/webapp/music/api/my", location.origin);
+    u.searchParams.set("tg_id", String(state.tg_id));
+    try{
+      const r = await fetch(u.toString(), { method:"GET", headers:{ "Accept":"application/json" } });
+      const j = await r.json();
+      const items = (j && j.items) ? j.items : [];
+      state.my = items.map(x=>({
+        kind: "my",
+        track_id: x.id,
+        title: x.title || "Track",
+        channel: "My playlist",
+        thumb: "",
+        is_url: !!x.is_url,
+        file_id: x.file_id || ""
+      }));
+      // render
+      list.innerHTML = "";
+      if (!state.my.length){
+        list.innerHTML = '<div style="padding:10px;color:var(--muted);font-weight:700">Пока пусто. Добавь аудио в боте или по https-ссылке mp3/ogg/m4a.</div>';
+        setStatus("Плейлист пуст.");
+        return;
+      }
+      // custom render for my: show PLAY
+      renderList(state.my);
+      setStatus("Мой плейлист: " + state.my.length);
+    }catch(e){
+      console.error(e);
+      setStatus("Ошибка /my. Проверь сервер.");
+    }
+  }
+
+  // "Мой плейлист" — грузим с сервера
+  $("btnMy").addEventListener("click", loadMy);
 
   // chips
   const chips = $("chips");

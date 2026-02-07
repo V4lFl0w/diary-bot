@@ -44,7 +44,7 @@ class MusicStates(StatesGroup):
 
 
 SUPPORTED = {"ru", "uk", "en"}
-MY_LIST_LIMIT = 10
+MY_LIST_LIMIT = 50
 
 
 def _is_https_url(url: str) -> bool:
@@ -86,8 +86,10 @@ def _menu_kb(l: str) -> InlineKeyboardMarkup:
 
 
 def _open_kb(l: str, kind: str) -> InlineKeyboardMarkup:
-    focus, sleep = get_focus_sleep()
-    url = focus if kind == "focus" else sleep
+    focus_url, sleep_url = get_focus_sleep()
+    url = focus_url if kind == "focus" else sleep_url
+    if not _is_https_url(url):
+        url = "https://www.youtube.com/"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
