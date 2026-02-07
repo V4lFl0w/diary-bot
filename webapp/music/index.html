@@ -241,7 +241,11 @@
     }
     .modebtn.on{background:var(--chipOn); border-color: rgba(58,160,255,.35)}
 .status{color:var(--muted);font-weight:700;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  </style>
+  
+.iframe{pointer-events:none;}
+.iframe.active{pointer-events:auto;}
+</style>
+
 </head>
 <body>
   <div class="wrap">
@@ -361,6 +365,7 @@
       audioWrap.style.display = "block";
       iframeWrap.style.display = "none";
       yt.src = "about:blank";
+    iframeWrap.classList.remove("active");
     } else {
       modeYT.classList.add("on");
       modeAudio.classList.remove("on");
@@ -550,6 +555,7 @@ $("btnClear").addEventListener("click", ()=>{
     q.value = "";
     list.innerHTML = "";
     yt.src = "about:blank";
+    iframeWrap.classList.remove("active");
     nowTitle.textContent = "Выбери трек слева";
     nowChan.textContent = "—";
     nowThumb.innerHTML = "";

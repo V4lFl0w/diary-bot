@@ -86,10 +86,17 @@ def _menu_kb(l: str) -> InlineKeyboardMarkup:
 
 
 def _open_kb(l: str, kind: str) -> InlineKeyboardMarkup:
-    focus_url, sleep_url = get_focus_sleep()
+    res = get_focus_sleep()
+    if isinstance(res, tuple):
+        focus_url, sleep_url = res
+    else:
+        focus_url, sleep_url = None, None
+
     url = focus_url if kind == "focus" else sleep_url
+    url = url or ""
     if not _is_https_url(url):
         url = "https://www.youtube.com/"
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
