@@ -27,6 +27,11 @@ from app.music.urls import WEBAPP_MUSIC_URL, get_focus_sleep
 from app.music.repo import get_user, save_track, list_tracks, get_track
 from app.music.audio import send_audio_safe
 
+def _music_webapp_url(tg_id: int) -> str:
+    # always pass tg_id in url to avoid iOS WebView initData issues
+    sep = '&' if '?' in WEBAPP_MUSIC_URL else '?'
+    return f"{WEBAPP_MUSIC_URL}{sep}tg_id={int(tg_id)}"
+
 try:
     from app.keyboards import is_music_btn
 except Exception:
@@ -61,10 +66,10 @@ def _user_lang(user: Any, tg_lang: str | None) -> str:
     return l if l in SUPPORTED else "ru"
 
 
-def _menu_kb(l: str) -> InlineKeyboardMarkup:
+def _menu_kb(l: str, tg_id: int) -> InlineKeyboardMarkup:
     webapp_btns: list[InlineKeyboardButton] = []
     if _is_https_url(WEBAPP_MUSIC_URL):
-        webapp_btns.append(InlineKeyboardButton(text="🎧 Открыть плеер", web_app=WebAppInfo(url=WEBAPP_MUSIC_URL)))
+        webapp_btns.append(InlineKeyboardButton(text="🎧 Открыть плеер", web_app=WebAppInfo(url=_music_webapp_url(tg_id))))
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -147,7 +152,7 @@ async def cmd_music(m: Message, session: AsyncSession) -> None:
     if not user:
         await m.answer(tr(l, "need_start"))
         return
-    await m.answer(tr(l, "menu"), reply_markup=_menu_kb(l))
+    await m.answer(tr(l, "menu"), reply_markup=_menu_kb(l, m.from_user.id))
 
 
 @router.callback_query(F.data == "music:search")
@@ -181,7 +186,7 @@ async def on_music_choice(c: CallbackQuery, state: FSMContext, session: AsyncSes
     l = _user_lang(user, getattr(c.from_user, "language_code", None))
 
     if kind in {"back", ""}:
-        await cb_edit(c, tr(l, "menu"), reply_markup=_menu_kb(l))
+        await cb_edit(c, tr(l, "menu"), reply_markup=_menu_kb(l, c.from_user.id))
         return
 
     if kind in {"focus", "sleep"}:
