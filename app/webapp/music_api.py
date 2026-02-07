@@ -54,9 +54,8 @@ async def _tg_get_file_url(file_id: str) -> str:
 @router.get("/resolve")
 async def resolve_track(
     tg_id: Optional[int] = Query(None, description="Telegram user id"),
-    
+    track_id: int = Query(..., description="UserTrack.id"),
     x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
-track_id: int = Query(..., description="UserTrack.id"),
     session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
     tg_id = tg_id or x_tg_id
@@ -222,39 +221,44 @@ from app.services.music_full_sender import send_or_fetch_full_track
 @router.post("/play")
 async def play_track(
     tg_id: Optional[int] = Query(None, description="Telegram user id"),
-    
+    track_id: int = Query(..., description="UserTrack.id"),
+    kind: str = Query("my", description="my|search"),
+    audio_url: Optional[str] = Query(None, description="direct https audio url for search"),
     x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
-track_id: int = Query(..., description="UserTrack.id"),
     session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
     tg_id = tg_id or x_tg_id
     if not tg_id:
         raise HTTPException(status_code=400, detail="tg_id missing (open mini app inside Telegram)")
 
-    user: Optional[User] = (
-        await session.execute(
-            select(User).where(User.tg_id == tg_id)
-        )
-    ).scalar_one_or_none()
+    # Ветка "search": MiniApp нашёл прямой full-audio URL (https://...mp3/ogg/m4a/...)
+    if kind == "search":
+        au = (audio_url or "").strip()
+        if not au.startswith("https://"):
+            raise HTTPException(status_code=409, detail="NO_DIRECT_AUDIO_URL")
+        ok_ext = (".mp3", ".ogg", ".m4a", ".aac", ".wav")
+        if not any(au.lower().split("?")[0].endswith(x) for x in ok_ext):
+            raise HTTPException(status_code=409, detail="AUDIO_URL_NOT_AUDIO_FILE")
+
+        data = await _tg_send_audio(chat_id=int(tg_id), audio_ref=au, caption="🎧 Full track")
+        try:
+            fid = (((data or {}).get("result") or {}).get("audio") or {}).get("file_id")
+        except Exception:
+            fid = None
+        return {"ok": True, "sent": True, "file_id": fid}
+
+    # Ветка "my": берём UserTrack из БД и отправляем (file_id или yt-dlp->file_id)
+    user: Optional[User] = (await session.execute(select(User).where(User.tg_id == int(tg_id)))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
 
     track: Optional[UserTrack] = (
-        await session.execute(
-            select(UserTrack).where(
-                UserTrack.user_id == user.id,
-                UserTrack.id == track_id,
-            )
-        )
-    ).scalar_one_or_none()
+        (await session.execute(
+            select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == int(track_id))
+        )).scalar_one_or_none()
+    )
     if not track:
         raise HTTPException(status_code=404, detail="track not found")
 
-    await send_or_fetch_full_track(
-        session=session,
-        user=user,
-        track=track,
-    )
-
+    await send_or_fetch_full_track(session=session, user=user, track=track)
     return {"ok": True}
-
