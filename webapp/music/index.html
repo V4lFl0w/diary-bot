@@ -553,32 +553,65 @@ try{
       setStatus("Сначала выбери трек.");
       return;
     }
-    if (it.kind !== "my" || !it.track_id){
-      setStatus("Для фонового воспроизведения добавь трек в плейлист (через бота).");
-      return;
-    }
+
     const tg_id = getTgId();
     if (!tg_id){
       setStatus("Открой mini app внутри Telegram (нет tg_id).");
       return;
     }
+
     setStatus("Отправляю в Telegram…");
+
     const u = new URL("/webapp/music/api/play", location.origin);
-    u.searchParams.set("tg_id", String(tg_id));
-    u.searchParams.set("track_id", String(it.track_id));
+
+    // MY playlist → track_id обязателен
+    if (it.kind === "my" && it.track_id){
+      u.searchParams.set("kind", "my");
+      u.searchParams.set("track_id", String(it.track_id));
+      try{
+        const r = await apiFetch(u.toString(), { method:"POST" });
+        const j = await r.json();
+        if (j && j.ok){
+          setStatus("Отправил в Telegram ✅ Открой чат — трек уже там.");
+        } else {
+          setStatus("Не получилось отправить. Проверь бота/сервер.");
+        }
+      }catch(e){
+        console.error(e);
+        setStatus("Ошибка /play. Проверь сервер.");
+      }
+      return;
+    }
+
+    // SEARCH item → просим сервер скачать фулл (yt-dlp) и закешировать file_id
+    const title = (it.title || "").trim();
+    const query = (title || (it.video_id ? ("https://www.youtube.com/watch?v=" + it.video_id) : "")).trim();
+
+    if (!title || !query){
+      setStatus("Не хватает данных трека. Попробуй выбрать другой результат.");
+      return;
+    }
+
+    u.searchParams.set("kind", "search");
+    u.searchParams.set("title", title);
+    u.searchParams.set("query", query);
+    // опционально — для лога на сервере
+    if (it.video_id) u.searchParams.set("video_id", String(it.video_id));
+
     try{
       const r = await apiFetch(u.toString(), { method:"POST" });
       const j = await r.json();
       if (j && j.ok){
-        setStatus("Отправил в Telegram ✅ Открой чат — трек уже там.");
+        setStatus("Отправил в Telegram ✅ Открой чат — фулл-трек уже там.");
       } else {
-        setStatus("Не получилось отправить. Проверь бота/сервер.");
+        setStatus("Не получилось отправить. Проверь сервер.");
       }
     }catch(e){
       console.error(e);
-      setStatus("Ошибка /play. Проверь сервер.");
+      setStatus("Ошибка /play (search). Проверь сервер/yt-dlp.");
     }
   }
+
 
   function openInYouTube(){
     const it = state.selected;
