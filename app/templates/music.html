@@ -117,5 +117,99 @@
 </script>
 <!-- /TG DEBUG UI -->
 
+
+<!-- TG DEBUG button (temporary) -->
+<button id="tgDebugBtn"
+  style="position:fixed;right:14px;bottom:14px;z-index:99999;padding:10px 12px;border-radius:12px;border:0;background:#2b6cff;color:#fff;font-weight:700">
+  TG DEBUG
+</button>
+<script>
+(function(){
+  const btn = document.getElementById("tgDebugBtn");
+  if(!btn) return;
+
+  function getTgId(){
+    try { return (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user && Telegram.WebApp.initDataUnsafe.user.id) || null; }
+    catch(e){ return null; }
+  }
+
+  function getQuery(){
+    // пытаемся найти первый input на странице
+    const inp = document.querySelector('input[type="text"], input:not([type])');
+    return (inp && inp.value ? inp.value : "").trim();
+  }
+
+  btn.addEventListener("click", async () => {
+    const tg_id = getTgId();
+    const q = getQuery();
+    if(!tg_id){ alert("tg_id missing (open inside Telegram)"); return; }
+    if(!q || q.length < 2){ alert("Введи запрос в поле (минимум 2 символа)"); return; }
+
+    btn.disabled = true; btn.innerText = "DEBUG...";
+    try{
+      const url = `/webapp/music/api/tg_debug?tg_id=${encodeURIComponent(tg_id)}&q=${encodeURIComponent(q)}`;
+      const r = await fetch(url);
+      const data = await r.json();
+      console.log("TG_DEBUG", data);
+      alert("TG_DEBUG готов. Смотри console/log (или пришли мне JSON).");
+    }catch(e){
+      console.error(e);
+      alert("TG_DEBUG error: " + (e && e.message ? e.message : e));
+    }finally{
+      btn.disabled = false; btn.innerText = "TG DEBUG";
+    }
+  });
+})();
+</script>
+
+
+<!-- TG PIPELINE button (temporary) -->
+<button id="tgPipelineBtn"
+  style="position:fixed;right:14px;bottom:64px;z-index:99999;padding:10px 12px;border-radius:12px;border:0;background:#16a34a;color:#fff;font-weight:800">
+  TG PIPELINE
+</button>
+<script>
+(function(){
+  const btn = document.getElementById("tgPipelineBtn");
+  if(!btn) return;
+
+  function getTgId(){
+    try { return (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user && Telegram.WebApp.initDataUnsafe.user.id) || null; }
+    catch(e){ return null; }
+  }
+
+  function getQuery(){
+    const inp = document.querySelector('input[type="text"], input:not([type])');
+    return (inp && inp.value ? inp.value : "").trim();
+  }
+
+  btn.addEventListener("click", async () => {
+    const tg_id = getTgId();
+    const q = getQuery();
+    if(!tg_id){ alert("tg_id missing (open inside Telegram)"); return; }
+    if(!q || q.length < 2){ alert("Введи запрос в поле (минимум 2 символа)"); return; }
+
+    btn.disabled = true; btn.innerText = "RUN...";
+    try{
+      const url = `/webapp/music/api/tg_pipeline?tg_id=${encodeURIComponent(tg_id)}&q=${encodeURIComponent(q)}`;
+      const r = await fetch(url, { method: "POST" });
+      const data = await r.json();
+      console.log("TG_PIPELINE", data);
+
+      if(data && data.sent){
+        alert("✅ Отправил трек в Telegram (см. чат). Логи в console: TG_PIPELINE");
+      } else {
+        alert("⚠️ Не отправил. Смотри console: TG_PIPELINE (debug + errors)");
+      }
+    }catch(e){
+      console.error(e);
+      alert("TG_PIPELINE error: " + (e && e.message ? e.message : e));
+    }finally{
+      btn.disabled = false; btn.innerText = "TG PIPELINE";
+    }
+  });
+})();
+</script>
+
 </body>
 </html>

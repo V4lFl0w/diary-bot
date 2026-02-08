@@ -307,24 +307,92 @@ async def _tg_send_audio_file(chat_id: int, file_path, title: str = "", caption:
 
 
 from app.services.music_full_sender import send_or_fetch_full_track
-from app.services.userbot_audio_search import search_audio_in_tg
-
-
-
-
-from typing import Optional, Dict, Any
+from app.services.userbot_audio_search import search_audio_in_tg, debug_search_audio_in_tg
 from fastapi import Query, Header, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.user import User
 from app.models.user_track import UserTrack
-from app.webapp.music_api import router, session_dep
-from app.services.downloader import download_from_youtube
 from aiogram.types import FSInputFile
 from app.webapp.music_api import _tg_send_audio
 from app.bot import bot
 
+
+
+
+@router.get("/tg_debug")
+async def tg_debug(
+    q: str = Query(..., min_length=2),
+    title: Optional[str] = Query(None),
+    tg_id: Optional[int] = Query(None),
+    x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
+) -> Dict[str, Any]:
+    """
+    DEBUG: показывает, как userbot ищет аудио по каналам.
+    Можно дергать из миниаппы отдельной кнопкой.
+    """
+    tg_id = tg_id or x_tg_id
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="tg_id missing")
+    data = await debug_search_audio_in_tg(query=q, title=title)
+    return {"ok": True, "debug": data}
+
+
+
+@router.post("/tg_pipeline")
+async def tg_pipeline(
+    q: str = Query(..., min_length=2),
+    title: Optional[str] = Query(None),
+    tg_id: Optional[int] = Query(None),
+    x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
+) -> Dict[str, Any]:
+    """
+    TEST кнопка пайплайна:
+    - делает TG debug (логи)
+    - делает реальный поиск
+    - если нашёл — копирует сообщение (аудио) тебе в чат
+    - возвращает всё, что нужно для отладки
+    """
+    tg_id = tg_id or x_tg_id
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="tg_id missing (open inside Telegram)")
+
+    debug = await debug_search_audio_in_tg(query=q, title=title)
+
+    try:
+        found = await search_audio_in_tg(query=q, title=title)
+    except Exception as e:
+        return {"ok": False, "sent": False, "error": {"stage": "search_audio_in_tg", "type": type(e).__name__, "msg": str(e)}, "debug": debug}
+
+    if not found:
+        return {"ok": True, "sent": False, "reason": "NOT_FOUND", "debug": debug}
+
+    # важное: Bot API copyMessage принимает from_chat_id как int или @username
+    from_ref = found.chat_ref if (getattr(found, "chat_ref", "") or "").startswith("@") else found.chat_id
+
+    try:
+        tg_copy = await _tg_copy_message(
+            to_chat_id=int(tg_id),
+            from_chat_id=from_ref,
+            message_id=int(found.message_id),
+        )
+    except Exception as e:
+        return {
+            "ok": False,
+            "sent": False,
+            "error": {"stage": "copyMessage", "type": type(e).__name__, "msg": str(e), "from_ref": str(from_ref)},
+            "found": {"chat_id": found.chat_id, "chat_ref": found.chat_ref, "message_id": found.message_id, "title": found.title},
+            "debug": debug,
+        }
+
+    return {
+        "ok": True,
+        "sent": True,
+        "found": {"chat_id": found.chat_id, "chat_ref": found.chat_ref, "message_id": found.message_id, "title": found.title},
+        "tg_copyMessage": tg_copy,
+        "debug": debug,
+    }
 
 @router.post("/play")
 async def play_track(
