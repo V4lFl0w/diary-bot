@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 import aiohttp
 
-from typing import List, Dict, Any, Optional, AsyncIterator
+from typing import List, Dict, Any, Optional, AsyncIterator, Union
 from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -40,23 +40,36 @@ import urllib.parse
 
 TELEGRAM_API = "https://api.telegram.org"
 
-async def _tg_copy_message(*, to_chat_id: int, from_chat_id: int, message_id: int) -> Dict[str, Any]:
+async def _tg_copy_message(*, to_chat_id: int, from_chat_id: Union[int, str], message_id: int) -> Dict[str, Any]:
     """
-    Copy audio message from a source channel/chat to user chat via Bot API copyMessage.
-    IMPORTANT: Bot must have access to the source chat/channel.
+    Copy message from a source channel/chat to user chat via Bot API copyMessage.
+    from_chat_id can be:
+      - -100123... (int/str)
+      - @public_channel (str)
     """
     token = await _bot_token()
     url = f"{TELEGRAM_API}/bot{token}/copyMessage"
+
+    fc = from_chat_id
+    if isinstance(fc, int):
+        fc_str = str(fc)
+    else:
+        fc_str = str(fc).strip()
+        # допускаем @username или -100... или обычные цифры
+        if not fc_str:
+            raise HTTPException(status_code=502, detail="empty from_chat_id for copyMessage")
+
     payload: Dict[str, Any] = {
         "chat_id": str(int(to_chat_id)),
-        "from_chat_id": str(int(from_chat_id)),
+        "from_chat_id": fc_str,
         "message_id": str(int(message_id)),
     }
+
     async with aiohttp.ClientSession() as session:
         async with session.post(url, data=payload, timeout=20) as r:  # type: ignore[arg-type]
             data = await r.json()
             if r.status != 200 or not data.get("ok"):
-                raise HTTPException(status_code=502, detail={"tg_copyMessage": data})
+                raise HTTPException(status_code=502, detail={"tg_copyMessage": data, "payload": payload})
     return data
 
 
@@ -321,6 +334,7 @@ async def play_track(
     kind: str = Query("my", description="my|search"),
     title: Optional[str] = Query(None),
     query: Optional[str] = Query(None),
+    video_id: Optional[str] = Query(None),
     session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
     tg_id = tg_id or x_tg_id
@@ -356,56 +370,58 @@ async def play_track(
         # tgmsg cache -> copyMessage
         tgmsg = _parse_tgmsg(fid)
         if tgmsg:
-            from_chat_id, message_id = tgmsg
-            await _tg_copy_message(
-                to_chat_id=int(tg_id),
-                from_chat_id=int(from_chat_id),
-                message_id=int(message_id),
-            )
-            return {"ok": True, "source": "my_tgmsg"}
+            from_chat_id, msg_id = tgmsg
+            await _tg_copy_message(to_chat_id=int(tg_id), from_chat_id=int(from_chat_id), message_id=int(msg_id))
+            return {"ok": True, "source": "my", "via": "copyMessage"}
 
-        # normal: Telegram file_id or direct https audio url
+        # обычный file_id/url
         await _tg_send_audio(
             chat_id=int(tg_id),
             audio_ref=fid,
             caption=f"🎧 {track.title or 'Track'}",
         )
-        return {"ok": True, "source": "my"}
+        return {"ok": True, "source": "my", "via": "sendAudio"}
 
-    # ===== SEARCH via TG UserBot (NO YouTube downloads) =====
+    # ===== SEARCH (TG userbot search -> copyMessage -> cache tgmsg) =====
     if kind == "search":
-        if not query:
-            raise HTTPException(status_code=400, detail="query required")
+        if not (title or query):
+            raise HTTPException(status_code=400, detail="title or query required")
 
-        found = await search_audio_in_tg(query=query)
+        # важное: пробуем сначала title (он часто уже 'Artist - Track'), потом query
+        found = await search_audio_in_tg(query=(query or ""), title=(title or ""), limit_per_chat=60)
+
         if not found:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "TG_AUDIO_NOT_FOUND",
-                    "hint": "Не нашёл аудио в Telegram-источниках. Добавь трек в плейлист через бота (скинь аудио/файл/прямую ссылку).",
-                },
-            )
+            yurl = f"https://www.youtube.com/watch?v={video_id}" if (video_id or "").strip() else "https://www.youtube.com/"
+            # чтобы юзер видел “что делать”, шлём подсказку в чат
+            try:
+                await _tg_send_message(int(tg_id), "⚠️ Не нашёл аудио в Telegram-каналах по запросу.\nОткрой в YouTube:\n" + yurl)
+            except Exception:
+                pass
+            raise HTTPException(status_code=409, detail={"code": "TG_AUDIO_NOT_FOUND", "youtube_url": yurl})
 
+        # copyMessage -> user chat
+        # если у канала есть @username (chat_ref), пробуем его — часто надёжнее
+        from_ref = found.chat_ref if (found.chat_ref or "").startswith("@") else found.chat_id
         await _tg_copy_message(
             to_chat_id=int(tg_id),
-            from_chat_id=int(found.chat_id),
+            from_chat_id=from_ref,   # может быть @channel или -100...
             message_id=int(found.message_id),
         )
 
         # cache as tgmsg:<chat_id>:<msg_id>
-        fid = f"tgmsg:{int(found.chat_id)}:{int(found.message_id)}"
-        t = UserTrack(
-            user_id=user.id,
-            tg_id=int(tg_id),
-            title=(title or found.title or query)[:255],
-            file_id=fid,
-        )
-        session.add(t)
-        await session.commit()
+        # для кеша используем numeric chat_id если есть, иначе не кешируем
+        chat_id_for_cache = int(found.chat_id or 0)
+        if chat_id_for_cache:
+            fid = f"tgmsg:{chat_id_for_cache}:{int(found.message_id)}"
+            track = UserTrack(
+                user_id=user.id,
+                tg_id=int(tg_id),
+                title=(title or found.title or query or "Track"),
+                file_id=fid,
+            )
+            session.add(track)
+            await session.commit()
 
-        return {"ok": True, "source": "tg_search", "cached": True}
+        return {"ok": True, "source": "tg_search", "cached": bool(chat_id_for_cache)}
 
     raise HTTPException(status_code=400, detail="unknown kind")
-
-
