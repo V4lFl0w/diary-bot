@@ -38,5 +38,84 @@
       </div>
     </div>
   </div>
+
+<!-- TG DEBUG UI (injected) -->
+<style>
+  .tgdbg-btn{position:fixed;right:14px;bottom:14px;z-index:99999;background:#1f2937;color:#fff;border:none;border-radius:14px;padding:10px 12px;font-weight:700;box-shadow:0 10px 30px rgba(0,0,0,.25);opacity:.92}
+  .tgdbg-btn:active{transform:translateY(1px)}
+  .tgdbg-panel{position:fixed;left:10px;right:10px;bottom:64px;z-index:99999;background:rgba(17,24,39,.98);color:#e5e7eb;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px;display:none}
+  .tgdbg-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  .tgdbg-inp{flex:1;min-width:180px;background:rgba(255,255,255,.06);color:#fff;border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:10px 12px;outline:none}
+  .tgdbg-a{background:#2563eb;color:#fff;border:none;border-radius:12px;padding:10px 12px;font-weight:700}
+  .tgdbg-b{background:#059669;color:#fff;border:none;border-radius:12px;padding:10px 12px;font-weight:700}
+  .tgdbg-c{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:10px 12px;font-weight:700}
+  .tgdbg-pre{white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,.25);border-radius:12px;padding:10px;max-height:40vh;overflow:auto;font-size:12px;line-height:1.35}
+</style>
+
+<button id="tgdbgBtn" class="tgdbg-btn" type="button">TG DEBUG</button>
+<div id="tgdbgPanel" class="tgdbg-panel">
+  <div class="tgdbg-row">
+    <input id="tgdbgQ" class="tgdbg-inp" placeholder="Запрос для TG-search (например: Kizaru - XXL Freestyle)" />
+  </div>
+  <div class="tgdbg-row">
+    <button id="tgdbgTest" class="tgdbg-a" type="button">TEST</button>
+    <button id="tgdbgSend" class="tgdbg-b" type="button">TEST+SEND</button>
+    <button id="tgdbgClose" class="tgdbg-c" type="button">CLOSE</button>
+  </div>
+  <div class="tgdbg-row" style="opacity:.85;font-size:12px">
+    <span>TEST = только поиск; TEST+SEND = поиск + copyMessage в твой чат</span>
+  </div>
+  <pre id="tgdbgOut" class="tgdbg-pre">{}</pre>
+</div>
+
+<script>
+(function(){
+  function getTgId(){
+    try{
+      const u = new URL(window.location.href);
+      const v = u.searchParams.get("tg_id");
+      if(v) return v;
+    }catch(e){}
+    // fallback: если есть Telegram WebApp
+    try{
+      const id = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+      if(id) return String(id);
+    }catch(e){}
+    return "";
+  }
+
+  async function callTgTest(send){
+    const q = (document.getElementById("tgdbgQ").value || "").trim();
+    const tgId = getTgId();
+    const out = document.getElementById("tgdbgOut");
+    if(!q){ out.textContent = "ERR: empty query"; return; }
+    if(!tgId){ out.textContent = "ERR: tg_id missing in URL and Telegram initData"; return; }
+
+    const url = "/webapp/music/api/tg_test?q=" + encodeURIComponent(q) + "&tg_id=" + encodeURIComponent(tgId) + "&send=" + (send? "1":"0");
+    out.textContent = "Loading...\n" + url;
+
+    try{
+      const r = await fetch(url, {method:"GET"});
+      const data = await r.json().catch(()=>({raw:"non-json"}));
+      out.textContent = JSON.stringify({status:r.status, data}, null, 2);
+    }catch(e){
+      out.textContent = "FETCH_ERR: " + (e && e.message ? e.message : String(e));
+    }
+  }
+
+  const btn = document.getElementById("tgdbgBtn");
+  const panel = document.getElementById("tgdbgPanel");
+  const close = document.getElementById("tgdbgClose");
+  const test = document.getElementById("tgdbgTest");
+  const send = document.getElementById("tgdbgSend");
+
+  btn.addEventListener("click", ()=>{ panel.style.display = (panel.style.display==="block" ? "none" : "block"); });
+  close.addEventListener("click", ()=>{ panel.style.display = "none"; });
+  test.addEventListener("click", ()=>callTgTest(false));
+  send.addEventListener("click", ()=>callTgTest(true));
+})();
+</script>
+<!-- /TG DEBUG UI -->
+
 </body>
 </html>
