@@ -211,5 +211,85 @@
 })();
 </script>
 
+
+<!-- ===== TG DEBUG BUTTON (dev) ===== -->
+<div style="margin-top:10px; display:flex; gap:10px; align-items:center;">
+  <button id="tgDebugBtn" type="button"
+    style="padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.14);
+           background:rgba(255,255,255,.06); color:#fff; font-weight:600;">
+    🧪 TG Debug
+  </button>
+  <span id="tgDebugHint" style="opacity:.7; font-size:12px;">жмёт /tg_pipeline и показывает raw JSON</span>
+</div>
+<pre id="tgDebugOut"
+  style="display:none; margin-top:10px; padding:10px; border-radius:12px;
+         background:rgba(0,0,0,.35); color:#d7f3ff; overflow:auto; max-height:280px; white-space:pre-wrap;"></pre>
+<!-- ===== /TG DEBUG BUTTON ===== -->
+
+
+<script>
+(function(){
+  function qs(name){
+    return new URLSearchParams(window.location.search).get(name);
+  }
+  function getTgId(){
+    const v = qs("tg_id");
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  function getQuery(){
+    // пробуем найти инпут (fallback на первый input[type=text])
+    const el = document.querySelector('input[name="q"], input#q, input[type="text"]');
+    return (el && el.value ? el.value.trim() : "");
+  }
+  function setOut(obj){
+    const pre = document.getElementById("tgDebugOut");
+    if (!pre) return;
+    pre.style.display = "block";
+    try {
+      pre.textContent = JSON.stringify(obj, null, 2);
+    } catch(e){
+      pre.textContent = String(obj);
+    }
+  }
+
+  async function runTgPipeline(){
+    const tg_id = getTgId();
+    const q = getQuery();
+    if (!tg_id){
+      setOut({ok:false, error:"tg_id missing in URL. Open mini app inside Telegram."});
+      return;
+    }
+    if (!q || q.length < 2){
+      setOut({ok:false, error:"Введите запрос (минимум 2 символа) и снова нажмите 🧪 TG Debug"});
+      return;
+    }
+
+    setOut({ok:true, stage:"calling /tg_pipeline", tg_id, q});
+
+    const url = "/webapp/music/api/tg_pipeline?q=" + encodeURIComponent(q) + "&tg_id=" + encodeURIComponent(String(tg_id));
+    let resp, data;
+    try{
+      resp = await fetch(url, {method:"POST"});
+      const txt = await resp.text();
+      try { data = JSON.parse(txt); } catch(e){ data = {raw: txt}; }
+    } catch(e){
+      setOut({ok:false, stage:"fetch_failed", error:String(e)});
+      return;
+    }
+
+    setOut({http_status: resp.status, ...data});
+  }
+
+  const btn = document.getElementById("tgDebugBtn");
+  if (btn){
+    btn.addEventListener("click", function(){
+      runTgPipeline();
+    });
+  }
+})();
+</script>
+
 </body>
 </html>
