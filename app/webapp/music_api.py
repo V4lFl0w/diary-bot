@@ -321,7 +321,6 @@ async def play_track(
     kind: str = Query("my", description="my|search"),
     title: Optional[str] = Query(None),
     query: Optional[str] = Query(None),
-    video_id: Optional[str] = Query(None),
     session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
     tg_id = tg_id or x_tg_id
@@ -354,6 +353,18 @@ async def play_track(
         if not fid:
             raise HTTPException(status_code=409, detail="track has no file_id")
 
+        # tgmsg cache -> copyMessage
+        tgmsg = _parse_tgmsg(fid)
+        if tgmsg:
+            from_chat_id, message_id = tgmsg
+            await _tg_copy_message(
+                to_chat_id=int(tg_id),
+                from_chat_id=int(from_chat_id),
+                message_id=int(message_id),
+            )
+            return {"ok": True, "source": "my_tgmsg"}
+
+        # normal: Telegram file_id or direct https audio url
         await _tg_send_audio(
             chat_id=int(tg_id),
             audio_ref=fid,
@@ -361,74 +372,40 @@ async def play_track(
         )
         return {"ok": True, "source": "my"}
 
-    # ===== SEARCH (yt-dlp → cache) =====
+    # ===== SEARCH via TG UserBot (NO YouTube downloads) =====
     if kind == "search":
-        if not title or not query:
-            raise HTTPException(status_code=400, detail="title and query required")
+        if not query:
+            raise HTTPException(status_code=400, detail="query required")
 
-        # ===== TG SEARCH via UserBot (NO YouTube download) =====
         found = await search_audio_in_tg(query=query)
         if not found:
-            raise HTTPException(status_code=409, detail={"code": "TG_AUDIO_NOT_FOUND", "hint": "Не нашёл аудио в Telegram-источниках. Добавь трек в плейлист через бота (скинь аудио/файл/прямую ссылку)."})
-        # copyMessage -> user chat (background works)
-        await _tg_copy_message(to_chat_id=int(tg_id), from_chat_id=int(found.chat_id), message_id=int(found.message_id))
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "TG_AUDIO_NOT_FOUND",
+                    "hint": "Не нашёл аудио в Telegram-источниках. Добавь трек в плейлист через бота (скинь аудио/файл/прямую ссылку).",
+                },
+            )
+
+        await _tg_copy_message(
+            to_chat_id=int(tg_id),
+            from_chat_id=int(found.chat_id),
+            message_id=int(found.message_id),
+        )
 
         # cache as tgmsg:<chat_id>:<msg_id>
         fid = f"tgmsg:{int(found.chat_id)}:{int(found.message_id)}"
-        track = UserTrack(
+        t = UserTrack(
             user_id=user.id,
             tg_id=int(tg_id),
-            title=title or found.title or query,
+            title=(title or found.title or query)[:255],
             file_id=fid,
         )
-        session.add(track)
+        session.add(t)
         await session.commit()
+
         return {"ok": True, "source": "tg_search", "cached": True}
-        try:
-            audio_path = download_from_youtube(query)
-        except RuntimeError as e:
-            code = str(e) or "YTDLP_ERROR"
-
-            # IMPORTANT: do not "fail silently" in UI — send youtube link to Telegram chat
-            if code == "YTDLP_YT_BOT_CHECK":
-                yurl = f"https://www.youtube.com/watch?v={video_id}" if (video_id or "").strip() else None
-                text = "⚠️ YouTube блокнул скачивание (anti-bot). Открой в YouTube:\n"
-                text += (yurl or "https://www.youtube.com/")
-                try:
-                    await _tg_send_message(int(tg_id), text)
-                except Exception:
-                    pass
-                return {"ok": False, "code": code, "youtube_url": yurl, "hint": "open_youtube"}
-
-            if code == "YTDLP_NOT_INSTALLED":
-                raise HTTPException(status_code=503, detail=code)
-
-            raise HTTPException(status_code=502, detail=code)
-
-        data = await _tg_send_audio_file(
-            chat_id=int(tg_id),
-            file_path=audio_path,
-            title=title,
-            caption=f"🎧 {title}",
-        )
-
-        try:
-            file_id = (((data or {}).get("result") or {}).get("audio") or {}).get("file_id")
-        except Exception:
-            file_id = None
-        if not file_id:
-            raise HTTPException(status_code=502, detail={"no_file_id_in_sendAudio": data})
-
-        # cache as new playlist item
-        track = UserTrack(
-            user_id=user.id,
-            tg_id=int(tg_id),
-            title=title,
-            file_id=file_id,
-        )
-        session.add(track)
-        await session.commit()
-
-        return {"ok": True, "source": "search", "cached": True}
 
     raise HTTPException(status_code=400, detail="unknown kind")
+
+
