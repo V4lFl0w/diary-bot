@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 import aiohttp
 
@@ -17,6 +18,17 @@ from app.models.user_track import UserTrack
 
 router = APIRouter(prefix="/webapp/music/api", tags=["webapp-music"])
 
+def _parse_tgmsg(fid: str) -> Optional[tuple[int,int]]:
+    fid = (fid or "").strip()
+    if not fid.startswith("tgmsg:"):
+        return None
+    try:
+        _, a, b = fid.split(":", 2)
+        return (int(a), int(b))
+    except Exception:
+        return None
+
+
 from typing import AsyncIterator
 from app.db import async_session
 
@@ -27,6 +39,26 @@ async def session_dep() -> AsyncIterator[AsyncSession]:
 import urllib.parse
 
 TELEGRAM_API = "https://api.telegram.org"
+
+async def _tg_copy_message(*, to_chat_id: int, from_chat_id: int, message_id: int) -> Dict[str, Any]:
+    """
+    Copy audio message from a source channel/chat to user chat via Bot API copyMessage.
+    IMPORTANT: Bot must have access to the source chat/channel.
+    """
+    token = await _bot_token()
+    url = f"{TELEGRAM_API}/bot{token}/copyMessage"
+    payload: Dict[str, Any] = {
+        "chat_id": str(int(to_chat_id)),
+        "from_chat_id": str(int(from_chat_id)),
+        "message_id": str(int(message_id)),
+    }
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, data=payload, timeout=20) as r:  # type: ignore[arg-type]
+            data = await r.json()
+            if r.status != 200 or not data.get("ok"):
+                raise HTTPException(status_code=502, detail={"tg_copyMessage": data})
+    return data
+
 
 async def _tg_get_file_url(file_id: str) -> str:
     token = (os.getenv("TG_TOKEN") or os.getenv("TELEGRAM_TOKEN") or os.getenv("BOT_TOKEN") or "").strip()
@@ -214,6 +246,18 @@ async def _tg_send_audio(chat_id: int, audio_ref: str, caption: str = "") -> Dic
                 raise HTTPException(status_code=502, detail={"tg_sendAudio": data})
     return data
 
+async def _tg_send_message(chat_id: int, text: str) -> Dict[str, Any]:
+    token = await _bot_token()
+    url = f"{TELEGRAM_API}/bot{token}/sendMessage"
+    payload: Dict[str, Any] = {"chat_id": str(chat_id), "text": (text or "")[:4096]}
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, data=payload, timeout=20) as r:  # type: ignore[arg-type]
+            data = await r.json()
+            if r.status != 200 or not data.get("ok"):
+                raise HTTPException(status_code=502, detail={"tg_sendMessage": data})
+    return data
+
+
 
 async def _tg_send_audio_file(chat_id: int, file_path, title: str = "", caption: str = "") -> Dict[str, Any]:
     """Send local audio file via Telegram Bot API (multipart). Returns raw API JSON."""
@@ -250,6 +294,7 @@ async def _tg_send_audio_file(chat_id: int, file_path, title: str = "", caption:
 
 
 from app.services.music_full_sender import send_or_fetch_full_track
+from app.services.userbot_audio_search import search_audio_in_tg
 
 
 
@@ -281,12 +326,10 @@ async def play_track(
 ) -> Dict[str, Any]:
     tg_id = tg_id or x_tg_id
     if not tg_id:
-        raise HTTPException(status_code=400, detail="tg_id missing")
+        raise HTTPException(status_code=400, detail="tg_id missing (open mini app inside Telegram)")
 
-    user = (
-        await session.execute(
-            select(User).where(User.tg_id == tg_id)
-        )
+    user: Optional[User] = (
+        await session.execute(select(User).where(User.tg_id == int(tg_id)))
     ).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
@@ -296,23 +339,24 @@ async def play_track(
         if not track_id:
             raise HTTPException(status_code=400, detail="track_id required")
 
-        track = (
+        track: Optional[UserTrack] = (
             await session.execute(
                 select(UserTrack).where(
                     UserTrack.user_id == user.id,
-                    UserTrack.id == track_id,
+                    UserTrack.id == int(track_id),
                 )
             )
         ).scalar_one_or_none()
         if not track:
             raise HTTPException(status_code=404, detail="track not found")
 
-        if not track.file_id:
+        fid = (track.file_id or "").strip()
+        if not fid:
             raise HTTPException(status_code=409, detail="track has no file_id")
 
         await _tg_send_audio(
-            chat_id=tg_id,
-            audio_ref=track.file_id,
+            chat_id=int(tg_id),
+            audio_ref=fid,
             caption=f"🎧 {track.title or 'Track'}",
         )
         return {"ok": True, "source": "my"}
@@ -322,23 +366,43 @@ async def play_track(
         if not title or not query:
             raise HTTPException(status_code=400, detail="title and query required")
 
+        # ===== TG SEARCH via UserBot (NO YouTube download) =====
+        found = await search_audio_in_tg(query=query)
+        if not found:
+            raise HTTPException(status_code=409, detail={"code": "TG_AUDIO_NOT_FOUND", "hint": "Не нашёл аудио в Telegram-источниках. Добавь трек в плейлист через бота (скинь аудио/файл/прямую ссылку)."})
+        # copyMessage -> user chat (background works)
+        await _tg_copy_message(to_chat_id=int(tg_id), from_chat_id=int(found.chat_id), message_id=int(found.message_id))
+
+        # cache as tgmsg:<chat_id>:<msg_id>
+        fid = f"tgmsg:{int(found.chat_id)}:{int(found.message_id)}"
+        track = UserTrack(
+            user_id=user.id,
+            tg_id=int(tg_id),
+            title=title or found.title or query,
+            file_id=fid,
+        )
+        session.add(track)
+        await session.commit()
+        return {"ok": True, "source": "tg_search", "cached": True}
         try:
             audio_path = download_from_youtube(query)
         except RuntimeError as e:
             code = str(e) or "YTDLP_ERROR"
+
+            # IMPORTANT: do not "fail silently" in UI — send youtube link to Telegram chat
             if code == "YTDLP_YT_BOT_CHECK":
                 yurl = f"https://www.youtube.com/watch?v={video_id}" if (video_id or "").strip() else None
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": code,
-                        "video_id": video_id,
-                        "youtube_url": yurl,
-                        "hint": "YouTube anti-bot блокирует скачивание. Открой в YouTube или добавь аудио/прямую ссылку в плейлист.",
-                    },
-                )
+                text = "⚠️ YouTube блокнул скачивание (anti-bot). Открой в YouTube:\n"
+                text += (yurl or "https://www.youtube.com/")
+                try:
+                    await _tg_send_message(int(tg_id), text)
+                except Exception:
+                    pass
+                return {"ok": False, "code": code, "youtube_url": yurl, "hint": "open_youtube"}
+
             if code == "YTDLP_NOT_INSTALLED":
                 raise HTTPException(status_code=503, detail=code)
+
             raise HTTPException(status_code=502, detail=code)
 
         data = await _tg_send_audio_file(
@@ -348,7 +412,6 @@ async def play_track(
             caption=f"🎧 {title}",
         )
 
-        # extract file_id from Bot API response
         try:
             file_id = (((data or {}).get("result") or {}).get("audio") or {}).get("file_id")
         except Exception:
@@ -356,6 +419,7 @@ async def play_track(
         if not file_id:
             raise HTTPException(status_code=502, detail={"no_file_id_in_sendAudio": data})
 
+        # cache as new playlist item
         track = UserTrack(
             user_id=user.id,
             tg_id=int(tg_id),
@@ -368,4 +432,3 @@ async def play_track(
         return {"ok": True, "source": "search", "cached": True}
 
     raise HTTPException(status_code=400, detail="unknown kind")
-
