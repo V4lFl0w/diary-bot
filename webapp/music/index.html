@@ -711,5 +711,85 @@ $("btnClear").addEventListener("click", ()=>{
 }
 });
 </script>
+
+<!-- ===== TG PIPELINE DEV START ===== -->
+<style>
+  .tgpipe-btn{position:fixed;right:14px;bottom:74px;z-index:99999;background:#16a34a;color:#fff;border:0;border-radius:12px;padding:10px 12px;font-weight:800}
+  .tgpipe-btn:active{transform:translateY(1px)}
+  .tgpipe-panel{position:fixed;left:10px;right:10px;bottom:130px;z-index:99999;display:none;
+    background:rgba(17,24,39,.98);color:#e5e7eb;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:10px}
+  .tgpipe-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  .tgpipe-pre{white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,.25);border-radius:12px;padding:10px;max-height:40vh;overflow:auto;font-size:12px;line-height:1.35}
+  .tgpipe-small{opacity:.8;font-size:12px}
+  .tgpipe-x{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:8px 10px;font-weight:800}
+</style>
+
+<button id="tgPipeBtn" class="tgpipe-btn" type="button">TG PIPELINE</button>
+<div id="tgPipePanel" class="tgpipe-panel">
+  <div class="tgpipe-row">
+    <div class="tgpipe-small">POST <code>/webapp/music/api/tg_pipeline</code> → copyMessage в твой чат</div>
+    <button id="tgPipeClose" class="tgpipe-x" type="button">CLOSE</button>
+  </div>
+  <pre id="tgPipeOut" class="tgpipe-pre">{}</pre>
+</div>
+
+<script>
+(function(){
+  const btn = document.getElementById("tgPipeBtn");
+  const panel = document.getElementById("tgPipePanel");
+  const out = document.getElementById("tgPipeOut");
+  const close = document.getElementById("tgPipeClose");
+  if(!btn || !panel || !out || !close) return;
+
+  function getTgId(){
+    try{
+      const id = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+      if(id) return String(id);
+    }catch(e){}
+    try{
+      return new URLSearchParams(location.search).get("tg_id") || "";
+    }catch(e){}
+    return "";
+  }
+
+  function getQuery(){
+    const el = document.getElementById("q") || document.querySelector('input[name="q"], input#q, input[type="text"]');
+    return (el && el.value ? String(el.value) : "").trim();
+  }
+
+  async function run(){
+    const tg_id = getTgId();
+    const q = getQuery();
+    if(!tg_id){ out.textContent = "ERR: tg_id missing (open inside Telegram or add ?tg_id=)"; panel.style.display="block"; return; }
+    if(!q || q.length < 2){ out.textContent = "ERR: empty query (type at least 2 chars in search input)"; panel.style.display="block"; return; }
+
+    const url = "/webapp/music/api/tg_pipeline?q=" + encodeURIComponent(q) + "&tg_id=" + encodeURIComponent(tg_id);
+    out.textContent = "Loading...\n" + url;
+    panel.style.display = "block";
+
+    try{
+      const r = await fetch(url, {method:"POST"});
+      const data = await r.json().catch(()=>({raw:"non-json"}));
+      out.textContent = JSON.stringify({http_status: r.status, data}, null, 2);
+      console.log("TG_PIPELINE", r.status, data);
+      if (r.status === 200 && data && data.sent) {
+        alert("✅ TG PIPELINE: отправил аудио в Telegram (проверь чат)");
+      } else {
+        alert("⚠️ TG PIPELINE: не отправил (смотри JSON в панели/console)");
+      }
+    }catch(e){
+      out.textContent = "FETCH_ERR: " + (e && e.message ? e.message : String(e));
+    }
+  }
+
+  btn.addEventListener("click", ()=>{
+    if(panel.style.display === "block"){ panel.style.display = "none"; return; }
+    run();
+  });
+  close.addEventListener("click", ()=>{ panel.style.display="none"; });
+})();
+</script>
+<!-- ===== TG PIPELINE DEV END ===== -->
+
 </body>
 </html>
