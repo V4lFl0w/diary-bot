@@ -40,6 +40,47 @@ import urllib.parse
 
 TELEGRAM_API = "https://api.telegram.org"
 
+async def _tg_get_me() -> Dict[str, Any]:
+    token = await _bot_token()
+    url = f"{TELEGRAM_API}/bot{token}/getMe"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, timeout=15) as r:  # type: ignore[arg-type]
+            data = await r.json()
+            return {"http_status": r.status, "data": data}
+
+
+async def _tg_get_chat(chat_ref: str) -> Dict[str, Any]:
+    """
+    Bot API getChat to check access to a channel/chat.
+    chat_ref: @username or -100... or numeric string
+    """
+    token = await _bot_token()
+    url = f"{TELEGRAM_API}/bot{token}/getChat"
+    chat_ref = (chat_ref or "").strip()
+    if not chat_ref:
+        raise HTTPException(status_code=400, detail="empty chat_ref for getChat")
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params={"chat_id": chat_ref}, timeout=15) as r:  # type: ignore[arg-type]
+            data = await r.json()
+            return {"http_status": r.status, "data": data}
+
+async def _bot_can_access_chat(chat_ref: Union[int, str]) -> Dict[str, Any]:
+    """
+    Returns:
+      {ok: bool, ref: str, reason?: str, raw?: Any}
+    """
+    ref = str(chat_ref).strip()
+    try:
+        res = await _tg_get_chat(ref)
+        d = res.get("data") or {}
+        if res.get("http_status") == 200 and d.get("ok"):
+            return {"ok": True, "ref": ref, "chat": d.get("result")}
+        return {"ok": False, "ref": ref, "reason": (d.get("description") or "getChat failed"), "raw": d}
+    except Exception as e:
+        return {"ok": False, "ref": ref, "reason": f"{type(e).__name__}: {e}"}
+
+
 async def _tg_copy_message(*, to_chat_id: int, from_chat_id: Union[int, str], message_id: int) -> Dict[str, Any]:
     """
     Copy message from a source channel/chat to user chat via Bot API copyMessage.
@@ -144,6 +185,34 @@ async def health() -> Dict[str, str]:
     return {"ok": "1"}
 
 
+
+
+@router.get("/tg_botinfo")
+async def tg_botinfo() -> Dict[str, Any]:
+    """
+    Показывает, какой именно бот (token) сейчас используется на сервере.
+    НЕ возвращает токен, только username/id.
+    """
+    me = await _tg_get_me()
+    d = me.get("data") or {}
+    if me.get("http_status") != 200 or not d.get("ok"):
+        raise HTTPException(status_code=502, detail={"tg_getMe": d})
+    r = d.get("result") or {}
+    return {"ok": True, "bot": {"id": r.get("id"), "username": r.get("username"), "first_name": r.get("first_name")}}
+
+@router.get("/tg_check_chat")
+async def tg_check_chat(
+    chat: str = Query(..., description="@channel or -100..."),
+) -> Dict[str, Any]:
+    """
+    Проверка: видит ли текущий бот конкретный чат/канал через getChat.
+    """
+    res = await _tg_get_chat(chat)
+    d = res.get("data") or {}
+    if res.get("http_status") == 200 and d.get("ok"):
+        r = d.get("result") or {}
+        return {"ok": True, "chat": {"id": r.get("id"), "type": r.get("type"), "title": r.get("title"), "username": r.get("username")}}
+    return {"ok": False, "error": {"http_status": res.get("http_status"), "data": d}}
 @router.get("/my")
 async def my_playlist(
     tg_id: Optional[int] = Query(None, description="Telegram user id (from initDataUnsafe.user.id)"),
@@ -370,7 +439,34 @@ async def tg_pipeline(
 
     # важное: Bot API copyMessage принимает from_chat_id как int или @username
     # prefer numeric chat_id (more reliable); fallback to @ref if missing
-    from_ref = found.chat_id if (getattr(found, "chat_id", 0) or 0) else found.chat_ref
+
+    # важное: Bot API copyMessage работает ТОЛЬКО если бот имеет доступ к source чату
+    # Сначала пробуем @chat_ref (если есть), потом numeric chat_id.
+    refs = []
+    if (getattr(found, "chat_ref", "") or "").startswith("@"):
+        refs.append(found.chat_ref)
+    if getattr(found, "chat_id", None):
+        refs.append(str(found.chat_id))
+
+    access_checks = [await _bot_can_access_chat(r) for r in refs]
+    ok_refs = [c["ref"] for c in access_checks if c.get("ok")]
+
+    if not ok_refs:
+        return {
+            "ok": False,
+            "sent": False,
+            "error": {
+                "stage": "bot_access",
+                "type": "BOT_NO_ACCESS",
+                "msg": "Bot API не видит источник. Добавь бота в канал/чат (или выбери каналы где бот есть).",
+                "checks": access_checks,
+            },
+            "found": {"chat_id": found.chat_id, "chat_ref": found.chat_ref, "message_id": found.message_id, "title": found.title},
+            "debug": debug,
+        }
+
+    # выбираем первый доступный ref
+    from_ref = ok_refs[0]
     try:
         tg_copy = await _tg_copy_message(
             to_chat_id=int(tg_id),

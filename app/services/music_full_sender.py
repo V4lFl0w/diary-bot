@@ -22,8 +22,8 @@ async def send_or_fetch_full_track(
 
     audio_ref = (track.file_id or "").strip()
 
-    # ✅ КЭШ
-    if audio_ref:
+    # ❌ URL-треки не качаем
+    if audio_ref.startswith("http"):
         await _tg_send_audio(
             chat_id=user.tg_id,
             audio_ref=audio_ref,
@@ -31,8 +31,8 @@ async def send_or_fetch_full_track(
         )
         return
 
-    # ❌ URL-треки не качаем
-    if audio_ref.startswith("http"):
+    # ✅ КЭШ
+    if audio_ref:
         await _tg_send_audio(
             chat_id=user.tg_id,
             audio_ref=audio_ref,
