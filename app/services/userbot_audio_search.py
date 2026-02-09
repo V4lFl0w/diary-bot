@@ -250,7 +250,7 @@ async def forward_to_storage(*, src: str | int, message_id: int) -> dict:
 
     mid = int(message_id)
     async with _client() as client:
-        msgs = await client.forward_messages(storage_peer, mid, from_peer=src_peer)
+        msgs = await client.forward_messages(storage_peer, mid, from_peer=src_peer, as_copy=True)
         # telethon: may return Message or list[Message]
         m0 = msgs[0] if isinstance(msgs, list) else msgs
         smid = int(getattr(m0, "id", 0) or 0)
