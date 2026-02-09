@@ -369,8 +369,8 @@ async def tg_pipeline(
         return {"ok": True, "sent": False, "reason": "NOT_FOUND", "debug": debug}
 
     # важное: Bot API copyMessage принимает from_chat_id как int или @username
-    from_ref = found.chat_ref if (getattr(found, "chat_ref", "") or "").startswith("@") else found.chat_id
-
+    # prefer numeric chat_id (more reliable); fallback to @ref if missing
+    from_ref = found.chat_id if (getattr(found, "chat_id", 0) or 0) else found.chat_ref
     try:
         tg_copy = await _tg_copy_message(
             to_chat_id=int(tg_id),
@@ -469,7 +469,8 @@ async def play_track(
 
         # copyMessage -> user chat
         # если у канала есть @username (chat_ref), пробуем его — часто надёжнее
-        from_ref = found.chat_ref if (found.chat_ref or "").startswith("@") else found.chat_id
+        # prefer numeric chat_id (more reliable); fallback to @ref if missing
+        from_ref = found.chat_id if int(getattr(found, "chat_id", 0) or 0) else found.chat_ref
         await _tg_copy_message(
             to_chat_id=int(tg_id),
             from_chat_id=from_ref,   # может быть @channel или -100...
