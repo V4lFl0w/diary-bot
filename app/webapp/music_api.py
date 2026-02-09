@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+import asyncio
 import aiohttp
 
 from typing import List, Dict, Any, Optional, AsyncIterator, Union
@@ -376,7 +377,7 @@ async def _tg_send_audio_file(chat_id: int, file_path, title: str = "", caption:
 
 
 from app.services.music_full_sender import send_or_fetch_full_track
-from app.services.userbot_audio_search import search_audio_in_tg, debug_search_audio_in_tg, forward_to_storage
+from app.services.userbot_audio_search import search_audio_in_tg, debug_search_audio_in_tg, forward_to_storage, search_audio_many_in_tg
 from fastapi import Query, Header, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -406,105 +407,98 @@ async def tg_debug(
         raise HTTPException(status_code=400, detail="tg_id missing")
     data = await debug_search_audio_in_tg(query=q, title=title)
     return {"ok": True, "debug": data}
-
-
-
 @router.post("/tg_pipeline")
 async def tg_pipeline(
     q: str = Query(..., min_length=2),
     title: Optional[str] = Query(None),
     tg_id: Optional[int] = Query(None),
     x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
+    limit: Optional[int] = Query(None),
+    strict: Optional[bool] = Query(None),
 ) -> Dict[str, Any]:
     """
-    TEST кнопка пайплайна:
-    - делает TG debug (логи)
-    - делает реальный поиск
-    - если нашёл — копирует сообщение (аудио) тебе в чат
-    - возвращает всё, что нужно для отладки
+    Bulk-send pipeline:
+    - ищем несколько аудио в TG каналах userbot'ом
+    - каждое: forward -> STORAGE (userbot), затем bot copyMessage -> юзеру
+    Режим:
+      - strict авто: если в запросе 2+ слов (например "Вектор А жизнь") → strict=True
+      - limit по умолчанию из MUSIC_SEND_LIMIT (дефолт 6), максимум 10
     """
     tg_id = tg_id or x_tg_id
     if not tg_id:
         raise HTTPException(status_code=400, detail="tg_id missing (open inside Telegram)")
 
+    q = (q or "").strip()
+    env_limit = int((os.getenv("MUSIC_SEND_LIMIT") or "6").strip() or "6")
+    lim = max(1, min(int(limit or env_limit), 10))
+
+    # strict auto: 2+ words => True
+    strict_mode = bool(strict) if strict is not None else (len([x for x in q.split() if x]) >= 2)
+
     debug = await debug_search_audio_in_tg(query=q, title=title)
 
     try:
-        found = await search_audio_in_tg(query=q, title=title)
-    except Exception as e:
-        return {"ok": False, "sent": False, "error": {"stage": "search_audio_in_tg", "type": type(e).__name__, "msg": str(e)}, "debug": debug}
-
-    if not found:
-        return {"ok": True, "sent": False, "reason": "NOT_FOUND", "debug": debug}
-
-    # важное: Bot API copyMessage принимает from_chat_id как int или @username
-    # prefer numeric chat_id (more reliable); fallback to @ref if missing
-
-    # важное: Bot API copyMessage работает ТОЛЬКО если бот имеет доступ к source чату
-    # Сначала пробуем @chat_ref (если есть), потом numeric chat_id.
-    refs = []
-    if (getattr(found, "chat_ref", "") or "").startswith("@"):
-        refs.append(found.chat_ref)
-    if getattr(found, "chat_id", None):
-        refs.append(str(found.chat_id))
-
-    access_checks = [await _bot_can_access_chat(r) for r in refs]
-    ok_refs = [c["ref"] for c in access_checks if c.get("ok")]
-
-    if not ok_refs:
-        return {
-            "ok": False,
-            "sent": False,
-            "error": {
-                "stage": "bot_access",
-                "type": "BOT_NO_ACCESS",
-                "msg": "Bot API не видит источник. Добавь бота в канал/чат (или выбери каналы где бот есть).",
-                "checks": access_checks,
-            },
-            "found": {"chat_id": found.chat_id, "chat_ref": found.chat_ref, "message_id": found.message_id, "title": found.title},
-            "debug": debug,
-        }
-
-    # выбираем первый доступный ref
-        # ✅ Bridge: userbot -> STORAGE, then bot copies from STORAGE to user chat
-    try:
-        st = await forward_to_storage(
-            src=(found.chat_ref or str(found.chat_id)),
-            message_id=int(found.message_id),
-        )
-        storage_peer = st["storage_peer"]
-        storage_mid = int(st["storage_message_id"])
-        storage_chat_id = int(st.get("storage_chat_id") or 0)
-    except Exception as e:
-        return {
-            "ok": False,
-            "sent": False,
-            "error": {"stage": "forward_to_storage", "type": type(e).__name__, "msg": str(e)},
-            "found": {"chat_id": found.chat_id, "chat_ref": found.chat_ref, "message_id": found.message_id, "title": found.title},
-            "debug": debug,
-        }
-
-    try:
-        tg_copy = await _tg_copy_message(
-            to_chat_id=int(tg_id),
-            from_chat_id=storage_peer,
-            message_id=storage_mid,
+        found_list = await search_audio_many_in_tg(
+            query=q,
+            title=title,
+            max_tracks=lim,
+            strict_tokens=strict_mode,
+            per_chat_limit=60,
         )
     except Exception as e:
         return {
             "ok": False,
             "sent": False,
-            "error": {"stage": "copyMessage_from_storage", "type": type(e).__name__, "msg": str(e), "storage_peer": str(storage_peer), "storage_mid": storage_mid},
-            "found": {"chat_id": found.chat_id, "chat_ref": found.chat_ref, "message_id": found.message_id, "title": found.title},
+            "error": {"stage": "search_audio_many_in_tg", "type": type(e).__name__, "msg": str(e)},
             "debug": debug,
         }
+
+    if not found_list:
+        return {"ok": True, "sent": False, "reason": "NOT_FOUND", "limit": lim, "strict": strict_mode, "debug": debug}
+
+    sent_items = []
+    ok_sent = False
+
+    for f in found_list[:lim]:
+        try:
+            st = await forward_to_storage(
+                src=(getattr(f, "chat_ref", "") or str(getattr(f, "chat_id", ""))),
+                message_id=int(getattr(f, "message_id")),
+            )
+            storage_peer = st.get("storage_peer")
+            storage_mid = int(st.get("storage_message_id") or 0)
+            if not storage_mid:
+                raise RuntimeError("storage_mid_missing")
+
+            tg_copy = await _tg_copy_message(
+                to_chat_id=int(tg_id),
+                from_chat_id=str(storage_peer),
+                message_id=int(storage_mid),
+            )
+
+            sent_items.append({
+                "title": getattr(f, "title", None),
+                "from": {"chat": getattr(f, "chat_ref", None), "chat_id": getattr(f, "chat_id", None), "message_id": getattr(f, "message_id", None)},
+                "storage": {"peer": str(storage_peer), "message_id": storage_mid},
+                "tg_copyMessage": tg_copy,
+            })
+
+            if tg_copy and tg_copy.get("ok"):
+                ok_sent = True
+
+        except Exception as e:
+            sent_items.append({"title": getattr(f, "title", None), "error": {"stage": "bulk_send", "type": type(e).__name__, "msg": str(e)}})
+
+        await asyncio.sleep(0.35)
 
     return {
-        "ok": True,
-        "sent": True,
-        "found": {"chat_id": found.chat_id, "chat_ref": found.chat_ref, "message_id": found.message_id, "title": found.title},
-        "storage": {"peer": str(storage_peer), "chat_id": storage_chat_id, "message_id": storage_mid},
-        "tg_copyMessage": tg_copy,
+        "ok": ok_sent,
+        "sent": ok_sent,
+        "mode": "bulk",
+        "limit": lim,
+        "strict": strict_mode,
+        "found_count": len(found_list),
+        "sent_items": sent_items,
         "debug": debug,
     }
 

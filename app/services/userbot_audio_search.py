@@ -250,7 +250,23 @@ async def forward_to_storage(*, src: str | int, message_id: int) -> dict:
 
     mid = int(message_id)
     async with _client() as client:
-        msgs = await client.forward_messages(storage_peer, mid, from_peer=src_peer, as_copy=True)
+        try:
+            try:
+                msgs = await client.forward_messages(storage_peer, mid, from_peer=src_peer, as_copy=True)
+            except TypeError:
+                msgs = await client.forward_messages(storage_peer, mid, from_peer=src_peer)
+
+        except TypeError:
+            # Telethon without as_copy: download + reupload to storage
+            src_msg = await client.get_messages(src_peer, ids=mid)
+            if not src_msg:
+                raise RuntimeError('FORWARD_FAILED: source message not found')
+            data = await client.download_media(src_msg, file=bytes)
+            if not data:
+                raise RuntimeError('FORWARD_FAILED: cannot download media')
+            caption = (getattr(src_msg, 'message', None) or '').strip()
+            sent = await client.send_file(storage_peer, file=data, caption=caption or None)
+            msgs = sent
         # telethon: may return Message or list[Message]
         m0 = msgs[0] if isinstance(msgs, list) else msgs
         smid = int(getattr(m0, "id", 0) or 0)
@@ -262,6 +278,97 @@ async def forward_to_storage(*, src: str | int, message_id: int) -> dict:
         "storage_chat_id": int(storage_chat_id or 0),
         "storage_message_id": smid,
     }
+
+
+
+def _norm_text(x: str) -> str:
+    x = (x or "").lower()
+    x = re.sub(r"\s+", " ", x).strip()
+    return x
+
+def _tokens(x: str) -> list[str]:
+    x = _norm_text(x)
+    # оставим слова/цифры/кириллица/латиница
+    x = re.sub(r"[^0-9a-zа-яё\s]+", " ", x)
+    x = re.sub(r"\s+", " ", x).strip()
+    return [t for t in x.split(" ") if t]
+
+def _match_all_tokens(title: str, query: str) -> bool:
+    tt = _tokens(title)
+    qt = _tokens(query)
+    if not qt:
+        return True
+    tset = set(tt)
+    return all(t in tset for t in qt)
+
+def _looks_like_variant(title: str, base: str) -> bool:
+    # base = "жизнь" или другое слово
+    t = _norm_text(title)
+    b = _norm_text(base)
+    if not b:
+        return False
+    if b in t:
+        return True
+    # ремиксы/версии часто идут как "(remix)" или " - remix" и т.п.
+    return False
+
+async def search_audio_many_in_tg(
+    *,
+    query: str,
+    title: str | None = None,
+    per_chat_limit: int = 60,
+    max_tracks: int = 6,
+    strict_tokens: bool = False,
+) -> list[FoundAudio]:
+    """
+    Возвращает НЕ 1 трек, а список (до max_tracks).
+    strict_tokens=False: мягко (под "Вектор А" отдаём топовые совпадения)
+    strict_tokens=True: строго (все токены запроса должны быть в тайтле/атрибутах)
+    """
+    chats = _env_list("USERBOT_AUDIO_CHATS")
+    if not chats:
+        raise RuntimeError("USERBOT_AUDIO_CHATS_EMPTY")
+
+    variants = _query_variants(title, query)
+    if not variants:
+        return []
+
+    seen: set[tuple[int,int]] = set()
+    out: list[FoundAudio] = []
+
+    async with _client() as client:
+        for q in variants:
+            for chat in chats:
+                try:
+                    async for m in client.iter_messages(chat, search=q, limit=int(per_chat_limit)):
+                        if not m:
+                            continue
+                        if not _is_audio_message(m):
+                            continue
+                        chat_id = int(getattr(m, "chat_id", 0) or 0)
+                        if not chat_id:
+                            continue
+                        key = (chat_id, int(m.id))
+                        if key in seen:
+                            continue
+
+                        t = _pick_title(m, q)
+
+                        if strict_tokens and not _match_all_tokens(t, query):
+                            continue
+
+                        seen.add(key)
+                        out.append(FoundAudio(
+                            chat_id=chat_id,
+                            message_id=int(m.id),
+                            title=t,
+                            chat_ref=str(chat),
+                        ))
+                        if len(out) >= int(max_tracks):
+                            return out
+                except Exception:
+                    continue
+    return out
 
 
 async def debug_search_audio_in_tg(
