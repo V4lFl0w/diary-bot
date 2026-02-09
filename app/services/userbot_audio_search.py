@@ -205,6 +205,65 @@ async def search_audio_in_tg(
     return None
 
 
+
+
+# ===== Storage bridge (UserBot -> Storage Channel) =====
+def _storage_peer() -> tuple[object, int]:
+    """
+    Returns:
+      (peer_for_telethon, numeric_chat_id_for_cache)
+    Config:
+      MUSIC_STORAGE_CHAT_ID = -100...
+      MUSIC_STORAGE_CHAT    = @DiaryMusicTOP (optional fallback)
+    """
+    sid = (os.getenv("MUSIC_STORAGE_CHAT_ID") or "").strip()
+    sref = (os.getenv("MUSIC_STORAGE_CHAT") or os.getenv("MUSIC_STORAGE_CHAT_REF") or "").strip()
+
+    chat_id = 0
+    if sid:
+        try:
+            chat_id = int(sid)
+        except Exception:
+            chat_id = 0
+
+    if chat_id:
+        return chat_id, chat_id
+
+    sref = _normalize_chat_ref(sref)
+    if not sref:
+        raise RuntimeError("STORAGE_NOT_CONFIGURED: set MUSIC_STORAGE_CHAT_ID or MUSIC_STORAGE_CHAT")
+    return sref, 0
+
+
+async def forward_to_storage(*, src: str | int, message_id: int) -> dict:
+    """
+    Telethon forward from donor chat/channel -> our Storage channel.
+    Returns:
+      {
+        "storage_peer": <int|-100... or '@username'>,
+        "storage_chat_id": <int or 0>,
+        "storage_message_id": <int>
+      }
+    """
+    storage_peer, storage_chat_id = _storage_peer()
+    src_peer = _normalize_chat_ref(str(src)) if not isinstance(src, int) else src
+
+    mid = int(message_id)
+    async with _client() as client:
+        msgs = await client.forward_messages(storage_peer, mid, from_peer=src_peer)
+        # telethon: may return Message or list[Message]
+        m0 = msgs[0] if isinstance(msgs, list) else msgs
+        smid = int(getattr(m0, "id", 0) or 0)
+        if not smid:
+            raise RuntimeError("FORWARD_FAILED: cannot extract storage message id")
+
+    return {
+        "storage_peer": storage_peer,
+        "storage_chat_id": int(storage_chat_id or 0),
+        "storage_message_id": smid,
+    }
+
+
 async def debug_search_audio_in_tg(
     *,
     query: str,

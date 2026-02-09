@@ -376,7 +376,7 @@ async def _tg_send_audio_file(chat_id: int, file_path, title: str = "", caption:
 
 
 from app.services.music_full_sender import send_or_fetch_full_track
-from app.services.userbot_audio_search import search_audio_in_tg, debug_search_audio_in_tg
+from app.services.userbot_audio_search import search_audio_in_tg, debug_search_audio_in_tg, forward_to_storage
 from fastapi import Query, Header, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -466,18 +466,35 @@ async def tg_pipeline(
         }
 
     # выбираем первый доступный ref
-    from_ref = ok_refs[0]
+        # ✅ Bridge: userbot -> STORAGE, then bot copies from STORAGE to user chat
+    try:
+        st = await forward_to_storage(
+            src=(found.chat_ref or str(found.chat_id)),
+            message_id=int(found.message_id),
+        )
+        storage_peer = st["storage_peer"]
+        storage_mid = int(st["storage_message_id"])
+        storage_chat_id = int(st.get("storage_chat_id") or 0)
+    except Exception as e:
+        return {
+            "ok": False,
+            "sent": False,
+            "error": {"stage": "forward_to_storage", "type": type(e).__name__, "msg": str(e)},
+            "found": {"chat_id": found.chat_id, "chat_ref": found.chat_ref, "message_id": found.message_id, "title": found.title},
+            "debug": debug,
+        }
+
     try:
         tg_copy = await _tg_copy_message(
             to_chat_id=int(tg_id),
-            from_chat_id=from_ref,
-            message_id=int(found.message_id),
+            from_chat_id=storage_peer,
+            message_id=storage_mid,
         )
     except Exception as e:
         return {
             "ok": False,
             "sent": False,
-            "error": {"stage": "copyMessage", "type": type(e).__name__, "msg": str(e), "from_ref": str(from_ref)},
+            "error": {"stage": "copyMessage_from_storage", "type": type(e).__name__, "msg": str(e), "storage_peer": str(storage_peer), "storage_mid": storage_mid},
             "found": {"chat_id": found.chat_id, "chat_ref": found.chat_ref, "message_id": found.message_id, "title": found.title},
             "debug": debug,
         }
@@ -486,6 +503,7 @@ async def tg_pipeline(
         "ok": True,
         "sent": True,
         "found": {"chat_id": found.chat_id, "chat_ref": found.chat_ref, "message_id": found.message_id, "title": found.title},
+        "storage": {"peer": str(storage_peer), "chat_id": storage_chat_id, "message_id": storage_mid},
         "tg_copyMessage": tg_copy,
         "debug": debug,
     }
@@ -563,21 +581,24 @@ async def play_track(
                 pass
             raise HTTPException(status_code=409, detail={"code": "TG_AUDIO_NOT_FOUND", "youtube_url": yurl})
 
-        # copyMessage -> user chat
-        # если у канала есть @username (chat_ref), пробуем его — часто надёжнее
-        # prefer numeric chat_id (more reliable); fallback to @ref if missing
-        from_ref = found.chat_id if int(getattr(found, "chat_id", 0) or 0) else found.chat_ref
-        await _tg_copy_message(
-            to_chat_id=int(tg_id),
-            from_chat_id=from_ref,   # может быть @channel или -100...
+                # ✅ Bridge: userbot -> STORAGE, then bot copies from STORAGE to user chat
+        st = await forward_to_storage(
+            src=(found.chat_ref or str(found.chat_id)),
             message_id=int(found.message_id),
         )
+        storage_peer = st["storage_peer"]
+        storage_mid = int(st["storage_message_id"])
+        storage_chat_id = int(st.get("storage_chat_id") or 0)
 
-        # cache as tgmsg:<chat_id>:<msg_id>
-        # для кеша используем numeric chat_id если есть, иначе не кешируем
-        chat_id_for_cache = int(found.chat_id or 0)
-        if chat_id_for_cache:
-            fid = f"tgmsg:{chat_id_for_cache}:{int(found.message_id)}"
+        await _tg_copy_message(
+            to_chat_id=int(tg_id),
+            from_chat_id=storage_peer,
+            message_id=storage_mid,
+        )
+
+        # cache as tgmsg:<STORAGE_CHAT_ID>:<storage_mid>
+        if storage_chat_id:
+            fid = f"tgmsg:{storage_chat_id}:{storage_mid}"
             track = UserTrack(
                 user_id=user.id,
                 tg_id=int(tg_id),
@@ -587,6 +608,7 @@ async def play_track(
             session.add(track)
             await session.commit()
 
-        return {"ok": True, "source": "tg_search", "cached": bool(chat_id_for_cache)}
+        return {"ok": True, "source": "tg_search", "cached": bool(storage_chat_id)}
+
 
     raise HTTPException(status_code=400, detail="unknown kind")
