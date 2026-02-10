@@ -74,8 +74,6 @@ def _menu_kb(l: str, tg_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=tr(l, "focus_btn"), callback_data="music:focus"),
-                InlineKeyboardButton(text=tr(l, "sleep_btn"), callback_data="music:sleep"),
             ],
             [
                 InlineKeyboardButton(text=tr(l, "my_btn"), callback_data="music:my"),
@@ -84,7 +82,6 @@ def _menu_kb(l: str, tg_id: int) -> InlineKeyboardMarkup:
             [
                 *webapp_btns,
                 InlineKeyboardButton(text=tr(l, "link_btn"), callback_data="music:link"),
-                InlineKeyboardButton(text=tr(l, "search_btn"), callback_data="music:search"),
             ],
         ]
     )
@@ -238,7 +235,7 @@ async def on_music_choice(c: CallbackQuery, state: FSMContext, session: AsyncSes
         st = await state.get_data()
         packed = st.get("music_search_results") or []
         if not isinstance(packed, list) or idx < 0 or idx >= len(packed):
-            await cb_reply(c, "⚠️ Результаты поиска устарели. Нажми «Поиск» ещё раз.")
+            await cb_reply(c, "⚠️ Действие устарело. Открой плеер заново.")
             return
 
         item = packed[idx] or {}

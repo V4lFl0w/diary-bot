@@ -23,6 +23,30 @@
   </style>
 </head>
 <body>
+
+<!-- UX: Sections (Collections / Playlist / Popular) -->
+<div class="ux-sections" style="margin:10px 0 12px;">
+  <div class="ux-tabs" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+    <button type="button" class="chip chip--active" data-ux-tab="collections">Подборки</button>
+    <button type="button" class="chip" data-ux-tab="playlist">Мой плейлист</button>
+    <button type="button" class="chip" data-ux-tab="popular">Популярное</button>
+  </div>
+
+  <div class="ux-presets" data-ux-panel="collections" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button type="button" class="chip" data-ux-preset="focus">Focus</button>
+    <button type="button" class="chip" data-ux-preset="sleep">Sleep</button>
+    <button type="button" class="chip" data-ux-preset="relax">Relax</button>
+    <button type="button" class="chip" data-ux-preset="energise">Energise</button>
+    <button type="button" class="chip" data-ux-preset="feelgood">Feel good</button>
+    <button type="button" class="chip" data-ux-preset="workout">Workout</button>
+  </div>
+</div>
+
+<div class="ux-panel" data-ux-panel="collections"></div>
+<div class="ux-panel" data-ux-panel="playlist" style="display:none;"></div>
+<div class="ux-panel" data-ux-panel="popular" style="display:none;"></div>
+</div>
+
   <div class="wrap">
     <div class="card">
       <h1>🎵 Music</h1>
@@ -288,6 +312,76 @@
       runTgPipeline();
     });
   }
+})();
+</script>
+
+
+
+<script>
+(function () {
+  const $ = (sel, root=document) => root.querySelector(sel);
+  const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
+
+  function findButtonByText(txt) {
+    const btns = $$("button");
+    return btns.find(b => (b.textContent || "").trim() === txt) || null;
+  }
+
+  const input =
+    $("#q") ||
+    document.querySelector('input[type="search"]') ||
+    document.querySelector('input[type="text"]');
+
+  const btnFind =
+    $("#btnGo") ||
+    $("#btnFind") ||
+    findButtonByText("Найти");
+
+  function clickFind() {
+    if (btnFind) btnFind.click();
+  }
+
+  // Tabs
+  const tabs = $$('[data-ux-tab]');
+  const presetRow = $('.ux-presets');
+
+  function setActiveTab(name) {
+    tabs.forEach(t => t.classList.toggle('chip--active', t.getAttribute('data-ux-tab') === name));
+
+    // Presets visible in collections + popular, hidden in playlist
+    if (presetRow) presetRow.style.display = (name === "playlist") ? "none" : "";
+
+    // Playlist mode: trigger existing "Мой плейлист" loader if present
+    if (name === "playlist") {
+      const btnMy = $("#btnMy") || findButtonByText("Мой плейлист") || $('[data-action="my-playlist"]');
+      if (btnMy) btnMy.click();
+    }
+  }
+
+  tabs.forEach(t => t.addEventListener("click", () => setActiveTab(t.getAttribute("data-ux-tab"))));
+
+  // Presets => smart queries
+  const presetMap = {
+    focus: "focus music mix",
+    sleep: "sleep music calm",
+    relax: "relax chill mix",
+    energise: "energise upbeat mix",
+    feelgood: "feel good vibes mix",
+    workout: "workout music mix"
+  };
+
+  $$('.ux-presets [data-ux-preset]').forEach(btn => {
+    btn.addEventListener("click", () => {
+      const key = btn.getAttribute("data-ux-preset");
+      const q = presetMap[key] || key;
+      if (input) input.value = q;
+      setActiveTab("collections");
+      clickFind();
+    });
+  });
+
+  // Default tab
+  setActiveTab("collections");
 })();
 </script>
 

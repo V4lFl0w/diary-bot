@@ -248,6 +248,103 @@
   body::before, body::after { pointer-events: none !important; }
   .wrap, .wrap * { pointer-events: auto; }
   button, input, .chip, .item, a { pointer-events: auto !important; }
+
+
+/* === Premium micro-animations (GPU-friendly) === */
+:root{
+  --ease: cubic-bezier(.2,.8,.2,1);
+  --dur: 180ms;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce){
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+/* Entrance */
+.wrap{ opacity:0; transform: translateY(6px); }
+body.is-ready .wrap{ opacity:1; transform: translateY(0); transition: opacity 420ms var(--ease), transform 420ms var(--ease); }
+
+/* Tabs/panels */
+.ux-panel2{ opacity:0; transform: translateY(4px); transition: opacity 220ms var(--ease), transform 220ms var(--ease); }
+.ux-panel2.is-active{ opacity:1; transform: translateY(0); }
+
+/* Buttons & chips */
+.btn, .chip, .ux-tab2, .ux-chip, .modebtn{
+  transition: transform var(--dur) var(--ease),
+              filter var(--dur) var(--ease),
+              background-color var(--dur) var(--ease),
+              border-color var(--dur) var(--ease);
+  will-change: transform;
+}
+.btn:hover, .ux-tab2:hover, .ux-chip:hover, .chip:hover, .modebtn:hover { filter: brightness(1.06); }
+.btn:active, .ux-tab2:active, .ux-chip:active, .chip:active, .modebtn:active { transform: translateY(1px) scale(.99); }
+
+/* Cards */
+.panel{
+  transition: transform 240ms var(--ease), filter 240ms var(--ease);
+  will-change: transform;
+}
+.panel:hover{ transform: translateY(-1px); filter: brightness(1.02); }
+
+.item{
+  transition: transform 220ms var(--ease), filter 220ms var(--ease), border-color 220ms var(--ease);
+  will-change: transform;
+}
+.item:hover{ transform: translateY(-1px); filter: brightness(1.03); border-color: rgba(58,160,255,.22); }
+
+/* Soft "premium aura" on logo (very subtle) */
+.logo{
+  position: relative;
+  overflow: hidden;
+}
+.logo::after{
+  content:"";
+  position:absolute; inset:-30%;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.22), transparent 45%),
+              radial-gradient(circle at 70% 70%, rgba(255,255,255,.14), transparent 55%);
+  opacity:.22;
+  transform: translate3d(0,0,0);
+  animation: logoGlow 3.6s var(--ease) infinite;
+  pointer-events:none;
+}
+@keyframes logoGlow{
+  0%   { opacity:.18; transform: translate3d(-2px,-2px,0) scale(1.02); }
+  50%  { opacity:.28; transform: translate3d( 2px, 2px,0) scale(1.06); }
+  100% { opacity:.18; transform: translate3d(-2px,-2px,0) scale(1.02); }
+}
+
+/* Play tag micro pulse (optional but subtle) */
+.tag{
+  transition: transform 220ms var(--ease), filter 220ms var(--ease);
+}
+.item:hover .tag{ transform: translateY(-1px); filter: brightness(1.05); }
+/* === /Premium micro-animations === */
+
+
+
+/* === Active track highlight (premium, lightweight) === */
+.item.is-active{
+  border-color: rgba(58,160,255,.32) !important;
+  background: rgba(58,160,255,.08) !important;
+  transform: translateY(-1px) scale(1.006);
+  filter: brightness(1.03);
+}
+.item.is-active .tag{
+  filter: brightness(1.08);
+}
+.item.is-active::after{
+  content:"";
+  position:absolute;
+  inset:-1px;
+  border-radius:14px;
+  pointer-events:none;
+  box-shadow: 0 0 0 1px rgba(58,160,255,.18) inset;
+}
+/* Make .item positionable for ::after */
+.item{ position: relative; }
+/* === /Active track highlight === */
+
 </style>
 
 </head>
@@ -256,21 +353,153 @@
     <div class="top">
       <div class="brand">
         <div class="logo"></div>
-        <div>
+<div>
           Diary Music
           <small>поиск треков, ремиксов и версий</small>
         </div>
       </div>
       <div class="actions">
-        <button class="btn" id="btnMy">Мой плейлист</button>
-        <button class="btn" id="btnClear">Очистить</button>
+        <button class="btn" id="btnMy">Мой плейлист</button><!-- ux: hidden by tabs -->
+        <button class="btn" id="btnClear">Очистить</button><!-- ux: hidden by tabs -->
       </div>
     </div>
 
     <div class="search">
-      <input id="q" placeholder="Артист + трек (например: Luxor 100 причин)" autocomplete="off" />
+      <input id="q" placeholder="Артист или трек (например: Luxor / Luxor 100 причин)" autocomplete="off" />
       <button class="btn" id="btnGo">Найти</button>
     </div>
+
+<!-- UX: Clean Tabs -->
+<style>
+  .ux-tabs2{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 10px;align-items:center}
+  .ux-tab2{padding:9px 12px;border:1px solid var(--stroke);border-radius:999px;background:transparent;color:var(--text);font-weight:800;cursor:pointer}
+  .ux-tab2.is-active{background:rgba(255,255,255,.06)}
+  .ux-panel2{display:none}
+  .ux-panel2.is-active{display:block}
+  .ux-chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px}
+  .ux-chip{padding:8px 12px;border:1px solid var(--stroke);border-radius:999px;background:transparent;color:var(--text);font-weight:800;cursor:pointer}
+  .ux-chip:hover,.ux-tab2:hover{filter:brightness(1.08)}
+  .ux-actions{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
+  .ux-hint{color:var(--muted);font-weight:700;font-size:12px;line-height:1.35}
+  /* Hide old top playlist buttons (they'll be accessible in Playlist tab) */
+  #btnMy,#btnClear{display:none !important}
+</style>
+
+<div class="ux-tabs2">
+  <button type="button" class="ux-tab2 is-active" data-tab2="collections">Подборки</button>
+  <button type="button" class="ux-tab2" data-tab2="search">Поиск</button>
+  <button type="button" class="ux-tab2" data-tab2="playlist">Мой плейлист</button>
+</div>
+
+<div class="ux-panel2 is-active" data-panel2="collections">
+  <div class="ux-chips">
+    <button type="button" class="ux-chip" data-preset="focus">Focus</button>
+    <button type="button" class="ux-chip" data-preset="sleep">Sleep</button>
+    <button type="button" class="ux-chip" data-preset="relax">Relax</button>
+    <button type="button" class="ux-chip" data-preset="energise">Energise</button>
+    <button type="button" class="ux-chip" data-preset="feelgood">Feel good</button>
+    <button type="button" class="ux-chip" data-preset="workout">Workout</button>
+  </div>
+  <div class="ux-hint">Выбери настроение — мы подставим запрос и покажем варианты. Дальше жми <b>⬇️ Скачать в Telegram</b>.</div>
+</div>
+
+<div class="ux-panel2" data-panel2="search">
+  <div class="ux-hint">Введи <b>артиста или трек</b> → <b>Найти</b> → <b>⬇️ Скачать в Telegram</b>. Скачанное попадёт в <b>Мой плейлист</b>.</div>
+</div>
+
+<div class="ux-panel2" data-panel2="playlist">
+  <div class="ux-actions">
+    <button type="button" class="btn" id="uxBtnLoadMy">📂 Загрузить плейлист</button>
+    <button type="button" class="btn" id="uxBtnShuffleMy">🔀 Shuffle</button>
+    <button type="button" class="btn" id="uxBtnClearMy">🗑 Очистить</button>
+  </div>
+  <div class="ux-hint">Здесь только твоё. Можно мешать, слушать и скачивать в Telegram.</div>
+</div>
+
+<script>
+(function(){
+  const $ = (id)=>document.getElementById(id);
+  const tabs = Array.from(document.querySelectorAll('[data-tab2]'));
+  const panels = Array.from(document.querySelectorAll('[data-panel2]'));
+
+  function setTab(name){
+    tabs.forEach(t=>t.classList.toggle('is-active', t.getAttribute('data-tab2')===name));
+    // smooth panel swap
+    panels.forEach(p=>{
+      const on = (p.getAttribute('data-panel2')===name);
+      if(on){
+        p.classList.add('is-active');
+        // force reflow-free visual settle
+        try{ requestAnimationFrame(()=>p.classList.add('is-active')); }catch(e){}
+      } else {
+        p.classList.remove('is-active');
+      }
+    });
+  }
+
+  tabs.forEach(t=>t.addEventListener('click', ()=>setTab(t.getAttribute('data-tab2'))));
+
+  // presets -> fill query + click find
+  const presetMap = {
+    focus: "focus music mix",
+    sleep: "sleep music calm",
+    relax: "relax chill mix",
+    energise: "energise upbeat mix",
+    feelgood: "feel good vibes mix",
+    workout: "workout music mix"
+  };
+  const q = $("q");
+  const btnGo = $("btnGo");
+
+  document.querySelectorAll('[data-preset]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const key = b.getAttribute('data-preset');
+      if (q) q.value = presetMap[key] || key;
+      setTab('search');
+      if (btnGo) btnGo.click();
+    });
+  });
+
+  // playlist actions: reuse your existing handlers
+  const btnMy = $("btnMy");
+  const btnClear = $("btnClear");
+
+  $("uxBtnLoadMy")?.addEventListener("click", ()=>{
+    setTab("playlist");
+    if (btnMy) btnMy.click(); // triggers loadMy
+  });
+
+  $("uxBtnClearMy")?.addEventListener("click", ()=>{
+    setTab("playlist");
+    if (btnClear) btnClear.click();
+  });
+
+  // Shuffle: try to reuse existing "audio mode" logic if state.my exists
+  $("uxBtnShuffleMy")?.addEventListener("click", ()=>{
+    setTab("playlist");
+    try{
+      // "state" is used in your script; we don't redefine it here.
+      if (window.state && Array.isArray(window.state.my) && window.state.my.length){
+        // pick random track and simulate selecting it from My playlist
+        const idx = Math.floor(Math.random()*window.state.my.length);
+        const t = window.state.my[idx];
+        // try common click entrypoints (safe no-op if missing)
+        if (t && t.track_id && window.openTrackById) window.openTrackById(t.track_id);
+        // fallback: if you render list items with data-track-id, click one
+        const el = document.querySelector('[data-track-id="'+t.track_id+'"]');
+        if (el) el.click();
+      } else {
+        if (btnMy) btnMy.click();
+      }
+    }catch(e){
+      if (btnMy) btnMy.click();
+    }
+  });
+
+})();
+</script>
+<!-- /UX: Clean Tabs -->
+
 
     <div class="chips" id="chips">
       <div class="chip on" data-q="Energise">Energise</div>
@@ -305,8 +534,8 @@
         </div>
         <div style="padding:12px 14px 14px;border-top:1px solid var(--stroke)">
           <div style="display:flex;gap:10px;flex-wrap:wrap">
-            <button class="btn" id="btnPlayTG">▶️ Play в Telegram</button>
-            <button class="btn" id="btnSendTG">⬇️ Скачать в TG</button>
+            
+            <button class="btn" id="btnSendTG">⬇️ Скачать в Telegram</button>
 <button class="btn" id="btnOpenYT">↗️ Открыть в YouTube</button>
           </div>
           <div style="margin-top:10px;color:var(--muted);font-weight:700;font-size:12px;line-height:1.35">
@@ -326,6 +555,7 @@
 
 <script>
 window.addEventListener('DOMContentLoaded', function(){
+  try{ requestAnimationFrame(()=>document.body.classList.add('is-ready')); }catch(e){ document.body.classList.add('is-ready'); }
 try{
   const $ = (id)=>document.getElementById(id);
   const list = $("list");
@@ -408,6 +638,7 @@ try{
     return fetch(url, opts);
   }
   const state = {
+    activeEl: null,
     selected: null,
     lastQuery: "",
     items: [],
@@ -461,6 +692,12 @@ try{
     for (const it of items){
       const el = document.createElement("div");
       el.className = "item";
+      // stable key for highlighting / shuffle
+      const _key = (it && it.kind === "my" && it.track_id) ? ("my:" + it.track_id) : (it && it.video_id ? ("yt:" + it.video_id) : ("t:" + (it.title||"")));
+      el.dataset.trackKey = _key;
+      if (it && it.track_id) el.dataset.trackId = String(it.track_id);
+      else if (it && it.video_id) el.dataset.trackId = String(it.video_id);
+
       el.innerHTML = `
         <div class="thumb">${it.thumb ? `<img src="${esc(it.thumb)}" />` : ""}</div>
         <div class="meta">
@@ -469,13 +706,35 @@ try{
         </div>
         <div class="tag">PLAY</div>
       `;
-      el.addEventListener("click", ()=>play(it));
+      el.addEventListener("click", ()=>play(it, el));
       list.appendChild(el);
     }
   }
 
-  async function play(it){
+  async function play(it, el){
     if (!it) return;
+
+    function getKey(x){
+      return (x && x.kind==="my" && x.track_id) ? ("my:" + x.track_id)
+           : (x && x.video_id) ? ("yt:" + x.video_id)
+           : ("t:" + (x && x.title ? x.title : ""));
+    }
+
+    function setActiveItem(node){
+      try{
+        if (state.activeEl) state.activeEl.classList.remove("is-active");
+      }catch(e){}
+      state.activeEl = node || null;
+      if (state.activeEl) state.activeEl.classList.add("is-active");
+    }
+
+    // highlight: if called without el, try find by key
+    try{
+      const k = getKey(it);
+      const node = el || document.querySelector('.item[data-track-key="'+k.replace(/"/g,'\"')+'"]');
+      setActiveItem(node);
+    }catch(e){}
+
     state.selected = it;
     state.queue.unshift(it);
     nowTitle.textContent = it.title || "—";
@@ -750,6 +1009,9 @@ $("btnClear").addEventListener("click", ()=>{
 }
 });
 </script>
+
+
+
 
 </body>
 </html>
