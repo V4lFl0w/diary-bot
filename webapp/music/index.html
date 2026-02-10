@@ -426,107 +426,7 @@ body.is-ready .wrap{ opacity:1; transform: translateY(0); transition: opacity 42
   <div class="ux-hint">Здесь только твоё. Можно мешать, слушать и скачивать в Telegram.</div>
 </div>
 
-<script>
-(function(){
-  const $ = (id)=>document.getElementById(id);
-  const tabs = Array.from(document.querySelectorAll('[data-tab2]'));
-  const panels = Array.from(document.querySelectorAll('[data-panel2]'));
-
-  function setTab(name){
-    tabs.forEach(t=>t.classList.toggle('is-active', t.getAttribute('data-tab2')===name));
-    // smooth panel swap
-    panels.forEach(p=>{
-      const on = (p.getAttribute('data-panel2')===name);
-      if(on){
-        p.classList.add('is-active');
-        // force reflow-free visual settle
-        try{ requestAnimationFrame(()=>p.classList.add('is-active')); }catch(e){}
-      } else {
-        p.classList.remove('is-active');
-      }
-    });
-  }
-
-  /* TAB_HOOK_SPLIT */
-  function applyTabView(name){
-    try{
-      if (name === "playlist"){
-        if (listSearch) listSearch.style.display = "none";
-        if (listMy) listMy.style.display = "";
-        activeList = listMy || listSearch;
-        if (btnMy) btnMy.click();
-      } else {
-        if (listMy) listMy.style.display = "none";
-        if (listSearch) listSearch.style.display = "";
-        activeList = listSearch;
-      }
-    }catch(e){}
-  }
-
-tabs.forEach(t=>t.addEventListener('click', ()=>{ const name=t.getAttribute('data-tab2'); setTab(name); applyTabView(name); }));
-
-  // presets -> fill query + click find
-  const presetMap = {
-    focus: "focus music mix",
-    sleep: "sleep music calm",
-    relax: "relax chill mix",
-    energise: "energise upbeat mix",
-    feelgood: "feel good vibes mix",
-    workout: "workout music mix"
-  };
-  const q = $("q");
-  const btnGo = $("btnGo");
-
-  document.querySelectorAll('[data-preset]').forEach(b=>{
-    b.addEventListener('click', ()=>{
-      const key = b.getAttribute('data-preset');
-      if (q) q.value = presetMap[key] || key;
-      setTab('search');
-      if (btnGo) btnGo.click();
-    });
-  });
-
-  // playlist actions: reuse your existing handlers
-  const btnMy = $("btnMy");
-  const btnClear = $("btnClear");
-
-  $("uxBtnLoadMy")?.addEventListener("click", ()=>{
-    setTab("playlist");
-    if (btnMy) btnMy.click(); // triggers loadMy
-  });
-
-  $("uxBtnClearMy")?.addEventListener("click", ()=>{
-    setTab("playlist");
-    if (btnClear) btnClear.click();
-  });
-
-  // Shuffle: try to reuse existing "audio mode" logic if state.my exists
-  $("uxBtnShuffleMy")?.addEventListener("click", ()=>{
-    setTab("playlist");
-    try{
-      // "state" is used in your script; we don't redefine it here.
-      if (window.state && Array.isArray(window.state.my) && window.state.my.length){
-        // pick random track and simulate selecting it from My playlist
-        const idx = Math.floor(Math.random()*window.state.my.length);
-        const t = window.state.my[idx];
-        // try common click entrypoints (safe no-op if missing)
-        if (t && t.track_id && window.openTrackById) window.openTrackById(t.track_id);
-        // fallback: if you render list items with data-track-id, click one
-        const el = document.querySelector('[data-track-id="'+t.track_id+'"]');
-        if (el) el.click();
-      } else {
-        if (btnMy) btnMy.click();
-      }
-    }catch(e){
-      if (btnMy) btnMy.click();
-    }
-  });
-
-})();
-</script>
-<!-- /UX: Clean Tabs -->
-
-
+<!-- /UX: Clean Tabs (script moved into DOMContentLoaded) -->
     <div class="chips" id="chips">
       <div class="chip on" data-q="Energise">Energise</div>
       <div class="chip" data-q="Relax">Relax</div>
@@ -562,14 +462,19 @@ tabs.forEach(t=>t.addEventListener('click', ()=>{ const name=t.getAttribute('dat
         <div style="padding:12px 14px 14px;border-top:1px solid var(--stroke)">
           <div style="display:flex;gap:10px;flex-wrap:wrap">
             
-            <button class="btn" id="btnSendTG">⬇️ Скачать в Telegram</button>
-<button class="btn" id="btnOpenYT">↗️ Открыть в YouTube</button>
+            
+            <button class="btn" id="btnSendOneTG">⬇️ Сохранить выбранный</button>
+            <button class="btn" id="btnSendPackTG">⬇️ Скачать подборку (6)</button>
+            <button class="btn" id="btnOpenYT">↗️ Открыть в YouTube</button>
+          </div>
+          <div style="margin-top:10px;color:var(--muted);font-weight:700;font-size:12px;line-height:1.35">
+            <div id="uxSelHint">Выбрано: —</div>
+            <div id="uxPackHint">Подборка: —</div>
           </div>
           <div style="margin-top:10px;color:var(--muted);font-weight:700;font-size:12px;line-height:1.35">
             ⚡ Для фонового прослушивания используем Telegram-плеер (самый надёжный вариант).
           </div>
         </div>
-      </div>
     </div>
   </div>
 
@@ -589,6 +494,42 @@ try{
   const listMy = $("listMy");
   let activeList = listSearch;
   const list = listSearch; // legacy alias (avoid crashes)
+
+  // UX Tabs (safe): split Search vs My list
+  try{
+    const uxTabs = Array.from(document.querySelectorAll('[data-tab2]'));
+    const uxPanels = Array.from(document.querySelectorAll('[data-panel2]'));
+
+    function setUxTab(name){
+      uxTabs.forEach(t=>t.classList.toggle('is-active', t.getAttribute('data-tab2')===name));
+      uxPanels.forEach(p=>p.classList.toggle('is-active', p.getAttribute('data-panel2')===name));
+
+      if (name === "playlist"){
+        if (listSearch) listSearch.style.display = "none";
+        if (listMy) listMy.style.display = "";
+        activeList = listMy || listSearch;
+        // auto load
+        const btnMy = document.getElementById("btnMy");
+        if (btnMy) btnMy.click();
+      } else {
+        if (listMy) listMy.style.display = "none";
+        if (listSearch) listSearch.style.display = "";
+        activeList = listSearch;
+      }
+      try{ updateUxHints(); }catch(e){}
+    }
+
+    uxTabs.forEach(t=>{
+      t.addEventListener("click", ()=>{
+        const name = t.getAttribute("data-tab2") || "search";
+        setUxTab(name);
+      });
+    });
+
+    // default view
+    setUxTab("collections");
+  }catch(e){}
+ // legacy alias (avoid crashes)
 
 
   const status = $("status");
@@ -687,7 +628,6 @@ try{
     if (m === "audio"){
       modeAudio.classList.add("on");
       modeYT.classList.remove("on");
-      audioWrap.style.display = "block";
       if (audioWrap) audioWrap.style.display = "block";
       if (iframeWrap) iframeWrap.style.display = "none";
       if (yt) yt.src = "about:blank";
@@ -697,9 +637,7 @@ try{
       modeAudio.classList.remove("on");
       if (iframeWrap) iframeWrap.style.display = "block";
       if (audioWrap) audioWrap.style.display = "none";
-      if (aud) aud.pause();
-      aud.removeAttribute("src");
-      aud.load();
+      if (aud){ aud.pause(); aud.removeAttribute("src"); aud.load(); }
     }
   }
 
@@ -711,7 +649,23 @@ try{
 
   function setStatus(t){ status.textContent = t; }
 
-  function esc(s){
+  
+
+  function updateUxHints(){
+    try{
+      const a = document.getElementById("uxSelHint");
+      const b = document.getElementById("uxPackHint");
+      if (a){
+        const t = state && state.selected ? (state.selected.title || "—") : "—";
+        a.textContent = "Выбрано: " + t;
+      }
+      if (b){
+        const qv = (q && q.value ? String(q.value).trim() : "") || (state && state.lastQuery ? String(state.lastQuery).trim() : "");
+        b.textContent = "Подборка: " + (qv || "—");
+      }
+    }catch(e){}
+  }
+function esc(s){
     return (s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
   }
 
@@ -840,7 +794,27 @@ if (!items || !items.length){
 
   $("btnGo").addEventListener("click", ()=>search(q.value));
   
-  async function playInTelegram(){
+  
+  // Presets (Focus/Sleep/...) — ставим запрос и ищем, НЕ переключая вкладку
+  document.querySelectorAll('.ux-chip[data-preset]').forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const p = (btn.getAttribute("data-preset") || "").trim();
+      if (!p) return;
+      const map = {
+        focus: "Focus",
+        sleep: "Sleep",
+        relax: "Relax",
+        energise: "Energise",
+        feelgood: "Feel good",
+        workout: "Workout"
+      };
+      const v = map[p] || p;
+      if (q) q.value = v;
+      search(v);
+      setStatus("Подборка: " + v);
+    });
+  });
+async function playInTelegram(){
     const it = state.selected;
     if (!it){
       setStatus("Сначала выбери трек.");
@@ -861,10 +835,11 @@ if (!items || !items.length){
     if (it.kind === "my" && it.track_id){
       u.searchParams.set("kind", "my");
       u.searchParams.set("track_id", String(it.track_id));
+      let j = null;
       try{
         const r = await apiFetch(u.toString(), { method:"POST" });
-        const j = await r.json();
-        if (j && j.ok){
+        j = await r.json();
+if (j && j.ok){
           setStatus("Отправил в Telegram ✅ Открой чат — трек уже там.");
         } else {
           setStatus("Не получилось отправить. Проверь бота/сервер.");
@@ -926,10 +901,66 @@ if (!items || !items.length){
     }
     setStatus("Открыл YouTube ↗️");
   }
-  const _btnPlayTG = $("btnPlayTG");
-  if (_btnPlayTG) _btnPlayTG.addEventListener("click", playInTelegram);
+  async function sendSelectedToTelegram(){
+    const it = state.selected;
+    if (!it){ setStatus("Сначала выбери трек из списка слева."); return; }
+
+    const tg_id = getTgId();
+    if (!tg_id){ setStatus("Открой mini app внутри Telegram (нет tg_id)."); return; }
+
+    setStatus("Отправляю выбранный трек в Telegram…");
+
+    // MY playlist
+    if (it.kind === "my" && it.track_id){
+      const u = new URL("/webapp/music/api/play", location.origin);
+      u.searchParams.set("kind", "my");
+      u.searchParams.set("track_id", String(it.track_id));
+      try{
+        const r = await apiFetch(u.toString(), { method:"POST" });
+        const j = await r.json();
+        if (j && j.ok){
+          setStatus("Отправил выбранный ✅ Открой чат — трек уже там.");
+        } else {
+          setStatus("Не получилось отправить выбранный. Проверь сервер.");
+        }
+      }catch(e){
+        console.error(e);
+        setStatus("Ошибка /play (my).");
+      }
+      return;
+    }
+
+    // SEARCH item -> отправляем выбранный (не пачкой)
+    const title = (it.title || "").trim();
+    const query = it.video_id ? ("https://www.youtube.com/watch?v=" + it.video_id) : title;
+
+    if (!title || !query){
+      setStatus("Не хватает данных трека. Выбери другой результат.");
+      return;
+    }
+
+    const u = new URL("/webapp/music/api/play", location.origin);
+    u.searchParams.set("kind", "search");
+    u.searchParams.set("title", title);
+    u.searchParams.set("query", query);
+    if (it.video_id) u.searchParams.set("video_id", String(it.video_id));
+
+    try{
+      const r = await apiFetch(u.toString(), { method:"POST" });
+      const j = await r.json();
+      if (j && j.ok){
+        setStatus("Отправил выбранный ✅ Открой чат — трек уже там.");
+      } else {
+        setStatus("Не получилось отправить выбранный. Проверь сервер.");
+      }
+    }catch(e){
+      console.error(e);
+      setStatus("Ошибка /play (selected).");
+    }
+  }
 
   async function sendBulkToTelegram(){
+
     const tg_id = getTgId();
     const queryRaw = (q && q.value ? String(q.value) : "").trim();
     const query = queryRaw || (state.selected && state.selected.title ? String(state.selected.title).trim() : "");
@@ -962,80 +993,91 @@ if (!items || !items.length){
       setStatus("Ошибка сети /tg_pipeline");
     }
   }
-  $("btnSendTG").addEventListener("click", ()=>{
-    if (state.selected && state.selected.kind === "my") return playInTelegram();
-    return sendBulkToTelegram();
-  });
-
 $("btnOpenYT").addEventListener("click", openInYouTube);
 
+
+
+  $("btnSendOneTG")?.addEventListener("click", sendSelectedToTelegram);
+  $("btnSendPackTG")?.addEventListener("click", sendBulkToTelegram);
+  updateUxHints();
 $("btnClear").addEventListener("click", ()=>{
-    q.value = "";
-    L.innerHTML = "";
-    if (yt) yt.src = "about:blank";
-    if (iframeWrap) iframeWrap.classList.remove("active");
-    nowTitle.textContent = "Выбери трек слева";
-    nowChan.textContent = "—";
-    nowThumb.innerHTML = "";
-    state.selected = null;
-    setStatus("Очищено.");
-  });
+  q.value = "";
+  if (listSearch) listSearch.innerHTML = "";
+  if (listMy) listMy.innerHTML = "";
+  if (yt) yt.src = "about:blank";
+  if (iframeWrap) iframeWrap.classList.remove("active");
+  nowTitle.textContent = "Выбери трек слева";
+  nowChan.textContent = "—";
+  nowThumb.innerHTML = "";
+  state.selected = null;
+  setStatus("Очищено.");
+});
 
   async function loadMy(){
-    if (!state.tg_id){
-      setStatus("Открой mini app внутри Telegram (нет tg_id).");
+  if (!state.tg_id){
+    setStatus("Открой mini app внутри Telegram (нет tg_id).");
+    return;
+  }
+  setStatus("Загружаю твой плейлист…");
+  const u = new URL("/webapp/music/api/my", location.origin);
+  u.searchParams.set("tg_id", String(state.tg_id));
+
+  try{
+    const r = await apiFetch(u.toString(), { method:"GET" });
+    const j = await r.json();
+    const items = (j && j.items) ? j.items : [];
+
+    state.my = items.map(x=>({
+      kind: "my",
+      track_id: x.id,
+      title: x.title || "Track",
+      channel: "My playlist",
+      thumb: "",
+      is_url: !!x.is_url,
+      file_id: x.file_id || ""
+    }));
+
+    const target = listMy || listSearch;
+    if (target) target.innerHTML = "";
+
+    if (!state.my.length){
+      if (target) target.innerHTML =
+        '<div style="padding:10px;color:var(--muted);font-weight:700">Пока пусто. Добавь аудио в боте или по https-ссылке mp3/ogg/m4a.</div>';
+      setStatus("Плейлист пуст.");
       return;
     }
-    setStatus("Загружаю твой плейлист…");
-    const u = new URL("/webapp/music/api/my", location.origin);
-    u.searchParams.set("tg_id", String(state.tg_id));
-    try{
-      const r = await apiFetch(u.toString(), { method:"GET" });
-      const j = await r.json();
-      const items = (j && j.items) ? j.items : [];
-      state.my = items.map(x=>({
-        kind: "my",
-        track_id: x.id,
-        title: x.title || "Track",
-        channel: "My playlist",
-        thumb: "",
-        is_url: !!x.is_url,
-        file_id: x.file_id || ""
-      }));
-      // render
-    L.innerHTML = "";
-      if (!state.my.length){
-        L.innerHTML = '<div style="padding:10px;color:var(--muted);font-weight:700">Пока пусто. Добавь аудио в боте или по https-ссылке mp3/ogg/m4a.</div>';
-        setStatus("Плейлист пуст.");
-        return;
-      }
-      // custom render for my: show PLAY
-      renderList(state.my, listMy || listSearch);
 
-      setStatus("Мой плейлист: " + state.my.length);
-    }catch(e){
-      console.error(e);
-      setStatus("Ошибка /my. Проверь сервер.");
-    }
+    renderList(state.my, listMy || listSearch);
+    setStatus("Мой плейлист: " + state.my.length);
+  }catch(e){
+    console.error(e);
+    setStatus("Ошибка /my. Проверь сервер.");
   }
+}
+  // UX playlist buttons
+  document.getElementById("uxBtnLoadMy")?.addEventListener("click", loadMy);
+  document.getElementById("btnMy")?.addEventListener("click", loadMy);
 
-  // "Мой плейлист" — грузим с сервера
-  $("btnMy").addEventListener("click", loadMy);
-
-  // chips
-  const chips = $("chips");
-  chips.addEventListener("click", (e)=>{
-    const chip = e.target.closest(".chip");
-    if (!chip) return;
-    for (const x of chips.querySelectorAll(".chip")) x.classList.remove("on");
-    chip.classList.add("on");
-    const v = chip.getAttribute("data-q") || "";
-    q.value = v;
-    search(v);
+  document.getElementById("uxBtnClearMy")?.addEventListener("click", ()=>{
+    state.my = [];
+    if (listMy) listMy.innerHTML = '<div style="padding:10px;color:var(--muted);font-weight:700">Плейлист очищен. Добавь новые треки в боте.</div>';
+    setStatus("Плейлист очищен ✅");
   });
 
-  // initial
-  search("Energise");
+  document.getElementById("uxBtnShuffleMy")?.addEventListener("click", ()=>{
+    if (!state.my || !state.my.length){
+      setStatus("Плейлист пуст.");
+      return;
+    }
+    const arr = state.my.slice();
+    for (let i = arr.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    }
+    state.my = arr;
+    renderList(state.my, listMy || listSearch);
+    setStatus("Shuffle ✅");
+  });
 
 } catch(e){
   console.error(e);
