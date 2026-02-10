@@ -345,6 +345,12 @@ body.is-ready .wrap{ opacity:1; transform: translateY(0); transition: opacity 42
 .item{ position: relative; }
 /* === /Active track highlight === */
 
+
+#chips{display:none !important;}
+
+/* SPLIT_LISTS */
+#listMy{max-height:420px;overflow:auto;-webkit-overflow-scrolling:touch;}
+#listSearch{max-height:420px;overflow:auto;-webkit-overflow-scrolling:touch;}
 </style>
 
 </head>
@@ -383,6 +389,10 @@ body.is-ready .wrap{ opacity:1; transform: translateY(0); transition: opacity 42
   .ux-hint{color:var(--muted);font-weight:700;font-size:12px;line-height:1.35}
   /* Hide old top playlist buttons (they'll be accessible in Playlist tab) */
   #btnMy,#btnClear{display:none !important}
+
+/* SPLIT_LISTS */
+#listMy{max-height:420px;overflow:auto;-webkit-overflow-scrolling:touch;}
+#listSearch{max-height:420px;overflow:auto;-webkit-overflow-scrolling:touch;}
 </style>
 
 <div class="ux-tabs2">
@@ -437,7 +447,23 @@ body.is-ready .wrap{ opacity:1; transform: translateY(0); transition: opacity 42
     });
   }
 
-  tabs.forEach(t=>t.addEventListener('click', ()=>setTab(t.getAttribute('data-tab2'))));
+  /* TAB_HOOK_SPLIT */
+  function applyTabView(name){
+    try{
+      if (name === "playlist"){
+        if (listSearch) listSearch.style.display = "none";
+        if (listMy) listMy.style.display = "";
+        activeList = listMy || listSearch;
+        if (btnMy) btnMy.click();
+      } else {
+        if (listMy) listMy.style.display = "none";
+        if (listSearch) listSearch.style.display = "";
+        activeList = listSearch;
+      }
+    }catch(e){}
+  }
+
+tabs.forEach(t=>t.addEventListener('click', ()=>{ const name=t.getAttribute('data-tab2'); setTab(name); applyTabView(name); }));
 
   // presets -> fill query + click find
   const presetMap = {
@@ -513,7 +539,8 @@ body.is-ready .wrap{ opacity:1; transform: translateY(0); transition: opacity 42
       <div class="panel">
         <h3>Подборка</h3>
         <div class="sub" id="subLeft">Нажми чип или введи запрос — покажу варианты (ориг/ремиксы/лайвы)</div>
-        <div class="list" id="list"></div>
+        <div class="list" id="listSearch"></div>
+        <div class="list" id="listMy" style="display:none;"></div>
       </div>
 
       <div class="panel player">
@@ -558,7 +585,12 @@ window.addEventListener('DOMContentLoaded', function(){
   try{ requestAnimationFrame(()=>document.body.classList.add('is-ready')); }catch(e){ document.body.classList.add('is-ready'); }
 try{
   const $ = (id)=>document.getElementById(id);
-  const list = $("list");
+  const listSearch = $("listSearch") || $("list");
+  const listMy = $("listMy");
+  let activeList = listSearch;
+  const list = listSearch; // legacy alias (avoid crashes)
+
+
   const status = $("status");
   const q = $("q");
   const aud = $("aud");
@@ -683,10 +715,12 @@ try{
     return (s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
   }
 
-  function renderList(items){
-    list.innerHTML = "";
-    if (!items || !items.length){
-      list.innerHTML = '<div style="padding:10px;color:var(--muted);font-weight:700">Ничего не нашёл. Попробуй точнее: “Артист трек remix”</div>';
+  function renderList(items, target){
+    const L = target || activeList || listSearch;
+    if (!L) return;
+    L.innerHTML = "";
+if (!items || !items.length){
+      L.innerHTML = '<div style="padding:10px;color:var(--muted);font-weight:700">Ничего не нашёл. Попробуй точнее: “Артист трек remix”</div>';
       return;
     }
     for (const it of items){
@@ -707,7 +741,7 @@ try{
         <div class="tag">PLAY</div>
       `;
       el.addEventListener("click", ()=>play(it, el));
-      list.appendChild(el);
+      L.appendChild(el);
     }
   }
 
@@ -740,10 +774,11 @@ try{
     nowTitle.textContent = it.title || "—";
     nowChan.textContent = it.channel || "—";
     nowThumb.innerHTML = it.thumb ? `<img src="${esc(it.thumb)}" />` : "";
-
-    // --- Audio mode (works best for "My playlist") ---
+    // --- Audio mode ---
+    // В вебапке не пытаемся "играть" YouTube как основную ценность.
+    // Трек выбирается, а дальше пользователь жмёт "⬇️ Скачать в Telegram" (наш pipeline).
     if (state.mode === "audio"){
-      // if this is a saved track from /my
+      // if this is a saved track from /my and we смогли резолвнуть прямую ссылку — ок
       if (it.kind === "my" && it.track_id && state.tg_id){
         try{
           const u = new URL("/webapp/music/api/resolve", location.origin);
@@ -755,25 +790,19 @@ try{
           if (url){
             aud.src = url;
             await aud.play().catch(()=>{});
-            setStatus("🎧 Audio: " + (it.title || "Playing"));
+            setStatus("🎧 Готово. Можно слушать или скачать в Telegram.");
             return;
           }
-        }catch(e){
-          console.error(e);
-        }
-        setStatus("Audio недоступно. Открой трек в YouTube или добавь https mp3/ogg/m4a.");
+        }catch(e){ console.error(e); }
       }
-
-      // fallback: for search items we don't have audio -> preview on YouTube
-      setMode("youtube");
+      setStatus("✅ Выбрано. Жми ⬇️ Скачать в Telegram.");
+      return;
     }
 
-    // --- YouTube mode ---
-    if (!it.video_id) return;
-    const src = "https://www.youtube.com/embed/" + encodeURIComponent(it.video_id) + "?autoplay=1&rel=0";
-    if (yt) yt.src = src;
-    setStatus("▶️ YouTube: " + (it.title || "Playing"));
-  }
+    // --- YouTube (вторично, только по кнопке "Открыть в YouTube") ---
+    setStatus("✅ Выбрано. Жми ⬇️ Скачать в Telegram.");
+    return;
+}
 
   async function search(query){
     query = (query || "").trim();
@@ -790,7 +819,11 @@ try{
       const j = await r.json();
       const items = (j && j.items) ? j.items : [];
       state.items = items;
-      renderList(items);
+      activeList = listSearch;
+      if (listMy) listMy.style.display = "none";
+      if (listSearch) listSearch.style.display = "";
+      renderList(items, listSearch);
+
       setStatus(items.length ? ("Найдено: " + items.length) : "Ничего не найдено");
     }catch(e){
       console.error(e);
@@ -893,9 +926,8 @@ try{
     }
     setStatus("Открыл YouTube ↗️");
   }
-
-  $("btnPlayTG").addEventListener("click", playInTelegram);
-  
+  const _btnPlayTG = $("btnPlayTG");
+  if (_btnPlayTG) _btnPlayTG.addEventListener("click", playInTelegram);
 
   async function sendBulkToTelegram(){
     const tg_id = getTgId();
@@ -930,14 +962,16 @@ try{
       setStatus("Ошибка сети /tg_pipeline");
     }
   }
-
-  $("btnSendTG").addEventListener("click", sendBulkToTelegram);
+  $("btnSendTG").addEventListener("click", ()=>{
+    if (state.selected && state.selected.kind === "my") return playInTelegram();
+    return sendBulkToTelegram();
+  });
 
 $("btnOpenYT").addEventListener("click", openInYouTube);
 
 $("btnClear").addEventListener("click", ()=>{
     q.value = "";
-    list.innerHTML = "";
+    L.innerHTML = "";
     if (yt) yt.src = "about:blank";
     if (iframeWrap) iframeWrap.classList.remove("active");
     nowTitle.textContent = "Выбери трек слева";
@@ -969,14 +1003,15 @@ $("btnClear").addEventListener("click", ()=>{
         file_id: x.file_id || ""
       }));
       // render
-      list.innerHTML = "";
+    L.innerHTML = "";
       if (!state.my.length){
-        list.innerHTML = '<div style="padding:10px;color:var(--muted);font-weight:700">Пока пусто. Добавь аудио в боте или по https-ссылке mp3/ogg/m4a.</div>';
+        L.innerHTML = '<div style="padding:10px;color:var(--muted);font-weight:700">Пока пусто. Добавь аудио в боте или по https-ссылке mp3/ogg/m4a.</div>';
         setStatus("Плейлист пуст.");
         return;
       }
       // custom render for my: show PLAY
-      renderList(state.my);
+      renderList(state.my, listMy || listSearch);
+
       setStatus("Мой плейлист: " + state.my.length);
     }catch(e){
       console.error(e);

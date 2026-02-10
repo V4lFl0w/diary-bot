@@ -74,14 +74,11 @@ def _menu_kb(l: str, tg_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-            ],
-            [
                 InlineKeyboardButton(text=tr(l, "my_btn"), callback_data="music:my"),
                 InlineKeyboardButton(text=tr(l, "add_btn"), callback_data="music:add"),
             ],
             [
                 *webapp_btns,
-                InlineKeyboardButton(text=tr(l, "link_btn"), callback_data="music:link"),
             ],
         ]
     )
