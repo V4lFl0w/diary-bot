@@ -78,6 +78,14 @@ async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMCon
 
     data = (cb.data or "").strip()
 
+    # if it's assistant root button (inline) — let assistant handlers work
+    try:
+        if is_root_assistant_btn(data):
+            return
+    except Exception:
+        pass
+
+
     # allow assistant's own callbacks to be handled by assistant handlers
     if data.startswith(("assistant_", "assistant:", "assistant_pick:", "media:")):
         return
@@ -393,6 +401,56 @@ async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) 
 # =============== EXIT ===============
 
 
+
+@router.callback_query(F.data.func(is_root_assistant_btn))
+async def assistant_entry_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    """Entry to assistant via INLINE кнопки (callback_data)."""
+    try:
+        await cb.answer()
+    except Exception:
+        pass
+
+    if not cb.from_user:
+        return
+
+    m_any = cb.message
+    m: Message | None = m_any if isinstance(m_any, Message) else None
+
+    user = await _get_user(session, cb.from_user.id)
+
+    # Message может быть InaccessibleMessage (pyright ругается). Тогда берём язык из from_user.
+    if m is not None:
+        lang = _detect_lang(user, m)
+    else:
+        lang = _normalize_lang(getattr(cb.from_user, "language_code", None) or "ru")
+
+    is_admin = is_admin_tg(cb.from_user.id)
+
+    # если сообщения нет/оно недоступно — отвечать некуда, выходим тихо
+    if m is None:
+        return
+
+    if not _has_premium(user):
+        await state.clear()
+        await m.answer(
+            "🤖 Помощник — это твой **умный режим** в дневнике."
+            "Что он делает:"
+            "• 🧠 раскладывает мысли по полочкам"
+            "• 🎯 помогает найти фильм, идею, решение"
+            "• 🌊 снижает шум в голове и многое другое"
+            "💎 Доступен в Premium. Нажми кнопку ниже 👇",
+            reply_markup=_open_premium_inline_kb(),
+            parse_mode="Markdown",
+        )
+        return
+
+    await state.set_state(AssistantFSM.waiting_question)
+    await m.answer(
+        "🤖 Режим помощника включён."
+        "Можешь писать текст или отправить фото."
+        "Чтобы выйти — напиши «стоп» или /cancel.",
+        reply_markup=get_main_kb(lang, is_premium=True, is_admin=is_admin),
+    )
 @router.message(AssistantFSM.waiting_question, F.text.casefold().in_(("стоп", "stop", "/cancel")))
 async def assistant_exit(m: Message, state: FSMContext, session: AsyncSession) -> None:
     if not m.from_user:
