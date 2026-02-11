@@ -30,8 +30,6 @@ def _parse_tgmsg(fid: str) -> Optional[tuple[int,int]]:
         return None
 
 
-from typing import AsyncIterator
-from app.db import async_session
 
 async def session_dep() -> AsyncIterator[AsyncSession]:
     async with async_session() as session:
@@ -219,7 +217,7 @@ async def my_playlist(
     tg_id: Optional[int] = Query(None, description="Telegram user id (from initDataUnsafe.user.id)"),
     
     x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
-session: AsyncSession = Depends(session_dep),
+    session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
     tg_id = tg_id or x_tg_id
     if not tg_id:
@@ -248,10 +246,127 @@ session: AsyncSession = Depends(session_dep),
                 "title": (t.title or "Track"),
                 "file_id": fid,
                 "is_url": fid.startswith("http://") or fid.startswith("https://"),
+                "kind": "my",
             }
         )
 
     return {"ok": True, "items": items}
+
+
+@router.post("/my/add")
+async def my_add(
+    tg_id: Optional[int] = Query(None, description="Telegram user id"),
+    x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
+    title: str = Query(..., min_length=1),
+    query: str = Query(..., min_length=2),
+    video_id: Optional[str] = Query(None),
+    session: AsyncSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    """
+    Добавляет трек в 'Мой плейлист' БЕЗ отправки в чат.
+    Логика:
+      - ищем аудио через userbot (TG каналы)
+      - форвардим в STORAGE
+      - кешируем как tgmsg:<storage_chat_id>:<storage_mid>
+    """
+    tg_id = tg_id or x_tg_id
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="tg_id missing (open mini app inside Telegram)")
+
+    user: Optional[User] = (
+        await session.execute(select(User).where(User.tg_id == int(tg_id)))
+    ).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    title = (title or "").strip()
+    query = (query or "").strip()
+    if not title or not query:
+        raise HTTPException(status_code=400, detail="title/query required")
+
+    found = await search_audio_in_tg(query=query, title=title, limit_per_chat=60)
+    if not found:
+        yurl = f"https://www.youtube.com/watch?v={video_id}" if (video_id or "").strip() else "https://www.youtube.com/"
+        raise HTTPException(status_code=409, detail={"code": "TG_AUDIO_NOT_FOUND", "youtube_url": yurl})
+
+    st = await forward_to_storage(
+        src=(found.chat_ref or str(found.chat_id)),
+        message_id=int(found.message_id),
+    )
+    storage_mid = int(st.get("storage_message_id") or 0)
+    storage_chat_id = int(st.get("storage_chat_id") or 0)
+    if not (storage_mid and storage_chat_id):
+        raise HTTPException(status_code=502, detail={"code": "STORAGE_SAVE_FAILED", "raw": st})
+
+    fid = f"tgmsg:{storage_chat_id}:{storage_mid}"
+    track = UserTrack(
+        user_id=user.id,
+        tg_id=int(tg_id),
+        title=title,
+        file_id=fid,
+    )
+    session.add(track)
+    await session.commit()
+
+    return {"ok": True, "track_id": track.id, "cached_as": fid}
+
+
+@router.post("/my/delete")
+async def my_delete(
+    tg_id: Optional[int] = Query(None),
+    x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
+    track_id: int = Query(..., description="UserTrack.id"),
+    session: AsyncSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    tg_id = tg_id or x_tg_id
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="tg_id missing")
+
+    user: Optional[User] = (
+        await session.execute(select(User).where(User.tg_id == int(tg_id)))
+    ).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    track: Optional[UserTrack] = (
+        await session.execute(
+            select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == int(track_id))
+        )
+    ).scalar_one_or_none()
+    if not track:
+        return {"ok": True, "deleted": False, "reason": "NOT_FOUND"}
+
+    await session.delete(track)
+    await session.commit()
+    return {"ok": True, "deleted": True}
+
+
+@router.post("/my/clear")
+async def my_clear(
+    tg_id: Optional[int] = Query(None),
+    x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
+    session: AsyncSession = Depends(session_dep),
+) -> Dict[str, Any]:
+    tg_id = tg_id or x_tg_id
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="tg_id missing")
+
+    user: Optional[User] = (
+        await session.execute(select(User).where(User.tg_id == int(tg_id)))
+    ).scalar_one_or_none()
+    if not user:
+        return {"ok": True, "cleared": 0}
+
+    rows = (
+        (await session.execute(select(UserTrack).where(UserTrack.user_id == user.id))).scalars().all()
+    )
+    n = 0
+    for t in rows:
+        await session.delete(t)
+        n += 1
+    await session.commit()
+    return {"ok": True, "cleared": n}
+
 
 
 @router.get("/search")
@@ -385,7 +500,6 @@ from sqlalchemy import select
 from app.models.user import User
 from app.models.user_track import UserTrack
 from aiogram.types import FSInputFile
-from app.webapp.music_api import _tg_send_audio
 from app.bot import bot
 
 
@@ -558,24 +672,23 @@ async def play_track(
         )
         return {"ok": True, "source": "my", "via": "sendAudio"}
 
-    # ===== SEARCH (TG userbot search -> copyMessage -> cache tgmsg) =====
+    
+    # ===== SEARCH (TG userbot search -> storage -> copyMessage -> cache tgmsg) =====
     if kind == "search":
         if not (title or query):
             raise HTTPException(status_code=400, detail="title or query required")
 
-        # важное: пробуем сначала title (он часто уже 'Artist - Track'), потом query
         found = await search_audio_in_tg(query=(query or ""), title=(title or ""), limit_per_chat=60)
 
         if not found:
             yurl = f"https://www.youtube.com/watch?v={video_id}" if (video_id or "").strip() else "https://www.youtube.com/"
-            # чтобы юзер видел “что делать”, шлём подсказку в чат
             try:
                 await _tg_send_message(int(tg_id), "⚠️ Не нашёл аудио в Telegram-каналах по запросу.\nОткрой в YouTube:\n" + yurl)
             except Exception:
                 pass
             raise HTTPException(status_code=409, detail={"code": "TG_AUDIO_NOT_FOUND", "youtube_url": yurl})
 
-                # ✅ Bridge: userbot -> STORAGE, then bot copies from STORAGE to user chat
+        # ✅ Bridge: userbot -> STORAGE, then bot copies from STORAGE to user chat
         st = await forward_to_storage(
             src=(found.chat_ref or str(found.chat_id)),
             message_id=int(found.message_id),
@@ -591,18 +704,21 @@ async def play_track(
         )
 
         # cache as tgmsg:<STORAGE_CHAT_ID>:<storage_mid>
+        cached = False
         if storage_chat_id:
             fid = f"tgmsg:{storage_chat_id}:{storage_mid}"
             track = UserTrack(
                 user_id=user.id,
                 tg_id=int(tg_id),
-                title=(title or found.title or query or "Track"),
+                title=(title or getattr(found, "title", None) or query or "Track"),
                 file_id=fid,
             )
             session.add(track)
             await session.commit()
+            cached = True
 
-        return {"ok": True, "source": "tg_search", "cached": bool(storage_chat_id)}
+        return {"ok": True, "source": "tg_search", "cached": cached}
 
 
     raise HTTPException(status_code=400, detail="unknown kind")
+
