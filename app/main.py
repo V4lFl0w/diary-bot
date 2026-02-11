@@ -6,6 +6,7 @@ import importlib
 import inspect
 import logging
 
+import os
 import subprocess
 
 def _get_commit_sha():
@@ -23,7 +24,6 @@ def _get_commit_sha():
 
 STARTUP_COMMIT_SHA = _get_commit_sha()
 
-import os
 import pkgutil
 import re
 from typing import Any, Awaitable, Callable, Dict
@@ -436,7 +436,7 @@ async def main() -> None:
     proactive_task = asyncio.create_task(proactive_loop(bot, SessionLocal), name="proactive_loop")
 
     await log_db_info()
-    logging.info("✅ Bot is up. Starting polling… | COMMIT={{STARTUP_COMMIT_SHA}}")
+    logging.info("✅ Bot is up. Starting polling… | COMMIT=%s", STARTUP_COMMIT_SHA)
 
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
