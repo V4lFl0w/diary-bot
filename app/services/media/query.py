@@ -540,6 +540,36 @@ def _clean_tmdb_query(text: str) -> str:
 
 
 # -----------------------------
+
+
+def _mf_is_worthy_tmdb(q: str) -> bool:
+    """Compat helper expected by app/services/assistant.py.
+
+    Returns True if query looks like a real movie/series title, not junk.
+    Uses existing heuristics from this module.
+    """
+    q = (q or "").strip()
+    if not q:
+        return False
+    try:
+        if is_bad_tmdb_query(q):
+            return False
+    except Exception:
+        pass
+    try:
+        if _is_bad_tmdb_candidate(q):
+            return False
+    except Exception:
+        pass
+    # allow short-but-real titles; block very generic single tokens
+    try:
+        ql = q.lower().strip()
+        if ql in {"movie", "film", "series", "tv", "кино", "фильм", "сериал"}:
+            return False
+    except Exception:
+        pass
+    # if it survived filters — treat as worthy
+    return True
 # 3) совместимость с assistant.py (ожидаемые имена)
 # -----------------------------
 
