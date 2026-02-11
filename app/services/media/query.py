@@ -1,5 +1,23 @@
 from __future__ import annotations
 
+
+# --- FlowPatch: refinement handling (media.query) ---
+def _mf_is_refinement(raw: str) -> bool:
+    if not raw:
+        return False
+    r = raw.lower()
+    return ("уточнение" in r) or r.strip().startswith(("уточни", "добавь", "актёр", "актриса", "год", "страна", "жанр"))
+
+def _mf_strip_refinement(raw: str) -> str:
+    if not raw:
+        return ""
+    raw = raw.replace("<photo>", " ").replace("photo", " ")
+    raw = re.sub(r"(?i)\\bуточнение\\s*:\\s*", " ", raw)
+    raw = re.sub(r"\\s+", " ", raw).strip()
+    return raw
+# --- /FlowPatch ---
+
+
 import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
@@ -413,6 +431,15 @@ def _clean_tmdb_query_legacy(text: str) -> str:
 
 
 def _tmdb_sanitize_query(q: str) -> str:
+    # DROP_UI_JUNK_V1
+    q = (q or "").strip()
+    # вырезаем мусор из caption/чата, который ломает TMDb
+    q = re.sub(r"(?iu)\b(photo|фото|картинка|скрин(шот)?|изображение)\b", " ", q)
+    q = re.sub(r"(?iu)\b(уточнение|уточни|уточнить|детали|подробности)\b[:：]?", " ", q)
+    q = re.sub(r"(?iu)\b(дай|покажи)\s+(другие|ещ[её])\b.*$", " ", q)
+    q = re.sub(r"(?iu)\b(другие\s+варианты|варианты)\b.*$", " ", q)
+    q = re.sub(r"(?iu)\b(название\s+фильма|что\s+за\s+фильм|что\s+за|фильм|сериал|мультик|мульт)\b", " ", q)
+    q = re.sub(r"[\s\u00A0]+", " ", q).strip()
     t = _clean_tmdb_query_legacy(q)
     if not t:
         return ""
@@ -518,7 +545,11 @@ def _clean_tmdb_query(text: str) -> str:
 
 
 def _clean_media_search_query(text: str) -> str:
-    # ассистант дальше сам ещё нормализует/санитизирует
+    """Compat wrapper expected by assistant.py.
+
+    Returns a cleaned seed query from user chatter (RU/EN), good as input
+    for _normalize_tmdb_query/_tmdb_sanitize_query.
+    """
     return clean_user_text_for_media(text)
 
 
@@ -556,6 +587,31 @@ def _looks_like_choice(text: str) -> bool:
 
 
 _ASKING_TITLE_RE = re.compile(r"(?i)\b(как называется|что за фильм|что за сериал|что за мультик|откуда кадр)\b")
+
+def _looks_like_year_or_hint(text: str) -> bool:
+    # год / сезон / серия / SxxEyy / короткий числовой хинт
+    t = (text or "").strip()
+    if not t:
+        return False
+
+    # явные паттерны из media_text
+    if _YEAR_RE.search(t) or _SXXEYY_RE.search(t):
+        return True
+
+    # "2 сезон", "10 серия", "season 2", "episode 10"
+    if re.search(r"(?iu)\b(сезон|серия|season|episode)\s*\d{1,2}\b", t):
+        return True
+
+    # S2E10 (с пробелами или без)
+    tt = t.replace(" ", "")
+    if re.fullmatch(r"(?iu)s?\d{1,2}e\d{1,2}", tt):
+        return True
+
+    # короткое уточнение с цифрами (например "2004", "2 сезон 5")
+    if len(t) <= 40 and any(ch.isdigit() for ch in t):
+        return True
+
+    return False
 
 
 def _is_asking_for_title(text: str) -> bool:

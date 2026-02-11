@@ -1,5 +1,47 @@
 from __future__ import annotations
 
+
+# --- FlowPatch: query cleaning & candidate filtering (media) ---
+_TMDb_STOP = {
+    "photo","<photo>","уточнение","уточнение:","уточни","дай","другие","варианты",
+    "жанр","страна","год","серия","эпизод","сезон",
+    "film","movie","series","tv","what","is","the","a","an",
+    "drama","romance","prison","fence",  # частый шум из vision-json
+}
+
+def _mf_clean_query(q: str) -> str:
+    if not q:
+        return ""
+    q = q.strip()
+    # вырезаем "служебные" маркеры
+    q = q.replace("<photo>", " ").replace("photo", " ")
+    q = re.sub(r"(?i)\\bуточнение\\s*:\\s*", " ", q)
+    q = re.sub(r"\\s+", " ", q).strip()
+
+    # режем слишком длинные "простыни" (TMDb так и так не переварит)
+    if len(q) > 120:
+        q = q[:120].rsplit(" ", 1)[0].strip()
+
+    return q
+
+def _mf_is_worthy_tmdb(q: str) -> bool:
+    if not q:
+        return False
+    qn = q.lower().strip()
+    # одно слово типа "drama" / "romance" / "prison" — почти всегда мусор
+    if " " not in qn and qn in _TMDb_STOP:
+        return False
+    # слишком короткое
+    if len(qn) < 3:
+        return False
+    # выкидываем запросы, которые состоят в основном из стоп-слов
+    toks = [t for t in re.split(r"[\\s,.;:!?()\\[\\]{}\"'«»]+", qn) if t]
+    if toks and sum(1 for t in toks if t in _TMDb_STOP) / max(1, len(toks)) > 0.6:
+        return False
+    return True
+# --- /FlowPatch ---
+
+
 # app/services/assistant.py
 import re
 from time import time as _time_now
@@ -76,51 +118,6 @@ def _media_set(uid: str, query: str, items: list[dict]) -> None:
         "items": items or [],
         "ts": _time_now(),
     }
-
-
-def _looks_like_choice(text: str) -> bool:
-    t = (text or "").strip()
-    return bool(re.fullmatch(r"\d{1,2}", t))
-
-
-def _looks_like_year_or_hint(text: str) -> bool:
-    t = (text or "").strip().lower()
-    if not t:
-        return False
-
-    # год
-    if re.search(r"\b(19\d{2}|20\d{2})\b", t):
-        return True
-
-    # 1–2 слова (часто это уточнение: "Америка", "США", "комедия", "Netflix")
-    parts = t.split()
-    if 1 <= len(parts) <= 2 and len(t) <= 18:
-        # если нет больших букв (новый тайтл) и нет года
-        if not re.search(r"[A-ZА-ЯЁ]", text):
-            return True
-
-    # короткие уточнения: актёр/страна/язык/год/серия/эпизод + страны/аббревиатуры
-    hint_words = (
-        "год",
-        "акт",
-        "актер",
-        "актёр",
-        "страна",
-        "язык",
-        "серия",
-        "эпизод",
-        "сезон",
-        "сша",
-        "америка",
-        "usa",
-        "us",
-        "uk",
-        "нетфликс",
-        "netflix",
-        "hbo",
-        "amazon",
-    )
-    return any(w in t for w in hint_words)
 
 
 def _extract_year(text: str) -> Optional[str]:

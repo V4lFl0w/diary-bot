@@ -83,6 +83,67 @@ def _dbg_media(logger, tag: str, **kv):
 # app/services/assistant.py
 import os
 import re
+
+# --- FlowPatch: media query clean + refinement detection (assistant) ---
+_TMDB_STOPWORDS = {
+    "photo","<photo>","уточнение","уточнение:","уточни","дай","другие","варианты",
+    "жанр","страна","год","серия","эпизод","сезон",
+    "film","movie","series","tv","what","is","the","a","an",
+    "drama","romance","prison","fence",
+}
+
+def _tmdb_clean_user_text(text: str) -> str:
+    if not text:
+        return ""
+    t = text.strip()
+    t = t.replace("<photo>", " ").replace("photo", " ")
+    t = re.sub(r"(?i)\bуточнение\s*:\s*", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    # TMDb не любит простыни
+    if len(t) > 140:
+        t = t[:140].rsplit(" ", 1)[0].strip()
+    return t
+
+def _tmdb_is_refinement(text: str) -> bool:
+    if not text:
+        return False
+    t = text.lower().strip()
+
+    # явные маркеры "уточняю/дай другие"
+    if any(k in t for k in ("уточнение", "уточни", "дай другие", "другие варианты", "коротко")):
+        return True
+
+    # год
+    if re.search(r"\b(19\d{2}|20\d{2})\b", t):
+        return True
+
+    # 1–2 слова без больших букв — чаще уточнение, а не новый тайтл
+    parts = t.split()
+    if 1 <= len(parts) <= 2 and len(t) <= 18:
+        return True
+
+    hint_words = (
+        "год","акт","актер","актёр","страна","язык","серия","эпизод","сезон",
+        "сша","америка","usa","us","uk","нетфликс","netflix","hbo","amazon",
+        "комедия","драма","боевик","триллер","ужасы","мелодрама",
+    )
+    return any(w in t for w in hint_words)
+
+def _tmdb_is_worthy_cand(q: str) -> bool:
+    if not q:
+        return False
+    qn = q.lower().strip()
+    if len(qn) < 3:
+        return False
+    # одно слово-стоп
+    if " " not in qn and qn in _TMDB_STOPWORDS:
+        return False
+    toks = [t for t in re.split(r"[\s,.;:!?()\[\]{}\"'«»]+", qn) if t]
+    if toks and sum(1 for t in toks if t in _TMDB_STOPWORDS) / max(1, len(toks)) > 0.6:
+        return False
+    return True
+# --- /FlowPatch ---
+
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
@@ -693,6 +754,24 @@ async def run_assistant(
                 query = _tmdb_sanitize_query(_normalize_tmdb_query(f"{prev_q} {raw}"))
         else:
             query = _tmdb_sanitize_query(_clean_media_search_query(raw))
+
+        # FlowPatch: final media built_query guard (refinement-safe, no sticky garbage glue)
+        try:
+            raw_clean = _tmdb_clean_user_text(raw or "")
+            prev_clean = _tmdb_clean_user_text(prev_q or "")
+            if raw_clean:
+                raw = raw_clean
+            if prev_clean:
+                prev_q = prev_clean
+            if raw_clean and _tmdb_is_refinement(raw_clean):
+                # уточнение — НЕ клеим к prev_q
+                query = _tmdb_sanitize_query(_normalize_tmdb_query(raw_clean))
+            else:
+                # на всякий: чистим query от служебного мусора
+                query = _tmdb_sanitize_query(_normalize_tmdb_query(_tmdb_clean_user_text(query or "")))
+        except Exception:
+            pass
+
         _d("media.built_query", prev_q=prev_q, raw=raw, query=query)
 
         # 3) Too generic → ask 1 detail
@@ -1188,6 +1267,11 @@ async def run_assistant_vision(
         if c and _good_tmdb_cand(c) and c not in cand_list:
             cand_list.append(c)
 
+    # FlowPatch: filter vision cand_list (drop generic noise)
+    try:
+        cand_list = [c for c in cand_list if _tmdb_is_worthy_cand(_tmdb_clean_user_text(c))]
+    except Exception:
+        pass
     _d("vision.cand_list", cand_list=cand_list[:15])  # DBG_VISION_CAND_LIST_V3
 
     if not cand_list:

@@ -57,7 +57,7 @@ async def serpapi_search(query: str, *, count: int = 5) -> List[dict]:
     Env:
       SERPAPI_KEY
     """
-    api_key = _env("SERPAPI_KEY")
+    api_key = _env("SERPAPI_API_KEY") or _env("SERPAPI_KEY")
     if not api_key or not query:
         return []
 
