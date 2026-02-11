@@ -87,6 +87,26 @@ async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMCon
     raise SkipHandler
 
 
+
+@router.callback_query(F.data.startswith("media:"))
+async def _media_callback_fallback(cb: CallbackQuery, state: FSMContext) -> None:
+    """
+    Safety net:
+    - lets real media handlers handle known callbacks
+    - catches stale/unknown media:* callbacks so updates are not 'unhandled'
+    """
+    data = (cb.data or "").strip()
+    known = {"media:noop", "media:pick", "media:nav:next", "media:refine"}
+    if data in known:
+        raise SkipHandler
+
+    try:
+        await cb.answer("Кнопка устарела. Нажми 🔁 Другие варианты или отправь запрос заново.", show_alert=False)
+    except Exception:
+        try:
+            await cb.answer()
+        except Exception:
+            pass
 # ===== media poster extraction (optional) =====
 
 _POSTER_RE = re.compile(r"(?m)^\s*🖼\s+(https?://\S+)\s*$")
@@ -492,6 +512,77 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
     AssistantFSM.waiting_question,
     F.text & ~F.photo & ~F.text.func(_is_menu_click) & ~F.text.startswith("/"),
 )
+
+@router.message()
+async def _assistant_media_fallback_message(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    """
+    Safety net so media / assistant messages are not 'unhandled' when FSM state is empty.
+    Does NOT interfere with normal AssistantFSM flow.
+    """
+    # if we're already inside assistant FSM, let existing handlers work
+    try:
+        st = await state.get_state()
+        if st and st.startswith("AssistantFSM"):
+            raise SkipHandler
+    except Exception:
+        pass
+
+    if not message.from_user:
+        raise SkipHandler
+
+    text = (message.text or message.caption or "").strip()
+
+    # ignore obvious menu clicks/noise
+    try:
+        if text and (_is_menu_click(text) or _is_noise_msg(text)):
+            raise SkipHandler
+    except Exception:
+        pass
+
+    # media-like text OR photo/document-image triggers assistant
+    has_photo = bool(getattr(message, "photo", None))
+    has_doc = bool(getattr(message, "document", None))
+    has_img_doc = False
+    if has_doc:
+        try:
+            mime = (message.document.mime_type or "").lower()
+            has_img_doc = mime.startswith("image/")
+        except Exception:
+            has_img_doc = False
+
+    if not (_looks_like_media_text(text) or has_photo or has_img_doc):
+        raise SkipHandler
+
+    user = await _get_user(session, message.from_user.id)
+    lang = _detect_lang(user, message)
+
+    try:
+        reply = await run_assistant(user, text, lang, session=session)
+    except Exception:
+        try:
+            await message.answer(
+                "Понял. Давай так: пришли 1 кадр (скрин) или опиши сцену 1–2 фактами + год/актёр, если знаешь."
+            )
+        except Exception:
+            pass
+        return
+
+    if isinstance(reply, str) and _needs_media_kb(reply):
+        clean = _strip_media_knobs(reply)
+        poster_url, clean2 = _extract_poster_url(clean)
+        if poster_url:
+            await message.answer_photo(
+                photo=poster_url,
+                caption=clean2,
+                reply_markup=_media_inline_kb(),
+                parse_mode=None,
+            )
+        else:
+            await message.answer(clean2, reply_markup=_media_inline_kb(), parse_mode=None)
+        return
+
+    await message.answer(str(reply))
+
 async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession) -> None:
     if not m.from_user:
         return

@@ -3,7 +3,6 @@ from __future__ import annotations
 # app/services/assistant.py
 import re
 
-
 def _lens_clean_candidate(s: str) -> str:
     """
     Clean Lens candidate line into something TMDb-friendly BEFORE normalize/sanitize.
@@ -29,7 +28,11 @@ def _lens_clean_candidate(s: str) -> str:
         year = m.group(2)
         # keep short title + year only
         if title:
-            return f"{title} {year}".strip()
+            out = f"{title} {year}".strip()
+            # слишком описательно — режем
+            if len(out.split()) > 8:
+                return ""
+            return out
 
     # If YEAR is present elsewhere, keep it (but avoid giant strings)
     m2 = re.search(r"\b(19\d{2}|20\d{2})\b", s)
@@ -46,18 +49,19 @@ def _lens_clean_candidate(s: str) -> str:
 
     # try to keep likely title-ish chunk: first 2–6 TitleCased words
     tokens = re.findall(r"[A-Za-z0-9'’\-]+", s2)
-    # fallbacks
+
     base = ""
     if title2 and len(title2.split()) <= 6:
         base = title2
-    elif 1 <= len(tokens) <= 10:
-        base = " ".join(tokens[:6])
     else:
         base = " ".join(tokens[:6])
 
     base = base.strip(" -–—,:;")
     if year and year not in base and len(base) <= 45:
         base = f"{base} {year}".strip()
+
+    if len(base.split()) > 8:
+        return ""
 
     return base.strip()
 
@@ -116,6 +120,15 @@ def _lens_bad_candidate(s: str) -> bool:
     if sl.strip() in {"movie", "film", "series", "tv", "deep", "nothing"}:
         return True
 
+    # чистый год — не тайтл
+    if re.fullmatch(r"(18|19|20)\d{2}", sl.strip()):
+        return True
+
+    # 1–2 слова латиницей без года часто мусор (Chuck Keep / Lovers)
+    if re.fullmatch(r"[a-z]+\s*[a-z]*", sl.strip()) and not re.search(r"\b(19\d{2}|20\d{2})\b", sl):
+        if len(sl.strip().split()) <= 2:
+            return True
+
     # looks like account/name rather than title (very short + non-title)
     if len(sl.strip()) <= 3:
         return True
@@ -149,6 +162,19 @@ def _lens_score_candidate(raw: str) -> int:
         score += 40
     if re.search(r"\b(19\d{2}|20\d{2})\b", s):
         score += 25
+
+    # бонус: русские/укр буквы часто означают тайтл
+    if re.search(r"[А-Яа-яЁёІіЇїЄє]", s):
+        score += 12
+
+    # бонус: явный формат Title (YEAR)
+    if re.search(r"\(\s*(19\d{2}|20\d{2})\s*\)", s):
+        score += 20
+
+    # бонус: год + >= 2 слов
+    words2 = re.findall(r"[A-Za-zА-Яа-яЁёІіЇїЄє0-9'’\-]+", s)
+    if re.search(r"\b(19\d{2}|20\d{2})\b", s) and len(words2) >= 2:
+        score += 15
 
     # word count preference
     words = re.findall(r"[A-Za-zА-Яа-яЁёІіЇїЄє0-9'’\-]+", s)
@@ -206,3 +232,5 @@ def _pick_best_lens_candidates(lens_cands: list[str], *, limit: int = 12) -> lis
             out.append(cand)
 
     return out[:limit]
+
+# --- /FlowPatch: lens_rank_v3 ---

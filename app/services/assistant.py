@@ -183,6 +183,10 @@ _clean_media_search_query,
     _tmdb_sanitize_query,
     _looks_like_choice,
     _looks_like_year_or_hint,
+    is_bad_tmdb_query,
+    tmdb_query_compact,
+    _is_bad_tmdb_candidate,
+    _mf_is_worthy_tmdb,
 )
 from app.services.media.safety import (
     _scrub_media_items,
@@ -686,6 +690,7 @@ async def run_assistant(
                 prev_norm = _tmdb_sanitize_query(_normalize_tmdb_query((st.get("query") or "").strip()))
                 if raw_norm and prev_norm and raw_norm == prev_norm:
                     opts = st.get("items") or []
+
                     return _format_media_ranked(
                         prev_norm, opts, year_hint=_parse_media_hints(prev_norm).get("year"), lang=lang, source="cache"
                     )
@@ -774,6 +779,38 @@ async def run_assistant(
             pass
 
         _d("media.built_query", prev_q=prev_q, raw=raw, query=query)
+
+
+    # --- FlowPatch: stabilize media query (prevent Lovers/Chuck Keep overwrite) ---
+    # Правило:
+    # 1) если у нас уже есть prev_q (сильный прошлый запрос), НЕ заменяем его слабым мусором
+    # 2) слабым считаем: is_bad_tmdb_query / _is_bad_tmdb_candidate / not _mf_is_worthy_tmdb
+    # 3) если raw_text пользователя выглядит как нормальный тайтл — поднимаем его выше lens-шума
+    try:
+        prev_q_n = (prev_q or "").strip()
+        q_n = (query or "").strip()
+        raw_n = (raw or "").strip() if "raw" in locals() else (raw_text or "").strip()
+
+        # кандидат из текста пользователя (короче и "title-ish")
+        raw_titleish = tmdb_query_compact(raw_n) if raw_n else ""
+        if raw_titleish and not is_bad_tmdb_query(raw_titleish):
+            # если query сейчас слабый — подменяем на title-ish из текста
+            if (not q_n) or is_bad_tmdb_query(q_n) or _is_bad_tmdb_candidate(q_n) or (not _mf_is_worthy_tmdb(q_n)):
+                query = raw_titleish
+                q_n = raw_titleish
+
+        # если всё равно слабый, но есть prev_q — возвращаемся к prev_q
+        if prev_q_n and (not q_n or is_bad_tmdb_query(q_n) or _is_bad_tmdb_candidate(q_n) or (not _mf_is_worthy_tmdb(q_n))):
+            query = prev_q_n
+            q_n = prev_q_n
+
+        # доп. защита: "Lovers"/одиночные общие слова не должны заменять prev_q
+        if prev_q_n and q_n and (" " not in q_n) and len(q_n) <= 10:
+            if _is_bad_tmdb_candidate(q_n) or (not _mf_is_worthy_tmdb(q_n)):
+                query = prev_q_n
+    except Exception:
+        pass
+    # --- /FlowPatch ---
 
         # 3) Too generic → ask 1 detail
         if len(query) < 6 and ("фильм" in query.lower() or "что за" in query.lower()):
