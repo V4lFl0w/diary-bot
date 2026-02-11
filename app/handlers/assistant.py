@@ -66,7 +66,7 @@ except Exception:  # pragma: no cover
 router = Router(name="assistant")
 
 
-@router.callback_query(F.data.startswith("media:"))
+@router.callback_query(F.data == "media:noop")
 async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMContext):
     st = await state.get_state()
     if not st:
