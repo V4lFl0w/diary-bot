@@ -788,8 +788,7 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
     # typing loop (optional)
     typing_task = asyncio.create_task(_typing_loop(call.message.chat.id, interval=4.0)) if call.message else None
     try:
-        prompt = f"{last_q}\n\nДай другие варианты. 3–5 штук. Коротко."
-        reply = await run_assistant(user, prompt, lang, session=session)
+        reply = await run_assistant(user, last_q, lang, session=session)
     finally:
         if typing_task:
             typing_task.cancel()
@@ -806,7 +805,7 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
         clean = _strip_media_knobs(reply)
         poster_url, clean2 = _extract_poster_url(clean)
         try:
-            await state.update_data(_media_last_query=prompt, _media_last_lang=lang)
+            await state.update_data(_media_last_query=last_q, _media_last_lang=lang)
         except Exception:
             pass
 

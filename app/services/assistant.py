@@ -626,11 +626,16 @@ async def run_assistant(
     model = _pick_model()
     plan = _assistant_plan(user)
 
+    # --- 1. SAFE INIT (FIX UnboundLocalError) ---
+    query = ""
+    prev_q = ""
+    items = []
+    raw = (text or "").strip()
+    
+    now = datetime.now(timezone.utc)
     kind_marker = _extract_media_kind_marker(text)
     if kind_marker:
         return MEDIA_VIDEO_STUB_REPLY_RU
-
-    now = datetime.now(timezone.utc)
 
     # --- MEDIA state (DB + in-memory fallback) ---
     uid = _media_uid(user)
@@ -685,12 +690,15 @@ async def run_assistant(
 
         # стабилизация: если пользователь повторяет тот же запрос и у нас уже есть варианты — не пересчитываем
         try:
+            prev_q = ((st.get("query") if st else "") or "").strip()
             if st and (st.get("items") or []) and raw_text:
                 raw_norm = _tmdb_sanitize_query(_normalize_tmdb_query(raw_text.strip()))
-                prev_norm = _tmdb_sanitize_query(_normalize_tmdb_query((st.get("query") or "").strip()))
-                if raw_norm and prev_norm and raw_norm == prev_norm:
+                prev_norm = _tmdb_sanitize_query(_normalize_tmdb_query(prev_q))
+                if (raw_norm and prev_norm and raw_norm == prev_norm) or _tmdb_is_refinement(raw):
+                     # Logic continues below
+                     pass
+                elif raw_norm and prev_norm and raw_norm == prev_norm:
                     opts = st.get("items") or []
-
                     return _format_media_ranked(
                         prev_norm, opts, year_hint=_parse_media_hints(prev_norm).get("year"), lang=lang, source="cache"
                     )
@@ -714,7 +722,6 @@ async def run_assistant(
         # 2) Build query (new query vs follow-up hint)# 2) Merge уточнение with previous query
         # 2) Build query (new query vs follow-up hint)
         raw = raw_text
-        prev_q = ((st.get("query") if st else "") or "").strip()
 
         # не даём "ядовитым" фразам портить поисковую строку
         if st and re.search(
@@ -729,35 +736,18 @@ async def run_assistant(
         # если есть активная media-сессия и пользователь прислал уточнение — приклеиваем к прошлому запросу
         # (не только год/актёр, но и короткое описание сцены)
         if st and prev_q and raw and (len(raw) <= 140):
-            raw_l = raw.lower().strip()
-            prev_l = prev_q.lower().strip()
-
-            def _is_strong_candidate(q: str) -> bool:
-                q = (q or "").strip()
-                if not q:
-                    return False
-                # год/короткий хинт
-                if _looks_like_year_or_hint(q):
-                    return True
-                # тайтл + год (Inception 2010)
-                if re.search(r"\b(19\d{2}|20\d{2})\b", q) and len(q) <= 80:
-                    return True
-                # нормальный tmdb-кандидат: короткий, без мусора
-                if _good_tmdb_cand(q) and len(q) <= 80:
-                    return True
-                return False
-
-            # ✅ ключевой фикс: сильный кандидат НЕ смешиваем с прошлым описанием
-            if _is_strong_candidate(raw):
-                query = _tmdb_sanitize_query(_normalize_tmdb_query(raw))
-            # если пользователь фактически повторил прошлый запрос — не дергаем новый поиск
-            elif raw_l == prev_l:
-                query = _tmdb_sanitize_query(_normalize_tmdb_query(prev_q))
-            # если в уточнении уже есть прошлый запрос — используем уточнение как есть
-            elif prev_l and (prev_l in raw_l):
-                query = _tmdb_sanitize_query(_normalize_tmdb_query(raw))
+            # Если это уточнение (год, короткое слово, "другие варианты")
+            if _tmdb_is_refinement(raw) or len(raw.split()) <= 2:
+                 # НЕ клеим "другие варианты" к названию фильма
+                 if "другие" in raw.lower() or "варианты" in raw.lower():
+                     query = prev_q # Оставляем старый запрос
+                 elif _looks_like_year_or_hint(raw):
+                     query = f"{prev_q} {raw}"
+                 else:
+                     query = prev_q # Fallback: keep previous
             else:
-                query = _tmdb_sanitize_query(_normalize_tmdb_query(f"{prev_q} {raw}"))
+                # Новый запрос?
+                 query = _tmdb_sanitize_query(_clean_media_search_query(raw))
         else:
             query = _tmdb_sanitize_query(_clean_media_search_query(raw))
 
@@ -803,6 +793,12 @@ async def run_assistant(
         if prev_q_n and (not q_n or is_bad_tmdb_query(q_n) or _is_bad_tmdb_candidate(q_n) or (not _mf_is_worthy_tmdb(q_n))):
             query = prev_q_n
             q_n = prev_q_n
+        
+        # Защита от потери названия при нажатии "другие варианты"
+        if prev_q_n and q_n:
+             # Если прошлый запрос был конкретным тайтлом (Чак и Ларри), а новый - общим
+             if _mf_is_worthy_tmdb(prev_q_n) and not _mf_is_worthy_tmdb(q_n):
+                 query = prev_q_n
 
         # доп. защита: "Lovers"/одиночные общие слова не должны заменять prev_q
         if prev_q_n and q_n and (" " not in q_n) and len(q_n) <= 10:
@@ -812,8 +808,9 @@ async def run_assistant(
         pass
     # --- /FlowPatch ---
 
+    if is_media:
         # 3) Too generic → ask 1 detail
-        if len(query) < 6 and ("фильм" in query.lower() or "что за" in query.lower()):
+        if len(query) < 2 and ("фильм" in (raw or "").lower() or "что за" in (raw or "").lower()):
             # keep media mode alive for follow-ups even without DB session
             if user is not None:
                 setattr(user, "assistant_mode", "media")
@@ -876,7 +873,7 @@ async def run_assistant(
         # порядок:
         # 1) wiki/brave (без SerpAPI)
         # 2) SerpAPI только если есть ключ
-        if not items and query:
+        if not items and query and len(query) > 3:
             query = _normalize_tmdb_query(query)
 
             async def _try_cands(cands: list[str]) -> list[dict]:
@@ -898,8 +895,10 @@ async def run_assistant(
                 if is_intent_media and (st or sticky_media_db) and text:
                     t = text.strip()
                     if t and (not re.fullmatch(r"\d+", t)) and (not t.startswith("/")):
-                        query = t
-                        items = []
+                        # Check if query is just refinement word before wiping items
+                        if not _tmdb_is_refinement(t):
+                             query = t
+                             items = []
                 # --- end guard ---
                 cands, tag = await web_to_tmdb_candidates(query, use_serpapi=False)
                 _d(
@@ -959,13 +958,16 @@ async def run_assistant(
 
     prompt = f"Context:\n{ctx}\n\nUser message:\n" + (text or "") + "\n"
 
-    resp = await client.responses.create(
-        previous_response_id=prev_id,
-        model=model,
-        instructions=_instructions(lang, plan),
-        input=prompt,
-        max_output_tokens=(260 if plan == "basic" else 650),
-    )
+    try:
+        resp = await client.responses.create(
+            previous_response_id=prev_id,
+            model=model,
+            instructions=_instructions(lang, plan),
+            input=prompt,
+            max_output_tokens=(260 if plan == "basic" else 650),
+        )
+    except Exception as e:
+         return f"⚠️ API Error: {str(e)}"
 
     if session:
         await log_llm_usage(
