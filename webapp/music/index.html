@@ -465,7 +465,9 @@ body.is-ready .wrap{ opacity:1; transform: translateY(0); transition: opacity 42
             
             <button class="btn" id="btnSendOneTG">⬇️ Сохранить выбранный</button>
             <button class="btn" id="btnSendPackTG">⬇️ Скачать подборку (6)</button>
-            <button class="btn" id="btnOpenYT">↗️ Открыть в YouTube</button>
+            <button class="btn" id="btnAddToMy">➕ Добавить в плейлист</button>
+<button class="btn" id="btnRemoveFromMy">🗑 Удалить из плейлиста</button>
+<button class="btn" id="btnOpenYT">↗️ Открыть в YouTube</button>
           </div>
           <div style="margin-top:10px;color:var(--muted);font-weight:700;font-size:12px;line-height:1.35">
             <div id="uxSelHint">Выбрано: —</div>
@@ -884,11 +886,28 @@ if (j && j.ok){
 
   function openInYouTube(){
     const it = state.selected;
-    if (!it || !it.video_id){
-      setStatus("Выбери трек из поиска YouTube.");
+    if (!it){
+      setStatus("Сначала выбери трек.");
       return;
     }
-    const url = "https://www.youtube.com/watch?v=" + encodeURIComponent(it.video_id);
+
+    let vid = it.video_id || "";
+    // try parse from source_url (for My playlist)
+    try{
+      const u = (it.source_url || it.url || "");
+      if (!vid && u && /youtube\.com|youtu\.be/.test(u)){
+        const uu = new URL(u);
+        vid = uu.searchParams.get("v") || "";
+        if (!vid && uu.hostname.includes("youtu.be")) vid = uu.pathname.replace("/","").trim();
+      }
+    }catch(e){}
+
+    if (!vid){
+      setStatus("Для этого трека нет YouTube-ссылки.");
+      return;
+    }
+
+    const url = "https://www.youtube.com/watch?v=" + encodeURIComponent(vid);
     try{
       const tg = window.Telegram && Telegram.WebApp ? Telegram.WebApp : null;
       if (tg && tg.openLink){
@@ -1000,17 +1019,130 @@ $("btnOpenYT").addEventListener("click", openInYouTube);
   $("btnSendOneTG")?.addEventListener("click", sendSelectedToTelegram);
   $("btnSendPackTG")?.addEventListener("click", sendBulkToTelegram);
   updateUxHints();
+
+  // === Playlist actions (tabs) ===
+  document.getElementById("uxBtnLoadMy")?.addEventListener("click", async ()=>{
+    try{ await loadMy(); }catch(e){}
+    setStatus("Плейлист обновлён.");
+  });
+
+  document.getElementById("uxBtnClearMy")?.addEventListener("click", async ()=>{
+    // Требует API /my/clear (см. backend patch ниже). Пока — локально.
+    state.my = [];
+    if (listMy) listMy.innerHTML = '<div style="padding:10px;color:var(--muted);font-weight:700">Плейлист очищен (локально). Если нужно — подключим серверную очистку.</div>';
+    setStatus("Плейлист очищен (локально).");
+  });
+
+  document.getElementById("uxBtnShuffleMy")?.addEventListener("click", async ()=>{
+    // SHUFFLE_AUTOPLAY_MY
+    try{
+      if (!Array.isArray(state.my) || !state.my.length){
+        await loadMy();
+      }
+      if (!state.my || !state.my.length){
+        setStatus("Плейлист пуст.");
+        return;
+      }
+      const idx = Math.floor(Math.random() * state.my.length);
+      const t = state.my[idx];
+      // try click existing rendered item first
+      const el = document.querySelector('.item[data-track-id="'+String(t.track_id)+'"]');
+      if (el){ el.click(); return; }
+      // fallback direct play
+      await play(t, null);
+    }catch(e){
+      console.error(e);
+      setStatus("Shuffle: ошибка.");
+    }
+  });
+
+  // === Add/Remove from playlist ===
+  async function addSelectedToMy(){
+    const it = state.selected;
+    const tg_id = getTgId();
+    if (!it){ setStatus("Сначала выбери трек."); return; }
+    if (!tg_id){ setStatus("Открой mini app внутри Telegram (нет tg_id)."); return; }
+
+    // если уже из плейлиста
+    if (it.kind === "my" && it.track_id){
+      setStatus("Уже в плейлисте ✅");
+      return;
+    }
+
+    // Нужен backend /my/add (см. ниже). Передаём video_id/title/query.
+    const title = (it.title || "").trim();
+    const vid = it.video_id ? String(it.video_id) : "";
+    const query = vid ? ("https://www.youtube.com/watch?v=" + vid) : title;
+    if (!title || !query){ setStatus("Не хватает данных для добавления."); return; }
+
+    setStatus("Добавляю в плейлист…");
+    try{
+      const u = new URL("/webapp/music/api/my/add", location.origin);
+      u.searchParams.set("title", title);
+      u.searchParams.set("query", query);
+      if (vid) u.searchParams.set("video_id", vid);
+      const r = await apiFetch(u.toString(), { method:"POST" });
+      const j = await r.json();
+      if (j && j.ok){
+        setStatus("Добавлено в плейлист ✅");
+        // обновим плейлист
+        try{ await loadMy(); }catch(e){}
+      } else {
+        setStatus("Не добавилось (нужен backend /my/add).");
+      }
+    }catch(e){
+      console.error(e);
+      setStatus("Ошибка /my/add (нужен backend).");
+    }
+  }
+
+  async function removeSelectedFromMy(){
+    const it = state.selected;
+    const tg_id = getTgId();
+    if (!it){ setStatus("Сначала выбери трек."); return; }
+    if (!tg_id){ setStatus("Открой mini app внутри Telegram (нет tg_id)."); return; }
+
+    if (!(it.kind === "my" && it.track_id)){
+      setStatus("Удалять можно только трек из 'Мой плейлист'.");
+      return;
+    }
+
+    setStatus("Удаляю из плейлиста…");
+    try{
+      const u = new URL("/webapp/music/api/my/delete", location.origin);
+      u.searchParams.set("track_id", String(it.track_id));
+      const r = await apiFetch(u.toString(), { method:"POST" });
+      const j = await r.json();
+      if (j && j.ok){
+        setStatus("Удалено ✅");
+        // refresh
+        state.selected = null;
+        try{ await loadMy(); }catch(e){}
+      } else {
+        setStatus("Не удалилось (нужен backend /my/delete).");
+      }
+    }catch(e){
+      console.error(e);
+      setStatus("Ошибка /my/delete (нужен backend).");
+    }
+  }
+
+  document.getElementById("btnAddToMy")?.addEventListener("click", addSelectedToMy);
+  document.getElementById("btnRemoveFromMy")?.addEventListener("click", removeSelectedFromMy);
+
 $("btnClear").addEventListener("click", ()=>{
-  q.value = "";
+  // Clear = чистим только поиск/подборку, не трогаем "Мой плейлист"
+  if (q) q.value = "";
+  state.items = [];
+  state.lastQuery = "";
   if (listSearch) listSearch.innerHTML = "";
-  if (listMy) listMy.innerHTML = "";
-  if (yt) yt.src = "about:blank";
-  if (iframeWrap) iframeWrap.classList.remove("active");
+  // player reset (но плейлист не чистим)
   nowTitle.textContent = "Выбери трек слева";
   nowChan.textContent = "—";
   nowThumb.innerHTML = "";
   state.selected = null;
-  setStatus("Очищено.");
+  try{ updateUxHints(); }catch(e){}
+  setStatus("Поиск очищен.");
 });
 
   async function loadMy(){
