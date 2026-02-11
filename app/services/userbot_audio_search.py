@@ -113,6 +113,17 @@ def _is_audio_message(m: Message) -> bool:
             return True
     return False
 
+def _doc_id(m: Message) -> int:
+    """Best-effort unique audio/document id for dedupe across many channels."""
+    try:
+        doc = getattr(m, "document", None)
+        if doc and getattr(doc, "id", None):
+            return int(doc.id)
+    except Exception:
+        pass
+    return 0
+
+
 
 def _pick_title(m: Message, fallback: str) -> str:
     # пробуем из атрибутов, иначе текст
@@ -180,6 +191,8 @@ async def search_audio_in_tg(
         return None
 
     scanned = 0
+    seen_docs_in_one: set[int] = set()
+    seen_titles_in_one: set[str] = set()
     async with _client() as client:
         for q in variants:
             for chat in chats:
@@ -194,10 +207,20 @@ async def search_audio_in_tg(
                             chat_id = int(getattr(m, "chat_id", 0) or 0)
                             if not chat_id:
                                 continue
+                            doc_id = _doc_id(m)
+                            t = _pick_title(m, q)
+                            nt = _norm_text(t)
+                            if doc_id and doc_id in seen_docs_in_one:
+                                continue
+                            if nt in seen_titles_in_one:
+                                continue
+                            if doc_id:
+                                seen_docs_in_one.add(doc_id)
+                            seen_titles_in_one.add(nt)
                             return FoundAudio(
                                 chat_id=chat_id,
                                 message_id=int(m.id),
-                                title=_pick_title(m, q),
+                                title=t,
                                 chat_ref=str(chat),
                             )
                 except Exception:
@@ -250,21 +273,23 @@ async def forward_to_storage(*, src: str | int, message_id: int) -> dict:
 
     mid = int(message_id)
     async with _client() as client:
+        # IMPORTANT: never do plain forward without as_copy (it reveals source).
+        # 1) try as_copy=True
+        # 2) fallback: download+reupload (also no-source)
+        msgs = None
         try:
-            try:
-                msgs = await client.forward_messages(storage_peer, mid, from_peer=src_peer, as_copy=True)
-            except TypeError:
-                msgs = await client.forward_messages(storage_peer, mid, from_peer=src_peer)
+            msgs = await client.forward_messages(storage_peer, mid, from_peer=src_peer, as_copy=True)
+        except Exception:
+            msgs = None
 
-        except TypeError:
-            # Telethon without as_copy: download + reupload to storage
+        if not msgs:
             src_msg = await client.get_messages(src_peer, ids=mid)
             if not src_msg:
-                raise RuntimeError('FORWARD_FAILED: source message not found')
+                raise RuntimeError("FORWARD_FAILED: source message not found")
             data = await client.download_media(src_msg, file=bytes)
             if not data:
-                raise RuntimeError('FORWARD_FAILED: cannot download media')
-            caption = (getattr(src_msg, 'message', None) or '').strip()
+                raise RuntimeError("FORWARD_FAILED: cannot download media")
+            caption = (getattr(src_msg, "message", None) or "").strip()
             sent = await client.send_file(storage_peer, file=data, caption=caption or None)
             msgs = sent
         # telethon: may return Message or list[Message]
@@ -332,8 +357,9 @@ async def search_audio_many_in_tg(
     variants = _query_variants(title, query)
     if not variants:
         return []
-
     seen: set[tuple[int,int]] = set()
+    seen_docs: set[int] = set()
+    seen_titles: set[str] = set()
     out: list[FoundAudio] = []
 
     async with _client() as client:
@@ -352,12 +378,22 @@ async def search_audio_many_in_tg(
                         if key in seen:
                             continue
 
+                        doc_id = _doc_id(m)
+                        if doc_id and doc_id in seen_docs:
+                            continue
+
                         t = _pick_title(m, q)
+                        nt = _norm_text(t)
+                        if nt in seen_titles:
+                            continue
 
                         if strict_tokens and not _match_all_tokens(t, query):
                             continue
 
                         seen.add(key)
+                        if doc_id:
+                            seen_docs.add(doc_id)
+                        seen_titles.add(nt)
                         out.append(FoundAudio(
                             chat_id=chat_id,
                             message_id=int(m.id),

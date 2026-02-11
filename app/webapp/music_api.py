@@ -19,6 +19,67 @@ from app.models.user_track import UserTrack
 
 router = APIRouter(prefix="/webapp/music/api", tags=["webapp-music"])
 
+# ===== Rate limits (comfort + anti-flood) =====
+# Defaults (can override via env):
+#   MUSIC_SEND_LIMIT        = per-request pack size (default 6)
+#   MUSIC_LIMIT_PER_HOUR    = per-user per-hour (default 30)
+#   MUSIC_LIMIT_PER_DAY     = per-user per-day  (default 150)
+# Notes:
+# - in-memory limiter (MVP). If you run multiple workers, limits are per-worker.
+from collections import defaultdict, deque
+import time
+
+class _UserRateLimiter:
+    def __init__(self) -> None:
+        self.h = defaultdict(deque)  # uid -> timestamps (hour window)
+        self.d = defaultdict(deque)  # uid -> timestamps (day window)
+
+    def _prune(self, q: deque, now: float, window: float) -> None:
+        cut = now - window
+        while q and q[0] < cut:
+            q.popleft()
+
+    def allow(self, uid: int, n: int, per_hour: int, per_day: int) -> tuple[bool, dict]:
+        now = time.time()
+        qh = self.h[uid]
+        qd = self.d[uid]
+        self._prune(qh, now, 3600.0)
+        self._prune(qd, now, 86400.0)
+
+        if len(qh) + n > per_hour:
+            return False, {"scope": "hour", "limit": per_hour, "used": len(qh)}
+        if len(qd) + n > per_day:
+            return False, {"scope": "day", "limit": per_day, "used": len(qd)}
+
+        for _ in range(n):
+            qh.append(now)
+            qd.append(now)
+        return True, {"scope": "ok", "hour_used": len(qh), "day_used": len(qd)}
+
+_rl = _UserRateLimiter()
+
+def _limits() -> tuple[int,int,int]:
+    env_pack = int((os.getenv("MUSIC_SEND_LIMIT") or "6").strip() or "6")
+    env_h = int((os.getenv("MUSIC_LIMIT_PER_HOUR") or "30").strip() or "30")
+    env_d = int((os.getenv("MUSIC_LIMIT_PER_DAY") or "150").strip() or "150")
+    return env_pack, env_h, env_d
+
+def _enforce_limits(tg_id: int, want: int) -> None:
+    pack, per_h, per_d = _limits()
+    ok, meta = _rl.allow(int(tg_id), int(want), per_h, per_d)
+    if not ok:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "RATE_LIMIT",
+                "scope": meta.get("scope"),
+                "limit": meta.get("limit"),
+                "used": meta.get("used"),
+                "hint": "Слишком много запросов. Попробуй чуть позже.",
+            },
+        )
+
+
 def _parse_tgmsg(fid: str) -> Optional[tuple[int,int]]:
     fid = (fid or "").strip()
     if not fid.startswith("tgmsg:"):
@@ -146,6 +207,8 @@ async def resolve_track(
     tg_id = tg_id or x_tg_id
     if not tg_id:
         raise HTTPException(status_code=400, detail="tg_id missing (open mini app inside Telegram)")
+
+    _enforce_limits(int(tg_id), 1)
 
     # verify owner
     user: Optional[User] = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
@@ -546,6 +609,8 @@ async def tg_pipeline(
     env_limit = int((os.getenv("MUSIC_SEND_LIMIT") or "6").strip() or "6")
     lim = max(1, min(int(limit or env_limit), 10))
 
+    _enforce_limits(int(tg_id), int(lim))
+
     # strict auto: 2+ words => True
     strict_mode = bool(strict) if strict is not None else (len([x for x in q.split() if x]) >= 2)
 
@@ -603,7 +668,7 @@ async def tg_pipeline(
         except Exception as e:
             sent_items.append({"title": getattr(f, "title", None), "error": {"stage": "bulk_send", "type": type(e).__name__, "msg": str(e)}})
 
-        await asyncio.sleep(0.35)
+        await asyncio.sleep(0.7 + (0.6 * (os.urandom(1)[0] / 255.0)))
 
     return {
         "ok": ok_sent,
