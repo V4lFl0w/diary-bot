@@ -171,7 +171,7 @@ from app.services.media.lens import (
 from app.services.media.logging import _d
 from app.services.media.pipeline_tmdb import _tmdb_best_effort
 from app.services.media.query import (
-    _clean_media_search_query,
+_clean_media_search_query,
     _clean_tmdb_query,
     _extract_media_kind_marker,
     _good_tmdb_cand,
@@ -181,18 +181,19 @@ from app.services.media.query import (
     _normalize_tmdb_query,
     _parse_media_hints,
     _tmdb_sanitize_query,
+    _looks_like_choice,
+    _looks_like_year_or_hint,
 )
 from app.services.media.safety import (
     _scrub_media_items,
 )
 from app.services.media.session import (
-    _MEDIA_SESSIONS,
-    _looks_like_choice,
-    _looks_like_year_or_hint,
+_MEDIA_SESSIONS,
     _media_get,
     _media_set,
     _media_uid,
 )
+
 from app.services.media.vision_parse import (
     _build_tmdb_queries_from_media_json,
     _extract_media_json_from_model_text,

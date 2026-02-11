@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 # --- FlowPatch: query cleaning & candidate filtering (media) ---
 _TMDb_STOP = {
     "photo","<photo>","уточнение","уточнение:","уточни","дай","другие","варианты",
