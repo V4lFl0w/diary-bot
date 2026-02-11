@@ -5,6 +5,24 @@ import contextlib
 import importlib
 import inspect
 import logging
+
+import subprocess
+
+def _get_commit_sha():
+    for k in ("GIT_SHA", "GIT_COMMIT", "SOURCE_VERSION", "HEROKU_SLUG_COMMIT"):
+        v = (os.getenv(k) or "").strip()
+        if v:
+            return v[:12]
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL
+        ).decode().strip()
+    except Exception:
+        return "unknown"
+
+STARTUP_COMMIT_SHA = _get_commit_sha()
+
 import os
 import pkgutil
 import re
@@ -418,7 +436,7 @@ async def main() -> None:
     proactive_task = asyncio.create_task(proactive_loop(bot, SessionLocal), name="proactive_loop")
 
     await log_db_info()
-    logging.info("✅ Bot is up. Starting polling…")
+    logging.info("✅ Bot is up. Starting polling… | COMMIT={{STARTUP_COMMIT_SHA}}")
 
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
