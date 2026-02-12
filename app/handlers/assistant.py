@@ -81,6 +81,70 @@ def _assistant_tools_kb() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+@router.callback_query(F.data == "assistant:stop")
+async def assistant_stop_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    try:
+        await cb.answer()
+    except Exception:
+        pass
+
+    if not cb.from_user:
+        return
+
+    user = await _get_user(session, cb.from_user.id)
+    lang = _normalize_lang(getattr(cb.from_user, "language_code", None) or "ru")
+    is_admin = is_admin_tg(cb.from_user.id)
+
+    await state.clear()
+
+    m_any = cb.message
+    m = m_any if isinstance(m_any, Message) else None
+    if m is None:
+        return
+
+    await m.answer(
+        "Ок, режим помощника выключен.",
+        reply_markup=get_main_kb(lang, is_premium=_has_premium(user), is_admin=is_admin),
+    )
+
+
+@router.callback_query(F.data == "assistant:web")
+async def assistant_web_cb(cb: CallbackQuery, state: FSMContext) -> None:
+    try:
+        await cb.answer()
+    except Exception:
+        pass
+
+    m_any = cb.message
+    m = m_any if isinstance(m_any, Message) else None
+    if m is None:
+        return
+
+    await m.answer(
+        "🌐 Web-режим. Пришли ссылку (https://...) или напиши `web: <запрос>`.",
+        parse_mode="Markdown",
+        reply_markup=_assistant_tools_kb(),
+    )
+
+
+@router.callback_query(F.data == "assistant:media")
+async def assistant_media_cb(cb: CallbackQuery, state: FSMContext) -> None:
+    try:
+        await cb.answer()
+    except Exception:
+        pass
+
+    m_any = cb.message
+    m = m_any if isinstance(m_any, Message) else None
+    if m is None:
+        return
+
+    await m.answer(
+        "🎬 Режим кадра/фото. Пришли скрин/фото или опиши сцену (год/актёр если знаешь).",
+        reply_markup=_assistant_tools_kb(),
+    )
+
+
 @router.callback_query(F.data == "media:noop")
 async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMContext):
     st = await state.get_state()
@@ -389,7 +453,6 @@ async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) 
     user = await _get_user(session, m.from_user.id)
     lang = _detect_lang(user, m)
     is_admin = is_admin_tg(m.from_user.id)
-
     if not _has_premium(user):
         await state.clear()
         await m.answer(
@@ -757,16 +820,7 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
         else:
             await m.answer(clean, reply_markup=_media_inline_kb(), parse_mode=None)
     else:
-        is_admin = is_admin_tg(m.from_user.id)
-        await m.answer(
-            str(reply),
-            reply_markup=get_main_kb(
-                lang,
-                is_premium=_has_premium(user),
-                is_admin=is_admin,
-            ),
-        )
-
+        await m.answer(str(reply), reply_markup=_assistant_tools_kb())
 
 @router.callback_query(F.data == "media:pick")
 async def media_ok(call: CallbackQuery, state: FSMContext) -> None:
@@ -802,7 +856,7 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
     # typing loop (optional)
     typing_task = asyncio.create_task(_typing_loop(call.message.chat.id, interval=4.0)) if call.message else None
     try:
-        reply = await run_assistant(user, last_q, lang, session=session)
+        reply = await run_assistant(user, "другие варианты", lang, session=session)
     finally:
         if typing_task:
             typing_task.cancel()
