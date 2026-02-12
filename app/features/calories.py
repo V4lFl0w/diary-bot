@@ -1576,4 +1576,46 @@ async def cal_photo_caption_trigger(
         await message.answer(f"{details}\n\n{total_line}")
 
 
+# -------------------- MODE: waiting_portion --------------------
+
+
+@router.message(CaloriesFSM.waiting_portion, F.text)
+async def cal_portion_recalc(
+    message: types.Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
+    text = (message.text or "").strip()
+    if not text:
+        return
+
+    tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
+    user = await _get_user(session, message.from_user.id)
+    lang_code = _user_lang(user, lang, tg_lang)
+
+    data = await state.get_data()
+    last_photo_id = data.get("cal_last_photo_file_id")
+
+    # Пересчитываем ТОЛЬКО по тексту (без Vision)
+    res = await analyze_text(text, lang_code=lang_code)
+
+    if _kcal_is_invalid(res):
+        await message.answer("Не смог пересчитать. Укажи граммы или количество точнее.")
+        return
+
+    total_line = _format_cal_total(lang_code, res)
+
+    if last_photo_id:
+        await message.answer_photo(
+            last_photo_id,
+            caption=total_line,
+            reply_markup=_cal_result_inline_kb(lang_code),
+        )
+    else:
+        await message.answer(total_line)
+
+    await state.set_state(CaloriesFSM.waiting_input)
+
+
 __all__ = ["router"]
