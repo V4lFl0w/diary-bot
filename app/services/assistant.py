@@ -665,7 +665,7 @@ async def run_assistant(
 
     # --- MEDIA state (DB + in-memory fallback) ---
     uid = _media_uid(user)
-    st = _media_get(uid)
+    st = _media_get(uid)  # Достаем результаты предыдущего поиска из памяти
 
     sticky_media_db = False
     if user:
@@ -674,49 +674,37 @@ async def run_assistant(
         if mode == "media" and until and until > now:
             sticky_media_db = True
 
+    # -------------------------------------------------------------------------
+    # FIX: Навигационный страж (Кнопки и выбор цифрой)
+    # -------------------------------------------------------------------------
     is_nav = False
     if text:
         t_low = text.lower().strip()
-        # Юзер жмет "другие варианты", "ещё", "покажи другие"
-        if any(k in t_low for k in ("другие", "варианты", "еще", "ещё")):
-            is_nav = True
-        # Юзер пишет цифру (выбор)
-        if _looks_like_choice(text):
+        # Проверяем, нажал ли пользователь на кнопку или ввел цифру
+        if any(k in t_low for k in ("другие", "варианты", "еще", "ещё")) or re.fullmatch(r"\d{1,2}", t_low):
             is_nav = True
 
+    # Определяем интент через классификатор
     intent_res = detect_intent((text or "").strip() if text else None, has_media=bool(has_media))
     intent = getattr(intent_res, "intent", None) or intent_res
     is_intent_media = intent in (Intent.MEDIA_IMAGE, Intent.MEDIA_TEXT)
 
-    # -------------------------------------------------------------------------
-    # FIX: Навигация (кнопки "Другие варианты" или цифры)
-    # Если это навигация, мы ПРИНУДИТЕЛЬНО считаем это медиа-режимом
-    # и НЕ сбрасываем сессию.
-    # -------------------------------------------------------------------------
-    # Сбрасываем сессию ТОЛЬКО если это не медиа и не навигация
+    # Сбрасываем сессию ТОЛЬКО если это не медиа и НЕ навигация (кнопка)
     if not is_intent_media and not is_nav:
         if uid:
-            try:
-                _MEDIA_SESSIONS.pop(uid, None)
-            except Exception:
-                pass
+            _MEDIA_SESSIONS.pop(uid, None) # Удаляем старый поиск, чтобы не мешал в обычном чате
         if user is not None:
             try:
-                mode = getattr(user, "assistant_mode", None)
-                if mode == "media":
-                    setattr(user, "assistant_mode", None)
-                    setattr(user, "assistant_mode_until", now - timedelta(seconds=1))
-                    if session:
-                        await session.commit()
-            except Exception:
-                pass
+                setattr(user, "assistant_mode", None)
+                setattr(user, "assistant_mode_until", now - timedelta(seconds=1))
+                if session: await session.commit()
+            except Exception: pass
 
+    # Принудительно включаем медиа-режим, если нажата кнопка навигации
     is_media = (
-        bool(has_media)
-        or bool(is_intent_media)
-        or is_nav  # <--- ВАЖНО: Навигация включает медиа-режим
-        or (sticky_media_db and bool(is_intent_media))
-        or (bool(st) and bool(is_intent_media))
+        bool(has_media) or 
+        bool(is_intent_media) or 
+        (is_nav and bool(st)) # Если жмем кнопку и в памяти есть результаты
     )
 
     if is_media:

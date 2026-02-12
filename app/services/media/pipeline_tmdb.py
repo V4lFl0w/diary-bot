@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from app.services.media.query import _clean_tmdb_query, _normalize_tmdb_query
 from app.services.media.safety import _scrub_media_items
 from app.services.media.session import _extract_year
@@ -27,25 +29,25 @@ def _dedupe_media(items: list[dict]) -> list[dict]:
 
 def _sort_media(items: list[dict], query: str = "") -> list[dict]:
     def score(it: dict) -> float:
-        s = float(it.get("popularity") or 0) * 0.8 + float(it.get("vote_average") or 0) * 2.0
-        
-        # БОНУС: Если название фильма есть в поисковом запросе — поднимаем в топ
-        title = (it.get("title") or it.get("name") or "").lower()
-        if query.lower() in title or title in query.lower():
-            s += 50.0 # Весомый бонус
+        try:
+            base_s = float(it.get("popularity") or 0) * 0.8 + float(it.get("vote_average") or 0) * 2.0
             
-        return s
+            # БОНУС: Если название (или ориг. название) есть в запросе — поднимаем В ТОП
+            q_low = query.lower()
+            t_low = (it.get("title") or it.get("name") or "").lower()
+            o_low = (it.get("original_title") or it.get("original_name") or "").lower()
+            
+            if q_low and (t_low in q_low or q_low in t_low or o_low in q_low or q_low in o_low):
+                base_s += 100.0  # Радикальный бонус
+            return base_s
+        except Exception:
+            return 0.0
 
     return sorted(items or [], key=score, reverse=True)
 
 
 async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
-    """
-    Best-effort TMDb retrieval (faster):
-    - run ru-RU and en-US in parallel
-    - dedupe + soft year filter + sort
-    """
-    import asyncio
+   
 
     q = _normalize_tmdb_query(_clean_tmdb_query(query))
     if not q:
@@ -55,27 +57,17 @@ async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
 
     async def _safe(lang: str) -> list[dict]:
         try:
-            items = await tmdb_search_multi(q, lang=lang, limit=limit)
+            return await tmdb_search_multi(q, lang=lang, limit=limit) or []
         except Exception:
             return []
-        if items and isinstance(items[0], dict) and items[0].get("_error"):
-            return []
-        return items or []
 
-    items_ru, items_en = await asyncio.gather(
-        _safe("ru-RU"),
-        _safe("en-US"),
-        return_exceptions=False,
-    )
-
+    items_ru, items_en = await asyncio.gather(_safe("ru-RU"), _safe("en-US"))
     items = _dedupe_media((items_ru or []) + (items_en or []))
-
-    # safety: drop adult + scrub explicit overview
     items = _scrub_media_items(items)
 
     if year:
         filtered = [it for it in items if str(it.get("year") or "") == year]
-        if filtered:
-            items = filtered
+        if filtered: items = filtered
 
-    return _sort_media(items)[:limit]
+    return _sort_media(items, query=q)[:limit] # Передаем query для бонуса
+
