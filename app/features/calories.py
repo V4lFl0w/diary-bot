@@ -34,6 +34,87 @@ _COUNT_PIECES_RE = re.compile(
     re.I,
 )
 
+_COUNT_ITEMS_RE = re.compile(
+    r"\b(\d+)\s*(шт\.?|штук|pcs|pieces?|piece|ломтик(?:а|ов)?|скибк(?:а|и)?|slice(?:s)?|кусоч(?:ек|ка|ков)?|шарик(?:а|ов)?)?\s*([а-яёa-z][а-яёa-z\-\s]{0,40})",
+    re.I,
+)
+
+
+def _extract_piece_items(text: str) -> list[tuple[str, float]]:
+    """Парсит ВСЕ позиции формата: '4 яйца, 2 ломтика сыра, 3 шт сулугуни'.
+    Возвращает список (fallback_key, grams).
+    """
+    t = (text or "").strip().lower()
+    if not t:
+        return []
+    # убираем 'яичница:' и прочие префиксы
+    t = re.sub(r"^[^:]{0,30}:\s*", "", t)
+    items: list[tuple[str, float]] = []
+
+    # грамм за 1 'штуку' (универсально по корню)
+    per_piece: dict[str, float] = {
+        "яйц": 50.0,
+        "сосиск": 50.0,
+        "сардельк": 90.0,
+        "сулугуни": 20.0,
+        "сыр": 30.0,
+        "хлеб": 30.0,
+        "вареник": 50.0,
+        "пельмен": 12.0,
+        "котлет": 100.0,
+        "яблок": 150.0,
+        "банан": 120.0,
+    }
+
+    # грамм за 1 ломтик/скибку/кусочек/шарик (если указан юнит)
+    per_unit: dict[str, float] = {
+        "ломтик": 20.0,
+        "скибк": 20.0,
+        "slice": 20.0,
+        "кусоч": 25.0,
+        "шарик": 20.0,
+    }
+
+    def pick_key(name: str) -> str | None:
+        name = (name or "").strip()
+        if not name:
+            return None
+        # приоритетные ключи
+        if "сулугуни" in name:
+            return "сулугуни"
+        if "сардель" in name:
+            return "сардельк"
+        # общие корни
+        for k in ("яйц", "сосиск", "сыр", "хлеб", "вареник", "пельмен", "котлет", "яблок", "банан"):
+            if k in name:
+                return k
+        return None
+
+    for m in _COUNT_ITEMS_RE.finditer(t):
+        try:
+            n = int(m.group(1))
+        except Exception:
+            continue
+        unit = (m.group(2) or "").strip().lower()
+        name = (m.group(3) or "").strip().lower()
+        k = pick_key(name)
+        if not k:
+            continue
+
+        g_each = None
+        # если явно указан 'ломтик/скибка/кусочек/шарик' — берём per_unit
+        for uk, gv in per_unit.items():
+            if uk in unit:
+                g_each = gv
+                break
+        if g_each is None:
+            g_each = per_piece.get(k)
+        if g_each is None:
+            continue
+        items.append((k, float(n) * float(g_each)))
+
+    return items
+
 
 def _try_piece_guess(text: str) -> tuple[str, float] | None:
     """
@@ -44,25 +125,49 @@ def _try_piece_guess(text: str) -> tuple[str, float] | None:
     if not m:
         return None
 
-    n = int(m.group(1))
-    name = (m.group(2) or "").strip()
 
-    # ключ -> грамм за 1 шт
-    defaults: dict[str, float] = {
-        "вареник": 50.0,
-        "пельмен": 12.0,
-        "котлет": 100.0,
-        "сосиск": 50.0,
+def _try_multi_piece_items(text: str) -> list[tuple[str, float]]:
+    """
+    Парсит несколько позиций в формате:
+    '4 яйца, 1 сарделька, 2 ломтика сыра, 3 шт сулугуни'
+    Возвращает список: [(ключ_FALLBACK, граммы), ...]
+    """
+    s = (text or "").strip().lower()
+    if not s:
+        return []
+
+    matches = list(_COUNT_PIECES_RE.finditer(s))
+    if not matches:
+        return []
+
+    # грамм за 1 шт (упрощённо)
+    gpp: dict[str, float] = {
         "яйц": 50.0,
+        "сардельк": 90.0,
+        "сосиск": 50.0,
+        "сыр": 30.0,  # ломтик
+        "сулугун": 30.0,  # как ломтик сыра
+        "хлеб": 30.0,
+        "банан": 120.0,
         "яблок": 150.0,
     }
 
-    # нормализация словоформ через "вхождение корня"
-    for k, g_per_piece in defaults.items():
-        if k in name:
-            return (k, n * g_per_piece)
+    out: list[tuple[str, float]] = []
+    for mm in matches:
+        n = int(mm.group(1))
+        name = (mm.group(2) or "").strip()
 
-    return None
+        key: str | None = None
+        for k in gpp.keys():
+            if k in name:
+                key = k
+                break
+        if not key:
+            continue
+
+        out.append((key, n * gpp[key]))
+
+    return out
 
 
 from app.keyboards import (
@@ -330,9 +435,12 @@ FALLBACK: Dict[str, Dict[str, float]] = {
     "хліб": dict(kcal=250, p=9.0, f=3.0, c=49.0),
     "bread": dict(kcal=250, p=9.0, f=3.0, c=49.0),
     "сыр": dict(kcal=350, p=26.0, f=27.0, c=3.0),
+    "сулугуни": dict(kcal=350, p=26.0, f=27.0, c=3.0),
+    "сулугун": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "сир": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "cheese": dict(kcal=350, p=26.0, f=27.0, c=3.0),
     "сосиск": dict(kcal=300, p=12.0, f=27.0, c=2.0),
+    "сардельк": dict(kcal=300, p=12.0, f=27.0, c=2.0),
     "sausage": dict(kcal=300, p=12.0, f=27.0, c=2.0),
     "куриц": dict(kcal=190, p=29.0, f=7.0, c=0.0),
     "курк": dict(kcal=190, p=29.0, f=7.0, c=0.0),
@@ -613,7 +721,15 @@ async def analyze_text(text: str, lang_code: str = "ru") -> Dict[str, Any]:
         is_dry_buckwheat = True
 
     piece_hint = _try_piece_guess(text)
+    piece_items = _try_multi_piece_items(text)
     grams_info: list[tuple[float, Dict[str, float]]] = []
+
+    # multi-item pieces: '4 яйца, 1 сарделька, 2 ломтика сыра, 3 шт сулугуни'
+    if piece_items and not re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low):
+        for k, g in piece_items:
+            meta = FALLBACK.get(k) or FALLBACK.get("сыр" if k in ("сулугуни", "сулугун") else k)
+            if meta:
+                grams_info.append((float(g), meta))
 
     # Твоя логика поиска "миска корма"
     if "миска" in low and ("корм" in low or "catfood" in low) and not re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low):
@@ -1198,6 +1314,79 @@ async def cal_text_in_mode(
     await message.answer(out)
 
 
+@router.message(CaloriesFSM.waiting_portion, F.text)
+async def cal_portion_in_mode(
+    message: types.Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
+    text = (message.text or "").strip()
+    if not text:
+        return
+
+    tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
+    user = await _get_user(session, message.from_user.id)
+    lang_code = _user_lang(user, lang, tg_lang)
+
+    data = await state.get_data()
+    last_file_id = data.get("cal_last_photo_file_id")
+    last_photo_res = data.get("cal_last_photo_res") if isinstance(data.get("cal_last_photo_res"), dict) else None
+
+    payload = _strip_cmd_prefix(text)
+    if not payload:
+        return
+
+    res = await analyze_text(payload, lang_code=lang_code)
+    if _kcal_is_invalid(res):
+        await message.answer(
+            _tr(
+                lang_code,
+                "Не смог нормально посчитать. Укажи граммы или уточни продукты, например: 'сосиска 80 г, сыр 40 г'.",
+                "Не зміг нормально порахувати. Вкажи грами або уточни продукти.",
+                "Couldn't calculate well. Please add grams or clarify products.",
+            )
+        )
+        return
+
+    total_line = _format_cal_total(lang_code, res)
+
+    # Если уточняем после ФОТО — перерисуем карточку с тем же фото + обновим 'Порция'
+    if last_file_id and last_photo_res:
+        # обновляем portion в деталях
+        merged = dict(last_photo_res)
+        merged["portion"] = payload
+        details = _format_photo_details(lang_code, merged)
+
+        # скачаем фото по file_id
+        photo_bytes = None
+        try:
+            f = await message.bot.get_file(last_file_id)
+            if f.file_path:
+                buf = BytesIO()
+                await message.bot.download_file(f.file_path, destination=buf)
+                photo_bytes = buf.getvalue()
+        except Exception:
+            photo_bytes = None
+
+        if photo_bytes:
+            card_text = f"{details}\n\n{total_line}".replace("<b>", "").replace("</b>", "")
+            card = render_result_card(photo_bytes, card_text)
+            await message.answer_photo(
+                BufferedInputFile(card, filename="calories.jpg"),
+                caption=f"{details}\n\n{total_line}",
+                parse_mode="HTML",
+                reply_markup=_cal_result_inline_kb(lang_code),
+            )
+        else:
+            await message.answer(f"{details}\n\n{total_line}")
+    else:
+        await message.answer(total_line)
+
+    # возвращаемся в основной режим
+    await state.set_state(CaloriesFSM.waiting_input)
+
+
 @router.message(CaloriesFSM.waiting_input, F.photo)
 async def cal_photo_in_input_mode(
     message: types.Message,
@@ -1231,6 +1420,13 @@ async def cal_photo_in_input_mode(
 
     img_bytes = await _download_photo_bytes(message)
     if img_bytes:
+        try:
+            await state.update_data(
+                cal_last_photo_file_id=(message.photo[-1].file_id if message.photo else None),
+                cal_last_photo_res=res,
+            )
+        except Exception:
+            pass
         card = render_result_card(img_bytes, card_text)
         await message.answer_photo(
             BufferedInputFile(card, filename="calories.jpg"),
@@ -1277,6 +1473,13 @@ async def cal_photo_waiting(
 
     img_bytes = await _download_photo_bytes(message)
     if img_bytes:
+        try:
+            await state.update_data(
+                cal_last_photo_file_id=(message.photo[-1].file_id if message.photo else None),
+                cal_last_photo_res=res,
+            )
+        except Exception:
+            pass
         card = render_result_card(img_bytes, card_text)
         await message.answer_photo(
             BufferedInputFile(card, filename="calories.jpg"),
@@ -1316,7 +1519,12 @@ async def cal_text_free_autodetect(message: types.Message, session: AsyncSession
 
 
 @router.message(F.photo)
-async def cal_photo_caption_trigger(message: types.Message, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def cal_photo_caption_trigger(
+    message: types.Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
     caption = (message.caption or "").strip()
     if not caption:
         return
@@ -1352,6 +1560,13 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
 
     img_bytes = await _download_photo_bytes(message)
     if img_bytes:
+        try:
+            await state.update_data(
+                cal_last_photo_file_id=(message.photo[-1].file_id if message.photo else None),
+                cal_last_photo_res=res,
+            )
+        except Exception:
+            pass
         card = render_result_card(img_bytes, card_text)
         await message.answer_photo(
             BufferedInputFile(card, filename="calories.jpg"),
