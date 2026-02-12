@@ -911,7 +911,7 @@ async def cal_cmd(
     query = _strip_cmd_prefix(raw)
 
     if query:
-        res = await analyze_text(query)
+        res = await analyze_text(query, lang_code=lang_code)
         if _kcal_is_invalid(res):
             await message.answer(
                 "Не смог нормально посчитать. Укажи граммы/начинку, например: "
@@ -929,20 +929,40 @@ async def cal_cmd(
         lang_code,
         """🔥 Калории — быстро и без занудства
 
-✅ Напиши списком, что ты съел/выпил
+✅ Напиши списком, что ты съел/выпил — одним сообщением
 Или отправь фото еды (💎 Премиум)
 
-Я посчитаю: ккал • Б/Ж/У""",
+Я посчитаю: ккал • Б/Ж/У
+
+Примеры:
+• 250 мл молока, банан, 40 г арахиса
+• 200 г курицы, 100 г риса, 1 яблоко
+
+/cancel — выйти из режима""",
         """🔥 Калорії — швидко і без занудства
 
-✅ Напиши списком, що ти з'їв/випив
+✅ Напиши списком, що ти з'їв/випив — одним повідомленням
 Або надішли фото їжі (💎 Преміум)
 
-Я порахую: ккал • Б/Ж/В""",
+Я порахую: ккал • Б/Ж/В
+
+Приклади:
+• 250 мл молока, банан, 40 г арахісу
+• 200 г курки, 100 г рису, 1 яблуко
+
+/cancel — вийти з режиму""",
         """🔥 Calories — fast, no fluff
 
-✅ Send your food list
-Or food photo (💎 Premium)""",
+✅ Send your food list in one message
+Or food photo (💎 Premium)
+
+I'll calculate: kcal • P/F/C
+
+Examples:
+• 250ml milk, 1 banana, 40g peanuts
+• 200g chicken, 100g rice, 1 apple
+
+/cancel — exit""",
     )
 
     await message.answer(hook, reply_markup=_cal_hook_inline_kb(lang_code))
@@ -1057,7 +1077,7 @@ async def cal_text_in_mode(
     if not payload:
         return
 
-    res = await analyze_text(payload)
+    res = await analyze_text(payload, lang_code=lang_code)
     if _kcal_is_invalid(res):
         await message.answer(
             "Не смог нормально посчитать. Укажи граммы/начинку, например: "
@@ -1128,7 +1148,7 @@ async def cal_text_free_autodetect(message: types.Message, session: AsyncSession
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
-    res = await analyze_text(text)
+    res = await analyze_text(text, lang_code=lang_code)
     if _kcal_is_invalid(res):
         return
     out = _format_cal_total(lang_code, res)
