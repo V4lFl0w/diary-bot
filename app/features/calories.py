@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import os
-import re
 import base64
 import json
+import os
+import re
+import logging
 from io import BytesIO
 from typing import Any, Dict, Optional
 
 import httpx
-from PIL import Image, ImageDraw, ImageFont
-
-from aiogram import Router, F, types
+from aiogram import F, Router, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.types import InlineKeyboardMarkup, BufferedInputFile
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from PIL import Image, ImageDraw, ImageFont
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,21 +55,20 @@ def _try_piece_guess(text: str) -> tuple[str, float] | None:
     return None
 
 
-from app.i18n import t
 from app.keyboards import (
     get_main_kb,
-    is_calories_btn,
-    is_root_journal_btn,
-    is_root_reminders_btn,
-    is_root_calories_btn,
-    is_root_stats_btn,
-    is_root_assistant_btn,
-    is_root_media_btn,
-    is_root_premium_btn,
-    is_root_settings_btn,
-    is_report_bug_btn,
     is_admin_btn,
     is_back_btn,
+    is_calories_btn,
+    is_report_bug_btn,
+    is_root_assistant_btn,
+    is_root_calories_btn,
+    is_root_journal_btn,
+    is_root_media_btn,
+    is_root_premium_btn,
+    is_root_reminders_btn,
+    is_root_settings_btn,
+    is_root_stats_btn,
 )
 
 try:
@@ -151,16 +150,31 @@ def _user_lang(user: Optional[User], fallback: Optional[str], tg_lang: Optional[
     return _normalize_lang(getattr(user, "locale", None) or getattr(user, "lang", None) or fallback or tg_lang or "ru")
 
 
-def _format_cal_total(lang_code: str, res: Dict[str, float]) -> str:
-    # База: ккал/БЖУ. confidence добавляем снаружи через _add_confidence()
-    return t(
-        "cal_total",
-        lang_code,
-        kcal=res.get("kcal", 0),
-        p=res.get("p", 0),
-        f=res.get("f", 0),
-        c=res.get("c", 0),
-    )
+def _format_cal_total(lang_code: str, res: Dict[str, Any]) -> str:
+    """Универсальный форматтер КБЖУ с эмодзи."""
+    kcal = int(round(float(res.get("kcal", 0))))
+    p = round(float(res.get("p", 0)), 1)
+    f = round(float(res.get("f", 0)), 1)
+    c = round(float(res.get("c", 0)), 1)
+
+    # Локализация меток
+    ln = _normalize_lang(lang_code)
+    labels = {
+        "ru": ("Б", "Ж", "У"),
+        "uk": ("Б", "Ж", "В"),
+        "en": ("P", "F", "C"),
+    }
+    lp, lf, lc = labels.get(ln, labels["ru"])
+
+    return f"🔥 {kcal} ккал  |  🥩 {lp}: {p}  🥑 {lf}: {f}  🍞 {lc}: {c}"
+
+
+def _human_confidence(conf: float, lang: str) -> str:
+    if conf >= 0.85:
+        return _tr(lang, "Высокая точность", "Висока точність", "High accuracy")
+    if conf >= 0.60:
+        return _tr(lang, "Примерная оценка", "Приблизна оцінка", "Approximate")
+    return _tr(lang, "Низкая точность", "Низька точність", "Low accuracy")
 
 
 def _is_water_only(text: str) -> bool:
@@ -219,37 +233,18 @@ def _format_photo_details(lang_code: str, res: Dict[str, Any]) -> str:
 
     parts = []
     if title:
-        parts.append(_tr(lang_code, f"Блюдо: {title}", f"Страва: {title}", f"Dish: {title}"))
+        parts.append(_tr(lang_code, f"🍽 Блюдо: {title}", f"🍽 Страва: {title}", f"🍽 Dish: {title}"))
     if ingredients_list:
         joined = ", ".join(ingredients_list[:12])
-        parts.append(
-            _tr(
-                lang_code,
-                f"Состав: {joined}",
-                f"Склад: {joined}",
-                f"Ingredients: {joined}",
-            )
-        )
+        lbl = _tr(lang_code, "Состав", "Склад", "Ingredients")
+        parts.append(f"🥗 {lbl}: {joined}")
     if portion:
-        parts.append(
-            _tr(
-                lang_code,
-                f"Порция: {portion}",
-                f"Порція: {portion}",
-                f"Portion: {portion}",
-            )
-        )
+        lbl = _tr(lang_code, "Порция", "Порція", "Portion")
+        parts.append(f"⚖️ {lbl}: {portion}")
     if assumptions_list:
-        # 1-2 пункта максимум, чтобы карточку не ломать
         joined = "; ".join(assumptions_list[:2])
-        parts.append(
-            _tr(
-                lang_code,
-                f"Допущения: {joined}",
-                f"Припущення: {joined}",
-                f"Assumptions: {joined}",
-            )
-        )
+        lbl = _tr(lang_code, "Допущения", "Припущення", "Assumptions")
+        parts.append(f"🔍 {lbl}: {joined}")
 
     return "\n".join(parts).strip()
 
@@ -420,30 +415,15 @@ def _looks_like_food(text: Optional[str]) -> bool:
 
 
 def _add_confidence(out: str, conf: float | None, lang_code: str = "ru") -> str:
-    try:
-        c = float(conf or 0)
-    except Exception:
-        c = 0.0
-    if c <= 0:
-        return out
-
-    pct = int(round(c * 100))
-    title = _tr(lang_code, "Уверенность", "Впевненість", "Confidence")
-    out += f"\n{title}: {pct}%"
-
-    if c < 0.65:
-        out += "\n" + _tr(
-            lang_code,
-            "⚠️ Если уточнишь граммовку/порцию — пересчитаю точнее.",
-            "⚠️ Якщо уточниш грамівку/порцію — перерахую точніше.",
-            "⚠️ If you clarify grams/portion — I’ll recalc more accurately.",
-        )
+    # Метод оставлен для совместимости, но логика вынесена в человеческий форматтер
     return out
 
 
-def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_w: int):
+def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont | ImageFont.FreeTypeFont, max_w: int):
     lines = []
-    for paragraph in (text or "").split("\n"):
+    # Чистим от тегов перед рендером
+    clean_text = text.replace("<b>", "").replace("</b>", "")
+    for paragraph in clean_text.split("\n"):
         if not paragraph.strip():
             lines.append("")
             continue
@@ -465,20 +445,27 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFon
 def render_text_card(text: str) -> bytes:
     W, H = 1080, 620
     PAD = 54
-    bg = Image.new("RGB", (W, H), (15, 18, 22))
+    bg = Image.new("RGB", (W, H), (20, 24, 28))
     draw = ImageDraw.Draw(bg)
 
-    font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52)
-    font_body = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+    try:
+        font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 52)
+        font_body = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 38)
+    except Exception:
+        font_title = ImageFont.load_default()
+        font_body = ImageFont.load_default()
 
-    draw.text((PAD, 40), "Калории", font=font_title, fill=(255, 255, 255))
+    draw.text((PAD, 40), "Nutrition AI", font=font_title, fill=(255, 255, 255))
 
     max_w = W - PAD * 2
     lines = _wrap_text(draw, text, font_body, max_w)
     y = 40 + 86
     for ln in lines[:11]:
-        draw.text((PAD, y), ln, font=font_body, fill=(220, 230, 240))
-        y += 46
+        color = (220, 230, 240)
+        if "🔥" in ln:
+            color = (255, 215, 0)
+        draw.text((PAD, y), ln, font=font_body, fill=color)
+        y += 50
 
     buf = BytesIO()
     bg.save(buf, format="JPEG", quality=92, optimize=True)
@@ -488,30 +475,42 @@ def render_text_card(text: str) -> bytes:
 def render_result_card(photo_bytes: bytes, text: str) -> bytes:
     W = 1080
     PAD = 48
-    PANEL_H = 520
+    PANEL_MIN_H = 480
 
     img = Image.open(BytesIO(photo_bytes)).convert("RGB")
     scale = W / img.width
     new_h = int(img.height * scale)
-    img = img.resize((W, new_h))
+    if new_h > 1200:
+        new_h = 1200
+        img = img.resize((W, new_h))
+    else:
+        img = img.resize((W, new_h))
 
-    out = Image.new("RGB", (W, new_h + PANEL_H), (15, 18, 22))
+    try:
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        if not os.path.exists(font_path):
+            font_path = "arial.ttf"
+        font_body = ImageFont.truetype(font_path, 36)
+    except Exception:
+        font_body = ImageFont.load_default()
+
+    dummy = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+    lines = _wrap_text(dummy, text, font_body, W - PAD * 2)
+
+    text_h = len(lines) * 52 + 100
+    panel_h = max(PANEL_MIN_H, text_h)
+
+    out = Image.new("RGB", (W, new_h + panel_h), (20, 24, 28))
     out.paste(img, (0, 0))
 
     draw = ImageDraw.Draw(out)
-    draw.rectangle([0, new_h, W, new_h + PANEL_H], fill=(15, 18, 22))
-
-    font_title = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 48)
-    font_body = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
-
-    draw.text((PAD, new_h + 28), "Расчёт калорий", font=font_title, fill=(255, 255, 255))
-
-    max_w = W - PAD * 2
-    lines = _wrap_text(draw, text, font_body, max_w)
-    y = new_h + 28 + 72
-    for ln in lines[:12]:
-        draw.text((PAD, y), ln, font=font_body, fill=(220, 230, 240))
-        y += 46
+    y = new_h + 40
+    for ln in lines:
+        color = (230, 230, 230)
+        if "🔥" in ln or "kcal" in ln:
+            color = (255, 215, 0)
+        draw.text((PAD, y), ln, font=font_body, fill=color)
+        y += 52
 
     buf = BytesIO()
     out.save(buf, format="JPEG", quality=92, optimize=True)
@@ -521,81 +520,86 @@ def render_result_card(photo_bytes: bytes, text: str) -> bytes:
 # -------------------- analyze text --------------------
 
 
-async def analyze_text(text: str) -> Dict[str, float]:
+async def analyze_text(text: str, lang_code: str = "ru") -> Dict[str, Any]:
     """
-    1) Пробуем Api Ninjas, если задан ключ.
-    2) Если не удалось — считаем грубо по FALLBACK.
-    + confidence (0..1)
+    1) Ninjas API (если есть ключ).
+    2) Локальная база (FALLBACK) + Регулярки.
+    3) OpenAI (GPT-4o-mini) — для сложных блюд ("борщ", "шаурма", "пюрешка с котлеткой").
     """
+    # ---------------------------------------------------------
+    # 1. API NINJAS (Оставляем как было)
+    # ---------------------------------------------------------
     key = os.getenv("NINJAS_API_KEY") or os.getenv("NUTRITION_API_KEY")
-    if key:
+    # Ninjas понимает только английский, поэтому используем его аккуратно
+    # Если хочешь, можно вообще убрать этот блок, если GPT справляется лучше.
+    if key and re.match(r"^[a-zA-Z0-9\s]+$", text):  # Простая проверка на латиницу
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(
                     "https://api.api-ninjas.com/v1/nutrition",
                     params={"query": text},
                     headers={"X-Api-Key": key},
                 )
-                resp.raise_for_status()
-                items = resp.json()
-                if isinstance(items, list) and items:
-                    kcal = sum(float(i.get("calories", 0) or 0) for i in items)
-                    p = sum(float(i.get("protein_g", 0) or 0) for i in items)
-                    f = sum(float(i.get("fat_total_g", 0) or 0) for i in items)
-                    c = sum(float(i.get("carbohydrates_total_g", 0) or 0) for i in items)
-
-                    confidence = 0.85
-                    return {
-                        "kcal": round(kcal),
-                        "p": round(p, 1),
-                        "f": round(f, 1),
-                        "c": round(c, 1),
-                        "confidence": confidence,
-                    }
+                if resp.status_code == 200:
+                    items = resp.json()
+                    if isinstance(items, list) and items:
+                        kcal = sum(float(i.get("calories", 0) or 0) for i in items)
+                        p = sum(float(i.get("protein_g", 0) or 0) for i in items)
+                        f = sum(float(i.get("fat_total_g", 0) or 0) for i in items)
+                        c = sum(float(i.get("carbohydrates_total_g", 0) or 0) for i in items)
+                        return {
+                            "kcal": round(kcal),
+                            "p": round(p, 1),
+                            "f": round(f, 1),
+                            "c": round(c, 1),
+                            "confidence": 0.90,
+                            "title": text,  # Ninjas не возвращает название на русском
+                        }
         except Exception:
             pass
 
+    # ---------------------------------------------------------
+    # 2. ЛОКАЛЬНЫЙ ПОИСК (Твоя база + Регулярки)
+    # ---------------------------------------------------------
     if _is_water_only(text):
         return _zero_ok_result(0.95)
 
     low = (text or "").lower()
 
-    # --- normalize glued units: "1л" -> "1 л", "500мл" -> "500 мл"
+    # Нормализация (твоя логика)
     low = re.sub(r"(\d)(л|l|мл|ml)\b", r"\1 \2", low)
-
-    # --- normalize cola words to match FALLBACK keys
-    # "cola" -> "coke" (у тебя есть coke/coca/pepsi/кола)
     low = re.sub(r"\bcola\b", "coke", low)
-
-    # --- normalize RU cola declensions: колы/колу/колой -> кола
     low = re.sub(r"\bкол(?:а|ы|у|е|ой|ою)\b", "кола", low)
+
     is_dry_buckwheat = False
-    # если явно пишут "сух" или "крупа" — считаем как сухую
     if ("греч" in low or "buckwheat" in low) and ("сух" in low or "крупа" in low):
         low = re.sub(r"гречк\w*", "гречк_сух", low)
         is_dry_buckwheat = True
 
     piece_hint = _try_piece_guess(text)
     grams_info: list[tuple[float, Dict[str, float]]] = []
-    # rough bowls/cups for some foods (very approximate)
+
+    # Твоя логика поиска "миска корма"
     if "миска" in low and ("корм" in low or "catfood" in low) and not re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low):
         meta = FALLBACK.get("корм")
         if meta:
-            grams_info.append((60.0, meta))  # ~60g dry cat food
+            # Возвращаем сразу, если нашли специфичный кейс
             return {
                 "kcal": round(meta["kcal"] * 0.60),
                 "p": round(meta["p"] * 0.60, 1),
                 "f": round(meta["f"] * 0.60, 1),
                 "c": round(meta["c"] * 0.60, 1),
                 "confidence": 0.45,
+                "title": "Корм (миска)",
             }
 
+    # Твоя логика поиска по штукам
     if piece_hint and not re.search(r"\d+\s*(г|гр|g|мл|ml)\b", low):
         k, g = piece_hint
         if k in FALLBACK:
             grams_info.append((float(g), FALLBACK[k]))
 
-    # если распознали 'шт' режим — считаем только по нему (чтобы не было двойного подсчёта)
+    # Если нашли по штукам — возвращаем результат
     if piece_hint and grams_info:
         kcal = p = f = c = 0.0
         for g, meta in grams_info:
@@ -609,76 +613,132 @@ async def analyze_text(text: str) -> Dict[str, float]:
             "p": round(p, 1),
             "f": round(f, 1),
             "c": round(c, 1),
-            "confidence": 0.60,
+            "confidence": 0.70,
+            "title": piece_hint[0].capitalize(),
         }
 
+    # Твоя логика поиска по граммам
     num = r"(\d+(?:[.,]\d+)?)"
     unit_re = r"(г|g|гр|ml|мл|л|l)"
 
     for name, meta in FALLBACK.items():
         if is_dry_buckwheat and name == "гречк":
             continue
+
         safe_name = re.escape(name)
+        # Паттерн: "200 г риса"
         pattern = rf"{num}\s*{unit_re}\s*{safe_name}\w*"
-        # reverse pattern: "пшеничная каша 300 г", "cola 0.5 l"
-        unit_re_rev = r"(г|g|гр)"
-        if name in REV_DRINK_KEYS:
-            unit_re_rev = r"(г|g|гр|мл|ml|л|l)"
+        # Паттерн: "рис 200 г"
+        unit_re_rev = r"(г|g|гр|мл|ml|л|l)" if name in REV_DRINK_KEYS else r"(г|g|гр)"
         pattern_rev = rf"{safe_name}\w*(?:\s+[а-яёa-z]+){{0,3}}\s*{num}\s*{unit_re_rev}\b"
+
+        # Прямой поиск
         for m in re.finditer(pattern, low):
-            qty_raw = m.group(1).replace(",", ".")
             try:
-                qty = float(qty_raw)
+                qty = float(m.group(1).replace(",", "."))
+                unit = (m.group(2) or "").lower()
+                g = qty * 1000.0 if unit in ("л", "l") else qty
+                grams_info.append((float(g), meta))
             except ValueError:
                 continue
 
-            unit = (m.group(2) or "").lower()
-            g = qty
-            if unit in ("л", "l"):
-                g = qty * 1000.0  # литры -> мл (и далее 1:1 к граммам)
-            grams_info.append((float(g), meta))
-
+        # Обратный поиск
         for m in re.finditer(pattern_rev, low):
-            qty_raw = m.group(1).replace(",", ".")
             try:
-                qty = float(qty_raw)
+                qty = float(m.group(1).replace(",", "."))
+                unit = (m.group(2) or "").lower()
+                g = qty * 1000.0 if unit in ("л", "l") else qty
+                grams_info.append((float(g), meta))
             except ValueError:
                 continue
-            unit = (m.group(2) or "").lower()
-            g = qty
-            if unit in ("л", "l"):
-                g = qty * 1000.0
-            grams_info.append((float(g), meta))
 
-        # не добавляем "дефолт-порцию", если уже был распознан режим "шт"
-        if (not piece_hint) and name in PIECE_GRAMS and name in low and not re.search(pattern, low):
+        # Дефолт порция (если не нашли вес, но нашли слово из базы PIECE_GRAMS)
+        if (
+            (not piece_hint)
+            and name in PIECE_GRAMS
+            and name in low
+            and not re.search(pattern, low)
+            and not re.search(pattern_rev, low)
+        ):
             grams_info.append((float(PIECE_GRAMS[name]), meta))
 
-    kcal = p = f = c = 0.0
-    for g, meta in grams_info:
-        factor = g / 100.0
-        kcal += meta["kcal"] * factor
-        p += meta["p"] * factor
-        f += meta["f"] * factor
-        c += meta["c"] * factor
+    # Считаем результат локального поиска
+    if grams_info:
+        kcal = p = f = c = 0.0
+        for g, meta in grams_info:
+            factor = g / 100.0
+            kcal += meta["kcal"] * factor
+            p += meta["p"] * factor
+            f += meta["f"] * factor
+            c += meta["c"] * factor
 
-    has_explicit_grams = bool(re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low))
-    if has_explicit_grams:
-        confidence = 0.95 if re.search(r"\d+(?:[.,]\d+)?\s*(мл|ml|л|l)\b", low) else 0.90
-    elif piece_hint:
-        confidence = 0.60
-    elif grams_info:
-        confidence = 0.70
-    else:
-        confidence = 0.0
+        has_explicit_grams = bool(re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low))
+        confidence = 0.95 if has_explicit_grams else 0.70
 
-    return {
-        "kcal": round(kcal),
-        "p": round(p, 1),
-        "f": round(f, 1),
-        "c": round(c, 1),
-        "confidence": confidence,
-    }
+        return {
+            "kcal": round(kcal),
+            "p": round(p, 1),
+            "f": round(f, 1),
+            "c": round(c, 1),
+            "confidence": confidence,
+            # Можно попытаться угадать название из найденного, но оставим пустым, форматтер разберется
+        }
+
+    # ---------------------------------------------------------
+    # 3. OPENAI "SMART TRACK" (Если локально не нашли)
+    # ---------------------------------------------------------
+    # Если мы здесь, значит локальная база не справилась.
+    # Зовем GPT-4o-mini, чтобы он понял что такое "шаурма" или "борщ со сметаной"
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {"kcal": 0, "p": 0, "f": 0, "c": 0, "confidence": 0.0}
+
+    lang_name = "Russian"
+    if lang_code == "uk":
+        lang_name = "Ukrainian"
+    if lang_code == "en":
+        lang_name = "English"
+
+    prompt = (
+        f"Act as a professional nutritionist. Analyze this food text in {lang_name}: '{text}'. "
+        "Calculate approximate total calories (kcal), proteins (p), fats (f), and carbohydrates (c). "
+        "If the portion size is not specified, assume a standard average serving size for an adult. "
+        "Return ONLY a valid JSON object with keys: kcal (number), p (number), f (number), c (number), "
+        "title (string, short summary of the food in the target language), and confidence (number 0.0-1.0). "
+        f"Ensure all text fields are in {lang_name}."
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            r = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": "gpt-4o-mini",  # Дешевый и быстрый
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": {"type": "json_object"},
+                    "max_tokens": 200,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+            content = data["choices"][0]["message"]["content"]
+            result = json.loads(content)
+
+            # Валидация ответа
+            return {
+                "kcal": float(result.get("kcal", 0)),
+                "p": float(result.get("p", 0)),
+                "f": float(result.get("f", 0)),
+                "c": float(result.get("c", 0)),
+                "confidence": float(result.get("confidence", 0.8)),  # Доверяем AI, если он вернул JSON
+                "title": result.get("title", text),
+            }
+
+    except Exception as e:
+        logging.error(f"Text AI Analysis Error: {e}")
+        return {"kcal": 0, "p": 0, "f": 0, "c": 0, "confidence": 0.0}
 
 
 # -------------------- photo analyze (OpenAI Vision) --------------------
@@ -691,27 +751,18 @@ async def _download_photo_bytes(message: types.Message) -> Optional[bytes]:
     ph = message.photo[-1]
     try:
         f = await message.bot.get_file(ph.file_id)
+        if not f.file_path:
+            return None
+        buf = BytesIO()
+        await message.bot.download_file(f.file_path, destination=buf)
+        return buf.getvalue()
     except Exception:
         return None
 
-    buf = BytesIO()
-    file_path = getattr(f, "file_path", None)
-    if not isinstance(file_path, str) or not file_path:
-        return None
-    try:
-        await message.bot.download_file(file_path, destination=buf)
-    except Exception:
-        return None
 
-    return buf.getvalue()
-
-
-async def analyze_photo(message: types.Message) -> Optional[Dict[str, Any]]:
+async def analyze_photo(message: types.Message, lang_code: str = "ru") -> Optional[Dict[str, Any]]:
     """
-    OpenAI Vision (Responses API):
-    - требуются переменные окружения:
-      OPENAI_API_KEY
-      (опционально) OPENAI_VISION_MODEL, по умолчанию gpt-4.1-mini
+    OpenAI Vision (Responses API) с динамическим языком.
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -725,17 +776,20 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, Any]]:
     b64 = base64.b64encode(img).decode("ascii")
     data_url = f"data:image/jpeg;base64,{b64}"
 
+    lang_name = "Russian"
+    if lang_code == "uk":
+        lang_name = "Ukrainian"
+    if lang_code == "en":
+        lang_name = "English"
+
     prompt = (
-        "Estimate nutrition for the meal on the photo. "
-        "Return ONLY valid JSON (no markdown, no extra text) with fields: "
+        f"Identify the food. Reply in {lang_name}. "
+        "Return ONLY valid JSON (no markdown) with fields: "
         '{"title": string, "ingredients": array, "portion": string, '
         '"kcal": number, "p": number, "f": number, "c": number, '
         '"confidence": number, "assumptions": array}. '
-        "confidence must be between 0 and 1 and reflects how sure you are about portion size and ingredients. "
-        "If unsure, set confidence <= 0.65. "
-        "ingredients: short list of main items (strings). "
-        "portion: short human description (e.g., 'средняя порция', '≈250 г', '8 кусочков'). "
-        "assumptions: 1-3 short notes about what you assumed (sauce type, cheese amount, etc.)."
+        "Estimate total calories. "
+        f"IMPORTANT: All text fields must be in {lang_name}!"
     )
 
     payload = {
@@ -749,7 +803,7 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, Any]]:
                 ],
             }
         ],
-        "max_output_tokens": 200,
+        "max_output_tokens": 350,
     }
 
     try:
@@ -767,7 +821,6 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, Any]]:
 
         txt = j.get("output_text")
         if not txt:
-            # fallback: вытаскиваем текст из output[]
             out = j.get("output") or []
             chunks = []
             for item in out:
@@ -780,6 +833,7 @@ async def analyze_photo(message: types.Message) -> Optional[Dict[str, Any]]:
         if not txt:
             return None
 
+        txt = re.sub(r"```json|```", "", txt).strip()
         m = re.search(r"\{.*\}", txt, re.S)
         if not m:
             return None
@@ -865,9 +919,6 @@ async def cal_cmd(
             )
             return
         out = _format_cal_total(lang_code, res)
-
-        out = _add_confidence(out, float(res.get("confidence", 0) or 0), lang_code)
-
         card = render_text_card(out)
         await message.answer_photo(BufferedInputFile(card, filename="kcal.jpg"))
         return
@@ -878,40 +929,20 @@ async def cal_cmd(
         lang_code,
         """🔥 Калории — быстро и без занудства
 
-✅ Напиши списком, что ты съел/выпил — одним сообщением
+✅ Напиши списком, что ты съел/выпил
 Или отправь фото еды (💎 Премиум)
 
-Я посчитаю: ккал • Б/Ж/У
-
-Примеры:
-• 250 мл молока, банан, 40 г арахиса
-• 200 г курицы, 100 г риса, 1 яблоко
-
-/cancel — выйти из режима""",
+Я посчитаю: ккал • Б/Ж/У""",
         """🔥 Калорії — швидко і без занудства
 
-✅ Напиши списком, що ти з'їв/випив — одним повідомленням
+✅ Напиши списком, що ти з'їв/випив
 Або надішли фото їжі (💎 Преміум)
 
-Я порахую: ккал • Б/Ж/В
-
-Приклади:
-• 250 мл молока, банан, 40 г арахісу
-• 200 г курки, 100 г рису, 1 яблуко
-
-/cancel — вийти з режиму""",
+Я порахую: ккал • Б/Ж/В""",
         """🔥 Calories — fast, no fluff
 
-✅ Send your food/drink list in one message
-Or send a food photo (💎 Premium)
-
-I’ll calculate: kcal • P/F/C
-
-Examples:
-• 250 ml milk, 1 banana, 40 g peanuts
-• 200 g chicken, 100 g rice, 1 apple
-
-/cancel — exit the mode""",
+✅ Send your food list
+Or food photo (💎 Premium)""",
     )
 
     await message.answer(hook, reply_markup=_cal_hook_inline_kb(lang_code))
@@ -932,42 +963,9 @@ async def cal_btn(
 
     hook = _tr(
         lang_code,
-        """🔥 Калории — быстро и без занудства
-
-✅ Напиши списком, что ты съел/выпил — одним сообщением
-Или отправь фото еды (💎 Премиум)
-
-Я посчитаю: ккал • Б/Ж/У
-
-Примеры:
-• 250 мл молока, банан, 40 г арахиса
-• 200 г курицы, 100 г риса, 1 яблоко
-
-/cancel — выйти из режима""",
-        """🔥 Калорії — швидко і без занудства
-
-✅ Напиши списком, що ти з'їв/випив — одним повідомленням
-Або надішли фото їжі (💎 Преміум)
-
-Я порахую: ккал • Б/Ж/В
-
-Приклади:
-• 250 мл молока, банан, 40 г арахісу
-• 200 г курки, 100 г рису, 1 яблуко
-
-/cancel — вийти з режиму""",
-        """🔥 Calories — fast, no fluff
-
-✅ Send your food/drink list in one message
-Or send a food photo (💎 Premium)
-
-I’ll calculate: kcal • P/F/C
-
-Examples:
-• 250 ml milk, 1 banana, 40 g peanuts
-• 200 g chicken, 100 g rice, 1 apple
-
-/cancel — exit the mode""",
+        "Кидай список еды одним сообщением или фото.\nПример: «250 мл молока, банан, 40 г арахиса»",
+        "Кидай список їжі одним повідомленням або фото.\nПриклад: «250 мл молока, банан, 40 г арахісу»",
+        "Send your food list or photo.\nExample: 250ml milk, 1 banana, 40g peanuts",
     )
 
     await message.answer(hook, reply_markup=_cal_hook_inline_kb(lang_code))
@@ -980,7 +978,7 @@ Examples:
 async def cal_enter_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
     await state.set_state(CaloriesFSM.waiting_input)
     await cb.answer()
-    await cb.message.answer("Ок, пиши списком одним сообщением 🙂")
+    await cb.message.answer("✍️")
 
 
 @router.callback_query(F.data == "cal:photo")
@@ -995,7 +993,6 @@ async def cal_photo_cb(
     lang_code = _user_lang(user, lang, tg_lang)
 
     msg = cb.message
-    # Pyright: cb.message может быть InaccessibleMessage
     if msg is None or not isinstance(msg, types.Message):
         await cb.answer()
         return
@@ -1006,7 +1003,7 @@ async def cal_photo_cb(
 
     await state.set_state(CaloriesFSM.waiting_photo)
     await cb.answer()
-    await cb.message.answer("Кидай фото еды 📸")
+    await cb.message.answer("📸")
 
 
 # -------------------- cancel --------------------
@@ -1068,9 +1065,6 @@ async def cal_text_in_mode(
         )
         return
     out = _format_cal_total(lang_code, res)
-
-    out = _add_confidence(out, float(res.get("confidence", 0) or 0), lang_code)
-
     await message.answer(out)
 
 
@@ -1092,24 +1086,29 @@ async def cal_photo_waiting(
     if not ok:
         return
 
-    res = await analyze_photo(message)
+    wait_msg = await message.answer("⏳ ...")
+    res = await analyze_photo(message, lang_code=lang_code)
+    await wait_msg.delete()
+
     if not res:
-        await message.answer("Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON.")
+        await message.answer("Не удалось распознать еду.")
         return
 
     conf = float(res.get("confidence", 0) or 0)
     details = _format_photo_details(lang_code, res)
-    out = _format_cal_total(lang_code, res)
-    if details:
-        out = details + "\n" + out
-    out = _add_confidence(out, conf, lang_code)
+    total_line = _format_cal_total(lang_code, res)
+    conf_str = _human_confidence(conf, lang_code)
+
+    card_text = f"{details}\n\n{total_line}\n\n🎯 {conf_str}".replace("<b>", "").replace("</b>", "")
 
     img_bytes = await _download_photo_bytes(message)
     if img_bytes:
-        card = render_result_card(img_bytes, out)
-        await message.answer_photo(BufferedInputFile(card, filename="calories.jpg"))
+        card = render_result_card(img_bytes, card_text)
+        await message.answer_photo(
+            BufferedInputFile(card, filename="calories.jpg"), caption=f"{details}\n\n{total_line}", parse_mode="HTML"
+        )
     else:
-        await message.answer(out)
+        await message.answer(f"{details}\n\n{total_line}")
     await state.set_state(CaloriesFSM.waiting_input)
 
 
@@ -1131,15 +1130,8 @@ async def cal_text_free_autodetect(message: types.Message, session: AsyncSession
 
     res = await analyze_text(text)
     if _kcal_is_invalid(res):
-        await message.answer(
-            "Не смог нормально посчитать. Укажи граммы/начинку, например: "
-            "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
-        )
         return
     out = _format_cal_total(lang_code, res)
-
-    out = _add_confidence(out, float(res.get("confidence", 0) or 0), lang_code)
-
     await message.answer(out)
 
 
@@ -1154,8 +1146,8 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
 
     low = caption.lower()
     is_cmd = low.startswith(("/calories", "/kcal"))
-    is_food_caption = _looks_like_food(caption)
-    if not (is_cmd or is_food_caption):
+    is_trigger = any(x in low for x in ("кал", "кбжу", "cal"))
+    if not (is_cmd or is_trigger):
         return
 
     tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
@@ -1166,43 +1158,27 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
     if not ok:
         return
 
-    # если подпись с едой — считаем по подписи; иначе — по фото
-    payload_text = _strip_cmd_prefix(caption) if is_cmd else caption
-    payload_text = payload_text.strip()
+    wait_msg = await message.answer("⏳ ...")
+    res = await analyze_photo(message, lang_code=lang_code)
+    await wait_msg.delete()
 
-    if payload_text and _looks_like_food(payload_text):
-        res = await analyze_text(payload_text)
-        if _kcal_is_invalid(res):
-            await message.answer(
-                "Не смог нормально посчитать. Укажи граммы/начинку, например: "
-                "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
-            )
-            return
-        out = _format_cal_total(lang_code, res)
-
-        out = _add_confidence(out, float(res.get("confidence", 0) or 0), lang_code)
-
-        await message.answer(out)
+    if not res:
+        await message.answer("Не удалось распознать еду.")
         return
 
-    res2 = await analyze_photo(message)
-    if not res2:
-        await message.answer("Фото-анализ не настроен (нужен OPENAI_API_KEY) или OpenAI Vision не вернул JSON.")
-        return
+    conf = float(res.get("confidence", 0) or 0)
+    details = _format_photo_details(lang_code, res)
+    total_line = _format_cal_total(lang_code, res)
+    conf_str = _human_confidence(conf, lang_code)
 
-    conf = float(res2.get("confidence", 0) or 0)
-    details = _format_photo_details(lang_code, res2)
-    out = _format_cal_total(lang_code, res2)
-    if details:
-        out = details + "\n" + out
-    out = _add_confidence(out, conf, lang_code)
+    card_text = f"{details}\n\n{total_line}\n\n🎯 {conf_str}".replace("<b>", "").replace("</b>", "")
 
     img_bytes = await _download_photo_bytes(message)
     if img_bytes:
-        card = render_result_card(img_bytes, out)
+        card = render_result_card(img_bytes, card_text)
         await message.answer_photo(BufferedInputFile(card, filename="calories.jpg"))
     else:
-        await message.answer(out)
+        await message.answer(f"{details}\n\n{total_line}")
 
 
 __all__ = ["router"]
