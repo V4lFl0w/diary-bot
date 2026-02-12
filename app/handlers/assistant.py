@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from aiogram import F, Router
+from aiogram.filters import StateFilter
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -85,7 +86,6 @@ async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMCon
     except Exception:
         pass
 
-
     # allow assistant's own callbacks to be handled by assistant handlers
     if data.startswith(("assistant_", "assistant:", "assistant_pick:", "media:")):
         return
@@ -93,7 +93,6 @@ async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMCon
     # everything else (Menu/Journal/Settings/Media/etc) must pass through
     await state.clear()
     raise SkipHandler
-
 
 
 @router.callback_query(F.data.startswith("media:"))
@@ -115,6 +114,8 @@ async def _media_callback_fallback(cb: CallbackQuery, state: FSMContext) -> None
             await cb.answer()
         except Exception:
             pass
+
+
 # ===== media poster extraction (optional) =====
 
 _POSTER_RE = re.compile(r"(?m)^\s*🖼\s+(https?://\S+)\s*$")
@@ -401,7 +402,6 @@ async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) 
 # =============== EXIT ===============
 
 
-
 @router.callback_query(F.data.func(is_root_assistant_btn))
 async def assistant_entry_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     """Entry to assistant via INLINE кнопки (callback_data)."""
@@ -446,11 +446,11 @@ async def assistant_entry_cb(cb: CallbackQuery, state: FSMContext, session: Asyn
 
     await state.set_state(AssistantFSM.waiting_question)
     await m.answer(
-        "🤖 Режим помощника включён."
-        "Можешь писать текст или отправить фото."
-        "Чтобы выйти — напиши «стоп» или /cancel.",
+        "🤖 Режим помощника включён.Можешь писать текст или отправить фото.Чтобы выйти — напиши «стоп» или /cancel.",
         reply_markup=get_main_kb(lang, is_premium=True, is_admin=is_admin),
     )
+
+
 @router.message(AssistantFSM.waiting_question, F.text.casefold().in_(("стоп", "stop", "/cancel")))
 async def assistant_exit(m: Message, state: FSMContext, session: AsyncSession) -> None:
     if not m.from_user:
@@ -570,8 +570,7 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
     AssistantFSM.waiting_question,
     F.text & ~F.photo & ~F.text.func(_is_menu_click) & ~F.text.startswith("/"),
 )
-
-@router.message()
+@router.message(StateFilter(None))
 async def _assistant_media_fallback_message(message: Message, state: FSMContext, session: AsyncSession) -> None:
     """
     Safety net so media / assistant messages are not 'unhandled' when FSM state is empty.
@@ -640,6 +639,7 @@ async def _assistant_media_fallback_message(message: Message, state: FSMContext,
         return
 
     await message.answer(str(reply))
+
 
 async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession) -> None:
     if not m.from_user:
