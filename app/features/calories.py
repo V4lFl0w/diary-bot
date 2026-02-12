@@ -983,9 +983,42 @@ async def cal_btn(
 
     hook = _tr(
         lang_code,
-        "Кидай список еды одним сообщением или фото.\nПример: «250 мл молока, банан, 40 г арахиса»",
-        "Кидай список їжі одним повідомленням або фото.\nПриклад: «250 мл молока, банан, 40 г арахісу»",
-        "Send your food list or photo.\nExample: 250ml milk, 1 banana, 40g peanuts",
+        """🔥 Калории — быстро и без занудства
+
+✅ Напиши списком, что ты съел/выпил — одним сообщением
+Или отправь фото еды (💎 Премиум)
+
+Я посчитаю: ккал • Б/Ж/У
+
+Примеры:
+• 250 мл молока, банан, 40 г арахиса
+• 200 г курицы, 100 г риса, 1 яблоко
+
+/cancel — выйти из режима""",
+        """🔥 Калорії — швидко і без занудства
+
+✅ Напиши списком, що ти з'їв/випив — одним повідомленням
+Або надішли фото їжі (💎 Преміум)
+
+Я порахую: ккал • Б/Ж/В
+
+Приклади:
+• 250 мл молока, банан, 40 г арахісу
+• 200 г курки, 100 г рису, 1 яблуко
+
+/cancel — вийти з режиму""",
+        """🔥 Calories — fast, no fluff
+
+✅ Send your food list in one message
+Or food photo (💎 Premium)
+
+I'll calculate: kcal • P/F/C
+
+Examples:
+• 250ml milk, 1 banana, 40g peanuts
+• 200g chicken, 100g rice, 1 apple
+
+/cancel — exit""",
     )
 
     await message.answer(hook, reply_markup=_cal_hook_inline_kb(lang_code))
@@ -1086,6 +1119,49 @@ async def cal_text_in_mode(
         return
     out = _format_cal_total(lang_code, res)
     await message.answer(out)
+
+
+@router.message(CaloriesFSM.waiting_input, F.photo)
+async def cal_photo_in_input_mode(
+    message: types.Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
+    tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
+    user = await _get_user(session, message.from_user.id)
+    lang_code = _user_lang(user, lang, tg_lang)
+
+    ok = await _require_photo_premium(message, session, user, lang_code, source="waiting_input_photo")
+    if not ok:
+        # Важно: остаёмся в waiting_input, чтобы текстом можно было продолжать
+        return
+
+    wait_msg = await message.answer("⏳ ...")
+    res = await analyze_photo(message, lang_code=lang_code)
+    await wait_msg.delete()
+
+    if not res:
+        await message.answer("Не удалось распознать еду.")
+        return
+
+    conf = float(res.get("confidence", 0) or 0)
+    details = _format_photo_details(lang_code, res)
+    total_line = _format_cal_total(lang_code, res)
+    conf_str = _human_confidence(conf, lang_code)
+
+    card_text = f"{details}\n\n{total_line}\n\n🎯 {conf_str}".replace("<b>", "").replace("</b>", "")
+
+    img_bytes = await _download_photo_bytes(message)
+    if img_bytes:
+        card = render_result_card(img_bytes, card_text)
+        await message.answer_photo(
+            BufferedInputFile(card, filename="calories.jpg"),
+            caption=f"{details}\n\n{total_line}",
+            parse_mode="HTML",
+        )
+    else:
+        await message.answer(f"{details}\n\n{total_line}")
 
 
 # -------------------- MODE: waiting_photo --------------------
