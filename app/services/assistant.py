@@ -691,6 +691,12 @@ async def run_assistant(
         intent = getattr(intent_res, "intent", None) or intent_res
         is_intent_media = intent in (Intent.MEDIA_IMAGE, Intent.MEDIA_TEXT)
 
+
+    # Guard: intent_router can be noisy. If there is no media, no sticky mode and the text doesn't look like a media query,
+    # do NOT enter media pipeline.
+    if is_intent_media and (not has_media) and (not sticky_media_db) and (not st) and (not _is_media_query(text or "")):
+        is_intent_media = False
+        intent = None
     # 3. СБРОС СЕССИИ (только если это не медиа и не навигация)
     if not is_intent_media and not is_nav:
         if uid:
