@@ -44,6 +44,7 @@ from app.handlers import premium_bridge_v2
 from app.handlers import premium_webapp
 from app.handlers.proactive_checkin import router as proactive_checkin_router
 from app.handlers import media_nav  # или прямой импорт пути, как у тебя принято
+from app.handlers.kb import router as kb_router
 from app.logging_setup import setup_logging
 from app.middlewares.ban import BanMiddleware
 from app.middlewares.last_seen import LastSeenMiddleware
@@ -383,6 +384,7 @@ def build_dispatcher() -> Dispatcher:
 
     dp.include_router(motivation.router)
     dp.include_router(media_nav.router)
+    dp.include_router(kb_router)
 
     if meditation_router is not None:
         dp.include_router(meditation_router)
