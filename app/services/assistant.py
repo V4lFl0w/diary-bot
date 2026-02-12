@@ -67,9 +67,8 @@ from app.services.media.vision_parse import (
     _extract_title_like_from_model_text,
 )
 
+
 # --- Logging & Tracing Wrappers ---
-
-
 async def _send_dbg(logger, kind: str, fn, *args, **kwargs):
     """Обертка для отправки сообщений: логирует наличие клавиатуры/markup и текст (коротко)."""
     if _TRACE_ON:
@@ -175,6 +174,24 @@ _TMDB_STOPWORDS = {
     "fence",
 }
 
+_LENS_BLOCKLIST = {
+    "movie reviews",
+    "full episode",
+    "youtube",
+    "tiktok",
+    "instagram",
+    "video",
+    "clip",
+    "scene",
+    "4k",
+    "1080p",
+    "hd",
+    "watch online",
+    "trailer",
+    "official trailer",
+    "teaser",
+}
+
 
 def _tmdb_clean_user_text(text: str) -> str:
     if not text:
@@ -228,31 +245,51 @@ def _tmdb_is_refinement(text: str) -> bool:
     return any(w in t for w in hint_words)
 
 
-def _tmdb_is_worthy_cand(q: str) -> bool:
-    if not q:
-        return False
-    qn = q.lower().strip()
-    if len(qn) < 3:
-        return False
-    if " " not in qn and qn in _TMDB_STOPWORDS:
-        return False
-    toks = [t for t in re.split(r"[\s,.;:!?()\[\]{}\"'«»]+", qn) if t]
-    if toks and sum(1 for t in toks if t in _TMDB_STOPWORDS) / max(1, len(toks)) > 0.6:
-        return False
-    return True
-
-
 def _is_garbage_query(q: str) -> bool:
-    """Фильтр для мусорных запросов от Lens (хэши, имена файлов)."""
+    """Фильтр для мусорных запросов от Lens (хэши, имена файлов, общие слова)."""
     if not q:
         return True
-    q = q.strip()
-    if len(q) < 3:
+    q_lower = q.strip().lower()
+
+    if len(q_lower) < 3:
         return True
-    # Если это одно слово, длинное и без гласных или цифр -> скорее всего мусор
-    if " " not in q and len(q) > 8 and any(c.isdigit() for c in q):
+
+    # Хэши и имена файлов (длинные слова без пробелов с цифрами)
+    if " " not in q_lower and len(q_lower) > 8 and any(c.isdigit() for c in q_lower):
         return True
+
+    # Блок-лист общих слов
+    if q_lower in _LENS_BLOCKLIST:
+        return True
+
     return False
+
+
+def _smart_clean_lens_candidate(text: str) -> str:
+    """Умная очистка мусора от Lens: эмодзи, кавычки, слова 'Фильм' и т.д."""
+    if not text:
+        return ""
+
+    # 1. Извлекаем текст из кавычек «...» или "...", если есть
+    # Пример: "Перепутал близняшек 😂 🎥 Фильм «Чак и Ларри: Пожарная ...»" -> "Чак и Ларри: Пожарная ..."
+    quotes = re.findall(r"«([^»]+)»", text) or re.findall(r'"([^"]+)"', text)
+    if quotes:
+        # Берем самую длинную цитату, скорее всего это название
+        longest = max(quotes, key=len)
+        if len(longest) > 3:
+            return longest.strip()
+
+    t = text
+    # 2. Убираем "Фильм", "Movie", "Сцена из"
+    t = re.sub(r"(?i)\b(фильм|кино|movie|film|scene from|сцена из)\b", "", t)
+
+    # 3. Убираем эмодзи (грубо, но эффективно: оставляем только буквы, цифры и знаки препинания)
+    # \w - буквы/цифры, \s - пробелы. Все остальное удаляем.
+    # Но нужно оставить кириллицу/латиницу.
+    t = re.sub(r"[^\w\s\-\.,:!?']+", " ", t, flags=re.UNICODE)
+
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
 
 
 # --- External Services Stubs/Imports ---
@@ -641,7 +678,13 @@ async def run_assistant(
     )
 
     if is_media:
-        _d("media.enter", is_media=is_media, sticky_media_db=sticky_media_db, has_st=bool(st), uid=uid)
+        _d(
+            "media.enter",
+            is_media=is_media,
+            sticky_media_db=sticky_media_db,
+            has_st=bool(st),
+            uid=uid,
+        )
         raw_text = (text or "").strip()
 
         try:
@@ -675,7 +718,10 @@ async def run_assistant(
             opts = st.get("items") or []
             if 0 <= idx < len(opts):
                 picked = opts[idx]
-                return _format_media_pick(picked) + "\n\nХочешь — напиши другое название/описание, я поищу ещё."
+                return (
+                    _format_media_pick(picked)
+                    + "\n\nХочешь — напиши другое название/описание, я поищу ещё."
+                )
 
         # 1.5) Asking for title again
         if st and _is_asking_for_title(raw_text):
@@ -1101,7 +1147,15 @@ async def run_assistant_vision(
         tasks.append(_asyncio.sleep(0, result=[]))
 
     # 3. Запрос В (Lens - берем топ-3 кандидата и ищем)
-    lens_queries = _pick_best_lens_candidates(lens_cands, limit=3)
+    # FIX: "Умная" очистка кандидата (выдираем название из кавычек)
+    lens_queries = []
+    if lens_cands:
+        for lc in lens_cands:
+            cleaned = _smart_clean_lens_candidate(lc)
+            if cleaned and cleaned not in lens_queries and not _is_garbage_query(cleaned):
+                lens_queries.append(cleaned)
+        lens_queries = lens_queries[:3]
+
     lens_search_tasks = [_safe_search(lq, limit=3) for lq in lens_queries]
 
     # Собираем все TMDb задачи
