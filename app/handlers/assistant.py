@@ -11,7 +11,7 @@ from aiogram.filters import StateFilter
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,6 +65,20 @@ except Exception:  # pragma: no cover
 
 
 router = Router(name="assistant")
+
+
+def _assistant_tools_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text="🌐 Web", callback_data="assistant:web"),
+        InlineKeyboardButton(text="🎬 Кадр/фото", callback_data="assistant:media"),
+        width=2,
+    )
+    kb.row(
+        InlineKeyboardButton(text="⛔️ Стоп", callback_data="assistant:stop"),
+        width=1,
+    )
+    return kb.as_markup()
 
 
 @router.callback_query(F.data == "media:noop")

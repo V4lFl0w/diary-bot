@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, cast
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, func
 
 # --- Imports from app ---
 from app.models.journal import JournalEntry
@@ -30,9 +30,6 @@ from app.services.media.formatting import (
     _format_media_pick,
     _format_media_ranked,
     build_media_context,
-)
-from app.services.media.lens import (
-    _pick_best_lens_candidates,
 )
 from app.services.media.logging import _d
 from app.services.media.pipeline_tmdb import _tmdb_best_effort
@@ -78,6 +75,7 @@ async def _send_dbg(logger, kind: str, fn, *args, **kwargs):
             if "text" in kwargs and isinstance(kwargs.get("text"), str):
                 txt = kwargs.get("text")[:180]
         except Exception:
+
             pass
         _atrace(
             logger,
@@ -106,6 +104,7 @@ def _atrace(logger, stage: str, **kv):
     try:
         logger.info("[trace] %s | %s | %s", _atrace_id(), stage, kv)
     except Exception:
+
         pass
 
 
@@ -134,6 +133,7 @@ def _atrace_set(tid: str):
     try:
         _trace_id_var.set(tid)
     except Exception:
+
         pass
 
 
@@ -141,6 +141,7 @@ def _dbg_media(logger, tag: str, **kv):
     try:
         logger.info("[media][dbg] %s | %s", tag, kv)
     except Exception:
+
         pass
 
 
@@ -294,10 +295,10 @@ def _smart_clean_lens_candidate(text: str) -> str:
             if match:
                 # Берем то, что ПОСЛЕ якоря: "Сериал Малкольм в центре внимания" -> "Малкольм..."
                 candidate = text_clean[match.end():].strip()
-                # Или то, что ДО якоря, если после - мусор? 
+                # Или то, что ДО якоря, если после - мусор?
                 # Обычно Lens пишет: "Со смыслом... Сериал Малкольм..."
                 # Попробуем взять то, что выглядит как название
-                
+
                 # Чистим результат от "2000 год", "смотреть онлайн"
                 candidate = re.sub(r"\b(19|20)\d{2}\b.*", "", candidate) # Отрезаем год и все что после
                 candidate = re.sub(r"^[^a-zA-Zа-яА-Я0-9]+", "", candidate)
@@ -310,7 +311,7 @@ def _smart_clean_lens_candidate(text: str) -> str:
     candidate = re.sub(r"[\.…]+$", "", candidate)
     # Удаляем эмодзи
     candidate = re.sub(r"[^\w\s\-\.,:!?'()]+", " ", candidate, flags=re.UNICODE)
-    
+
     if ":" in candidate and len(candidate.split()) > 5:
         parts = candidate.split(":")
         if len(parts[0].strip()) > 3:
@@ -377,6 +378,7 @@ def _vision_cache_set(key: str, reply: str) -> None:
         if key and reply:
             _VISION_IMG_CACHE[key] = (_time.time(), reply)
     except Exception:
+
         pass
 
 
@@ -454,6 +456,95 @@ def _user_tz(user: Optional[User]) -> ZoneInfo:
     except Exception:
         return ZoneInfo("UTC")
 
+
+
+
+# ===========================
+# === Quotas / Daily limits ==
+# ===========================
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        v = os.getenv(name)
+        return int(v) if v is not None and str(v).strip() != "" else int(default)
+    except Exception:
+        return int(default)
+
+def _quota_limits_tokens(plan: str, feature: str) -> int:
+    """
+    Daily token limits (sum of total_tokens in llm_usage for last 24h).
+    Can be overridden via env:
+      - ASSISTANT_DAILY_TOKENS_BASIC / PRO
+      - VISION_DAILY_TOKENS_BASIC / PRO
+    """
+    plan_n = (plan or "basic").strip().lower()
+    feat = (feature or "assistant").strip().lower()
+
+    if feat == "vision":
+        if plan_n == "pro":
+            return _env_int("VISION_DAILY_TOKENS_PRO", 120_000)
+        return _env_int("VISION_DAILY_TOKENS_BASIC", 0)  # basic: no photo by design
+    else:
+        if plan_n == "pro":
+            return _env_int("ASSISTANT_DAILY_TOKENS_PRO", 220_000)
+        if plan_n == "basic":
+            return _env_int("ASSISTANT_DAILY_TOKENS_BASIC", 35_000)
+        return _env_int("ASSISTANT_DAILY_TOKENS_FREE", 15_000)
+
+async def _usage_tokens_last_24h(session: Any, user_id: int, feature: str) -> int:
+    if not session or not user_id:
+        return 0
+    try:
+        from app.models.llm_usage import LLMUsage  # local import to avoid circulars
+        since = datetime.utcnow() - timedelta(hours=24)
+        q = select(func.coalesce(func.sum(LLMUsage.total_tokens), 0)).where(
+            LLMUsage.user_id == user_id,
+            LLMUsage.feature == feature,
+            LLMUsage.created_at >= since,
+        )
+        res = await session.execute(q)
+        v = res.scalar_one() if res is not None else 0
+        return int(v or 0)
+    except Exception:
+        return 0
+
+def _quota_msg_ru(feature: str, used: int, limit: int) -> str:
+    feat = "🌐 Web" if (feature == "assistant_web") else ("📷 Фото" if feature == "vision" else "🤖 Ассистент")
+    return (
+        f"⛔️ Лимит на сегодня по режиму {feat} исчерпан.\n"
+        f"Использовано: {used:,} токенов из {limit:,} за последние 24 часа.\n\n"
+        "Попробуй завтра или обнови тариф."
+    )
+
+async def _enforce_quota(
+    *,
+    session: Any,
+    user: Optional[User],
+    plan: str,
+    feature: str,
+) -> Optional[str]:
+    if not user or not getattr(user, "id", None):
+        return None
+
+    # web is PRO-only
+    if feature == "assistant_web" and plan != "pro":
+        return "🌐 Web-разбор доступен только в PRO. Открой Premium и выбери PRO-тариф."
+
+    # map feature -> llm_usage.feature values
+    usage_feature = "assistant" if feature in {"assistant", "assistant_web"} else "vision"
+
+    limit = _quota_limits_tokens(plan, usage_feature)
+    if limit <= 0:
+        # basic vision disabled, etc.
+        if usage_feature == "vision":
+            return "📷 Поиск по фото доступен только в PRO."
+        return None
+
+    used = await _usage_tokens_last_24h(session, int(user.id), usage_feature)
+    if used >= limit:
+        return _quota_msg_ru(feature, used, limit)
+
+    return None
 
 def _assistant_plan(user: Optional[User]) -> str:
     if not user:
@@ -655,6 +746,12 @@ async def run_assistant(
     model = _pick_model()
     plan = _assistant_plan(user)
 
+
+    # quota guard (before any external calls)
+    if session and user:
+        qmsg = await _enforce_quota(session=session, user=user, plan=plan, feature="assistant")
+        if qmsg:
+            return qmsg
     query = ""
     prev_q = ""
     items = []
@@ -664,6 +761,12 @@ async def run_assistant(
     # --- WEB MODE (PRO/MAX): url or "web:" prefix -> build analysis prompt and continue normal assistant flow ---
     t0 = (text or "").strip()
     if t0 and (t0.lower().startswith("web:") or ("http://" in t0) or ("https://" in t0)):
+        # quota guard for web mode
+        if session and user:
+            qmsg = await _enforce_quota(session=session, user=user, plan=plan, feature="assistant_web")
+            if qmsg:
+                return qmsg
+
         q_or_url = t0[4:].strip() if t0.lower().startswith("web:") else t0
         url = extract_first_url(q_or_url) or extract_first_url(t0)
         try:
@@ -704,6 +807,7 @@ async def run_assistant(
                     )
                     raw = (text or "").strip()
         except Exception:
+
             pass
     now = datetime.now(timezone.utc)
     kind_marker = _extract_media_kind_marker(text)
@@ -732,7 +836,7 @@ async def run_assistant(
     if is_nav:
         # Если это навигация, принудительно ставим медиа-интент, чтобы не сбросить сессию
         is_intent_media = True
-        intent = Intent.MEDIA_TEXT 
+        intent = Intent.MEDIA_TEXT
     else:
         intent_res = detect_intent((text or "").strip() if text else None, has_media=bool(has_media))
         intent = getattr(intent_res, "intent", None) or intent_res
@@ -752,13 +856,17 @@ async def run_assistant(
             try:
                 setattr(user, "assistant_mode", None)
                 setattr(user, "assistant_mode_until", now - timedelta(seconds=1))
-                if session: await session.commit()
-            except Exception: pass
+                if session:
+
+                    await session.commit()
+            except Exception:
+
+                pass
 
     # 4. ВХОД В МЕДИА-ЛОГИКУ
     is_media = (
-        bool(has_media) or 
-        bool(is_intent_media) or 
+        bool(has_media) or
+        bool(is_intent_media) or
         (is_nav and bool(st))
     )
 
@@ -779,7 +887,7 @@ async def run_assistant(
         if st and ("другие" in raw_text.lower() or "варианты" in raw_text.lower()):
             opts = st.get("items") or []
             prev_q = st.get("query") or "Результаты поиска"
-            
+
             # Ротация: берем текущие 3, кидаем в конец, показываем следующие 3
             if len(opts) > 3:
                 rotated_opts = opts[3:] + opts[:3]
@@ -824,11 +932,11 @@ async def run_assistant(
 
         # Normalization
         raw = _normalize_tmdb_query(raw)
-        
+
         # Если это просто уточнение (год, актер), клеим к прошлому запросу
         # Если новый запрос — ищем заново.
         prev_q = ((st.get("query") if st else "") or "").strip()
-        
+
         if st and prev_q and raw and (len(raw) <= 140):
             if _tmdb_is_refinement(raw) or len(raw.split()) <= 2:
                 if _looks_like_year_or_hint(raw):
@@ -854,6 +962,7 @@ async def run_assistant(
                     _normalize_tmdb_query(_tmdb_clean_user_text(query or ""))
                 )
         except Exception:
+
             pass
 
         # Stabilize query logic...
@@ -886,6 +995,7 @@ async def run_assistant(
                 if _is_bad_tmdb_candidate(q_n) or (not _mf_is_worthy_tmdb(q_n)):
                     query = prev_q_n
         except Exception:
+
             pass
 
         if is_media:
@@ -894,6 +1004,7 @@ async def run_assistant(
                     setattr(user, "assistant_mode", "media")
                     setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
                     if session:
+
                         await session.commit()
                 return MEDIA_NOT_FOUND_REPLY_RU
 
@@ -929,6 +1040,7 @@ async def run_assistant(
                 if items and raw and _looks_like_freeform_media_query(raw):
                     items = []
             except Exception:
+
                 pass
 
             if not items and query and len(query) > 3:
@@ -964,12 +1076,14 @@ async def run_assistant(
                         cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
                         items = await _try_cands(cands)
                     except Exception:
+
                         pass
 
             if user is not None:
                 setattr(user, "assistant_mode", "media")
                 setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
                 if session:
+
                     await session.commit()
 
             if not items:
@@ -1070,6 +1184,12 @@ async def run_assistant_vision(
     if plan != "pro":
         return "Фото доступно только в PRO (обнови тариф)."
 
+
+    # quota guard for vision
+    if session and user:
+        qmsg = await _enforce_quota(session=session, user=user, plan=plan, feature="vision")
+        if qmsg:
+            return qmsg
     client = AsyncOpenAI(api_key=api_key)
     now = datetime.now(timezone.utc)
 
@@ -1081,6 +1201,7 @@ async def run_assistant_vision(
         if cached:
             return cached
     except Exception:
+
         pass
 
     # --- Подготовка задач (Запуск параллельно Lens и Vision) ---
@@ -1268,7 +1389,7 @@ async def run_assistant_vision(
 
     title_items = raw_results[0] if len(raw_results) > 0 else []
     desc_items = raw_results[1] if len(raw_results) > 1 else []
-    
+
     # Flatten Lens items
     lens_items_flat = []
     if len(raw_results) > 2:
@@ -1308,6 +1429,7 @@ async def run_assistant_vision(
         setattr(user, "assistant_mode", "media")
         setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
         if session:
+
             await session.commit()
 
     uid = _media_uid(user)
