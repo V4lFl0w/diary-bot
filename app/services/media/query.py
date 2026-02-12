@@ -52,16 +52,13 @@ _MEDIA_LEADING_NOISE = (
 )
 
 _MEDIA_NOISE_REGEX = [
-    r"(?i)\bв\s+главных?\s+ролях?\b",  # Ловит: "в главной роли", "в главных ролях"
+    r"(?i)\bв\s+главных?\s+ролях?\b",
     r"(?i)\bглавная\s+роль\b",
-    r"(?i)\bактер(ы|а)?\b",
+    r"(?i)\bактер(ы|а|ом)?\b",
     r"(?i)\bактрисы?\b",
     r"(?i)\bкто\s+играет\b",
     r"(?i)\bснимались?\b",
     r"(?i)\bв\s+ролях\b",
-    r"(?i)\bчто\s+происходит\b",
-    r"(?i)\bв\s+какой\s+серии\b",
-    r"(?i)\bв\s+каком\s+сезоне\b",
 ]
 
 # слова, которые часто встречаются в “заголовках” и не помогают идентификации
@@ -186,29 +183,22 @@ def _extract_hints(text: str) -> MediaHints:
 
 
 def clean_user_text_for_media(text: str) -> str:
-    """
-    Убираем “разговорный мусор”, оставляя смысловые слова.
-    Это НЕ финальный tmdb query, это подготовка.
-    """
     q0 = _norm(text)
-    if not q0:
-        return ""
-
+    if not q0: return ""
     ql = q0.lower()
-
-    # remove canned phrases
+    
+    # Убираем " и " между фамилиями, это критично для TMDb
+    ql = re.sub(r"\bи\b", " ", ql)
+    
     for p in _MEDIA_LEADING_NOISE:
         ql = ql.replace(p, " ")
-
-    # remove noise patterns
     for pat in _MEDIA_NOISE_REGEX:
         ql = re.sub(pat, " ", ql, flags=re.IGNORECASE)
 
-    # keep letters/digits/- and spaces
+    # Убираем точки и лишние знаки в начале/конце
+    ql = re.sub(r"^[^\w\d]+|[^\w\d]+$", "", ql)
     ql = _TRASH_RE.sub(" ", ql)
-    ql = _WS_RE.sub(" ", ql).strip()
-
-    return ql if ql else q0
+    return _WS_RE.sub(" ", ql).strip()
 
 
 def tmdb_query_compact(text: str, *, max_len: int = 60) -> str:

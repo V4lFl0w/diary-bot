@@ -665,7 +665,7 @@ async def run_assistant(
 
     # --- MEDIA state (DB + in-memory fallback) ---
     uid = _media_uid(user)
-    st = _media_get(uid)  # Достаем результаты предыдущего поиска из памяти
+    st = _media_get(uid)
 
     sticky_media_db = False
     if user:
@@ -674,25 +674,27 @@ async def run_assistant(
         if mode == "media" and until and until > now:
             sticky_media_db = True
 
-    # -------------------------------------------------------------------------
-    # FIX: Навигационный страж (Кнопки и выбор цифрой)
-    # -------------------------------------------------------------------------
+    # 1. ПЕРВООЧЕРЕДНАЯ ПРОВЕРКА НАВИГАЦИИ (кнопки или цифры)
     is_nav = False
     if text:
         t_low = text.lower().strip()
-        # Проверяем, нажал ли пользователь на кнопку или ввел цифру
         if any(k in t_low for k in ("другие", "варианты", "еще", "ещё")) or re.fullmatch(r"\d{1,2}", t_low):
             is_nav = True
 
-    # Определяем интент через классификатор
-    intent_res = detect_intent((text or "").strip() if text else None, has_media=bool(has_media))
-    intent = getattr(intent_res, "intent", None) or intent_res
-    is_intent_media = intent in (Intent.MEDIA_IMAGE, Intent.MEDIA_TEXT)
+    # 2. ОПРЕДЕЛЕНИЕ ИНТЕНТА
+    if is_nav:
+        # Если это навигация, принудительно ставим медиа-интент, чтобы не сбросить сессию
+        is_intent_media = True
+        intent = Intent.MEDIA_TEXT 
+    else:
+        intent_res = detect_intent((text or "").strip() if text else None, has_media=bool(has_media))
+        intent = getattr(intent_res, "intent", None) or intent_res
+        is_intent_media = intent in (Intent.MEDIA_IMAGE, Intent.MEDIA_TEXT)
 
-    # Сбрасываем сессию ТОЛЬКО если это не медиа и НЕ навигация (кнопка)
+    # 3. СБРОС СЕССИИ (только если это не медиа и не навигация)
     if not is_intent_media and not is_nav:
         if uid:
-            _MEDIA_SESSIONS.pop(uid, None) # Удаляем старый поиск, чтобы не мешал в обычном чате
+            _MEDIA_SESSIONS.pop(uid, None)
         if user is not None:
             try:
                 setattr(user, "assistant_mode", None)
@@ -700,11 +702,11 @@ async def run_assistant(
                 if session: await session.commit()
             except Exception: pass
 
-    # Принудительно включаем медиа-режим, если нажата кнопка навигации
+    # 4. ВХОД В МЕДИА-ЛОГИКУ
     is_media = (
         bool(has_media) or 
         bool(is_intent_media) or 
-        (is_nav and bool(st)) # Если жмем кнопку и в памяти есть результаты
+        (is_nav and bool(st))
     )
 
     if is_media:

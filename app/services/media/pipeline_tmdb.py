@@ -31,18 +31,14 @@ def _sort_media(items: list[dict], query: str = "") -> list[dict]:
     def score(it: dict) -> float:
         try:
             base_s = float(it.get("popularity") or 0) * 0.8 + float(it.get("vote_average") or 0) * 2.0
-            
-            # БОНУС: Если название (или ориг. название) есть в запросе — поднимаем В ТОП
             q_low = query.lower()
             t_low = (it.get("title") or it.get("name") or "").lower()
-            o_low = (it.get("original_title") or it.get("original_name") or "").lower()
             
-            if q_low and (t_low in q_low or q_low in t_low or o_low in q_low or q_low in o_low):
-                base_s += 100.0  # Радикальный бонус
+            # Если хотя бы одно слово из запроса (например, "Куба") есть в названии
+            if q_low and any(word in t_low for word in q_low.split() if len(word) > 3):
+                base_s += 150.0 # Огромный приоритет
             return base_s
-        except Exception:
-            return 0.0
-
+        except Exception: return 0.0
     return sorted(items or [], key=score, reverse=True)
 
 
