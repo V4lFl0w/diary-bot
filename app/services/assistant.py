@@ -70,7 +70,6 @@ from app.services.media.vision_parse import (
 
 # --- Logging & Tracing Wrappers ---
 async def _send_dbg(logger, kind: str, fn, *args, **kwargs):
-    """Обертка для отправки сообщений: логирует наличие клавиатуры/markup и текст (коротко)."""
     if _TRACE_ON:
         txt = None
         try:
@@ -247,7 +246,7 @@ def _tmdb_is_refinement(text: str) -> bool:
 
 
 def _is_garbage_query(q: str) -> bool:
-    """Фильтр для мусорных запросов от Lens (хэши, имена файлов, общие слова)."""
+    """Фильтр для мусорных запросов от Lens."""
     if not q:
         return True
     q_lower = q.strip().lower()
@@ -255,13 +254,12 @@ def _is_garbage_query(q: str) -> bool:
     if len(q_lower) < 3:
         return True
 
-    # 1. Проверяем наличие "хэшеподобных" слов
-    # Если слово длиннее 6 символов и содержит И буквы И цифры — это мусор (qgbmboc4w1)
+    # Хэши и имена файлов
     for word in q_lower.split():
         if len(word) > 6 and any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
             return True
 
-    # 2. Блок-лист общих слов
+    # Блок-лист
     for block in _LENS_BLOCKLIST:
         if block in q_lower:
             return True
@@ -270,49 +268,47 @@ def _is_garbage_query(q: str) -> bool:
 
 
 def _smart_clean_lens_candidate(text: str) -> str:
-    """
-    АГРЕССИВНАЯ очистка мусора от Lens.
-    Пример: "Перепутал близняшек 😂 🎥 Фильм «Чак и Ларри: Пожарная ...»"
-    Результат: "Чак и Ларри: Пожарная"
-    """
+    """Очистка мусора от Lens (Малькольм в центре внимания, 2000 год...)"""
     if not text:
         return ""
 
-    # 0. Удаляем паттерны юзернеймов (@username)
+    # 0. Удаляем юзернеймы
     text_clean = re.sub(r"\(@[^)]+\)", "", text)
 
-    # 1. Приоритет: Текст в кавычках (ищем даже незакрытые кавычки в конце строки)
-    # «Title» или «Title...
+    # 1. Приоритет: Текст в кавычках
     quotes = re.findall(r"«([^»\n]+)(?:»|$)", text_clean) or re.findall(r'"([^"\n]+)(?:"|$)', text_clean)
     if quotes:
         longest = max(quotes, key=len)
-        # Чистим от троеточий в конце
         cleaned = re.sub(r"[\.…]+$", "", longest).strip()
         if len(cleaned) > 2 and not _is_garbage_query(cleaned):
             return cleaned
 
-    # 2. Поиск по якорям (Фильм, Movie, Watch)
-    # "Перепутал близняшек Фильм Чак и Ларри" -> "Чак и Ларри"
-    anchors = ["фильм", "movie", "film", "сцена из", "scene from", "watch"]
+    # 2. Поиск по якорям (Сериал, Фильм)
+    anchors = ["сериал", "фильм", "movie", "film", "сцена из", "scene from", "watch"]
     lower = text_clean.lower()
     for anchor in anchors:
         if f" {anchor} " in f" {lower} ":
-            # Находим позицию якоря (case insensitive)
             match = re.search(r"(?i)\b" + re.escape(anchor) + r"\b", text_clean)
             if match:
+                # Берем то, что ПОСЛЕ якоря: "Сериал Малкольм в центре внимания" -> "Малкольм..."
                 candidate = text_clean[match.end():].strip()
-                # Удаляем знаки препинания в начале (например "«Title")
+                # Или то, что ДО якоря, если после - мусор? 
+                # Обычно Lens пишет: "Со смыслом... Сериал Малкольм..."
+                # Попробуем взять то, что выглядит как название
+                
+                # Чистим результат от "2000 год", "смотреть онлайн"
+                candidate = re.sub(r"\b(19|20)\d{2}\b.*", "", candidate) # Отрезаем год и все что после
                 candidate = re.sub(r"^[^a-zA-Zа-яА-Я0-9]+", "", candidate)
-                candidate = re.sub(r"[\.…]+$", "", candidate).strip()
                 if len(candidate) > 2 and not _is_garbage_query(candidate):
-                    return candidate
+                    return candidate.strip()
 
-    # 3. Если ничего не помогло, просто чистим мусор
+    # 3. Fallback очистка
     candidate = text_clean
-    candidate = re.sub(r"(?i)\b(фильм|кино|movie|film|scene from|сцена из)\b", "", candidate)
+    candidate = re.sub(r"(?i)\b(сериал|фильм|кино|movie|film|scene from|сцена из)\b", "", candidate)
     candidate = re.sub(r"[\.…]+$", "", candidate)
+    # Удаляем эмодзи
     candidate = re.sub(r"[^\w\s\-\.,:!?'()]+", " ", candidate, flags=re.UNICODE)
-
+    
     if ":" in candidate and len(candidate.split()) > 5:
         parts = candidate.split(":")
         if len(parts[0].strip()) > 3:
@@ -678,22 +674,26 @@ async def run_assistant(
         if mode == "media" and until and until > now:
             sticky_media_db = True
 
+    is_nav = False
+    if text:
+        t_low = text.lower().strip()
+        # Юзер жмет "другие варианты", "ещё", "покажи другие"
+        if any(k in t_low for k in ("другие", "варианты", "еще", "ещё")):
+            is_nav = True
+        # Юзер пишет цифру (выбор)
+        if _looks_like_choice(text):
+            is_nav = True
+
     intent_res = detect_intent((text or "").strip() if text else None, has_media=bool(has_media))
     intent = getattr(intent_res, "intent", None) or intent_res
     is_intent_media = intent in (Intent.MEDIA_IMAGE, Intent.MEDIA_TEXT)
 
-    # FIX: Определяем, является ли сообщение навигацией (кнопки, цифры)
-    is_nav = False
-    if text:
-        t_low = text.lower().strip()
-        # Если юзер жмет "другие варианты" или пишет "ещё"
-        if "другие" in t_low or "варианты" in t_low:
-            is_nav = True
-        # Если юзер пишет цифру (выбор варианта)
-        if _looks_like_choice(text):
-            is_nav = True
-
-    # FIX: Если это не медиа-интент, но ЭТО навигация -> НЕ убиваем сессию!
+    # -------------------------------------------------------------------------
+    # FIX: Навигация (кнопки "Другие варианты" или цифры)
+    # Если это навигация, мы ПРИНУДИТЕЛЬНО считаем это медиа-режимом
+    # и НЕ сбрасываем сессию.
+    # -------------------------------------------------------------------------
+    # Сбрасываем сессию ТОЛЬКО если это не медиа и не навигация
     if not is_intent_media and not is_nav:
         if uid:
             try:
@@ -711,11 +711,10 @@ async def run_assistant(
             except Exception:
                 pass
 
-    # FIX: Включаем медиа-режим, если это навигация
     is_media = (
         bool(has_media)
         or bool(is_intent_media)
-        or is_nav
+        or is_nav  # <--- ВАЖНО: Навигация включает медиа-режим
         or (sticky_media_db and bool(is_intent_media))
         or (bool(st) and bool(is_intent_media))
     )
@@ -730,30 +729,30 @@ async def run_assistant(
         )
         raw_text = (text or "").strip()
 
-        try:
-            prev_q = ((st.get("query") if st else "") or "").strip()
-            # 1) Другие варианты (Пагинация)
-            if _tmdb_is_refinement(raw_text) and "другие" in raw_text.lower():
-                opts = st.get("items") or []
-                # FIX: Явно обрабатываем ситуацию, когда вариантов нет, чтобы бот не молчал.
-                if len(opts) > 3:
-                    rotated_opts = opts[3:] + opts[:3]  # Rotate
-                    _media_set(uid, prev_q, rotated_opts)
-                    return (
-                        _format_media_ranked(
-                            prev_q,
-                            rotated_opts,
-                            year_hint=_parse_media_hints(prev_q).get("year"),
-                            lang=lang,
-                            source="cache",
-                        )
-                        + "\n\n(Показаны следующие варианты)"
+        # ---------------------------------------------------------------------
+        # ОБРАБОТКА КНОПКИ "ДРУГИЕ ВАРИАНТЫ" (FIXED)
+        # ---------------------------------------------------------------------
+        # Теперь бот не идет в поиск/ИИ, а достает из памяти следующие результаты.
+        if st and ("другие" in raw_text.lower() or "варианты" in raw_text.lower()):
+            opts = st.get("items") or []
+            prev_q = st.get("query") or "Результаты поиска"
+            
+            # Ротация: берем текущие 3, кидаем в конец, показываем следующие 3
+            if len(opts) > 3:
+                rotated_opts = opts[3:] + opts[:3]
+                _media_set(uid, prev_q, rotated_opts)
+                return (
+                    _format_media_ranked(
+                        prev_q,
+                        rotated_opts,
+                        year_hint=_parse_media_hints(prev_q).get("year"),
+                        lang=lang,
+                        source="cache",
                     )
-                else:
-                    return "📭 Это были все найденные варианты.\nПопробуй прислать другой кадр или уточни детали (актер, год, сюжет)."
-
-        except Exception:
-            pass
+                    + "\n\n(Показаны следующие варианты 🔄)"
+                )
+            else:
+                return "📭 Больше вариантов нет. Попробуй уточнить запрос (год, актер) или скинь другой кадр."
 
         # 1) Choice by number
         if st and _looks_like_choice(raw_text):
@@ -780,15 +779,19 @@ async def run_assistant(
         ):
             return MEDIA_NOT_FOUND_REPLY_RU
 
+        # Normalization
         raw = _normalize_tmdb_query(raw)
+        
+        # Если это просто уточнение (год, актер), клеим к прошлому запросу
+        # Если новый запрос — ищем заново.
+        prev_q = ((st.get("query") if st else "") or "").strip()
+        
         if st and prev_q and raw and (len(raw) <= 140):
             if _tmdb_is_refinement(raw) or len(raw.split()) <= 2:
-                if "другие" in raw.lower() or "варианты" in raw.lower():
-                    query = prev_q
-                elif _looks_like_year_or_hint(raw):
+                if _looks_like_year_or_hint(raw):
                     query = f"{prev_q} {raw}"
                 else:
-                    query = prev_q
+                    query = prev_q # Если мусор, оставляем старый
             else:
                 query = _tmdb_sanitize_query(_clean_media_search_query(raw))
         else:
@@ -810,7 +813,7 @@ async def run_assistant(
         except Exception:
             pass
 
-        # Stabilize query
+        # Stabilize query logic...
         try:
             prev_q_n = (prev_q or "").strip()
             q_n = (query or "").strip()
@@ -1212,17 +1215,23 @@ async def run_assistant_vision(
     seen_ids = set()
 
     # Порядок приоритета при слиянии:
-    # 1. Lens Results (обычно самые точные визуально)
+    # 1. Lens Results (они часто точнее для мемов)
     # 2. Title Results (Query A)
     # 3. Desc Results (Query B)
 
     # raw_results[0] = Title items
     # raw_results[1] = Desc items
-    # raw_results[2:] = Lens items
+    # raw_results[2:] = Lens items (list of lists)
 
     title_items = raw_results[0] if len(raw_results) > 0 else []
     desc_items = raw_results[1] if len(raw_results) > 1 else []
-    lens_items_flat = [item for sublist in raw_results[2:] for item in sublist]
+    
+    # Flatten Lens items
+    lens_items_flat = []
+    if len(raw_results) > 2:
+        for sublist in raw_results[2:]:
+            if sublist:
+                lens_items_flat.extend(sublist)
 
     # Слияние: Lens -> Title -> Desc
     all_sourced = lens_items_flat + title_items + desc_items
