@@ -190,6 +190,7 @@ _LENS_BLOCKLIST = {
     "trailer",
     "official trailer",
     "teaser",
+    "review",
 }
 
 
@@ -254,48 +255,67 @@ def _is_garbage_query(q: str) -> bool:
     if len(q_lower) < 3:
         return True
 
-    # Хэши и имена файлов (длинные слова без пробелов с цифрами)
-    if " " not in q_lower and len(q_lower) > 8 and any(c.isdigit() for c in q_lower):
-        return True
+    # 1. Проверяем наличие "хэшеподобных" слов
+    # Если слово длиннее 6 символов и содержит И буквы И цифры — это мусор (qgbmboc4w1)
+    for word in q_lower.split():
+        if len(word) > 6 and any(c.isdigit() for c in word) and any(c.isalpha() for c in word):
+            return True
 
-    # Блок-лист общих слов
-    if q_lower in _LENS_BLOCKLIST:
-        return True
+    # 2. Блок-лист общих слов
+    for block in _LENS_BLOCKLIST:
+        if block in q_lower:
+            return True
 
     return False
 
 
 def _smart_clean_lens_candidate(text: str) -> str:
-    """Умная очистка мусора от Lens: вырезает название из кавычек и удаляет троеточия."""
+    """
+    АГРЕССИВНАЯ очистка мусора от Lens.
+    Пример: "Перепутал близняшек 😂 🎥 Фильм «Чак и Ларри: Пожарная ...»"
+    Результат: "Чак и Ларри: Пожарная"
+    """
     if not text:
         return ""
 
-    # 1. Извлекаем текст из кавычек «...» или "...", если есть
-    # Пример: "Перепутал близняшек 😂 🎥 Фильм «Чак и Ларри: Пожарная ...»" -> "Чак и Ларри: Пожарная ..."
-    quotes = re.findall(r"«([^»]+)»", text) or re.findall(r'"([^"]+)"', text)
-    candidate = text
+    # 0. Удаляем паттерны юзернеймов (@username)
+    text_clean = re.sub(r"\(@[^)]+\)", "", text)
+
+    # 1. Приоритет: Текст в кавычках (ищем даже незакрытые кавычки в конце строки)
+    # «Title» или «Title...
+    quotes = re.findall(r"«([^»\n]+)(?:»|$)", text_clean) or re.findall(r'"([^"\n]+)(?:"|$)', text_clean)
     if quotes:
-        # Берем самую длинную цитату, скорее всего это название
         longest = max(quotes, key=len)
-        if len(longest) > 3:
-            candidate = longest.strip()
+        # Чистим от троеточий в конце
+        cleaned = re.sub(r"[\.…]+$", "", longest).strip()
+        if len(cleaned) > 2 and not _is_garbage_query(cleaned):
+            return cleaned
 
-    # 2. Убираем "Фильм", "Movie", "Сцена из" из результата
+    # 2. Поиск по якорям (Фильм, Movie, Watch)
+    # "Перепутал близняшек Фильм Чак и Ларри" -> "Чак и Ларри"
+    anchors = ["фильм", "movie", "film", "сцена из", "scene from", "watch"]
+    lower = text_clean.lower()
+    for anchor in anchors:
+        if f" {anchor} " in f" {lower} ":
+            # Находим позицию якоря (case insensitive)
+            match = re.search(r"(?i)\b" + re.escape(anchor) + r"\b", text_clean)
+            if match:
+                candidate = text_clean[match.end():].strip()
+                # Удаляем знаки препинания в начале (например "«Title")
+                candidate = re.sub(r"^[^a-zA-Zа-яА-Я0-9]+", "", candidate)
+                candidate = re.sub(r"[\.…]+$", "", candidate).strip()
+                if len(candidate) > 2 and not _is_garbage_query(candidate):
+                    return candidate
+
+    # 3. Если ничего не помогло, просто чистим мусор
+    candidate = text_clean
     candidate = re.sub(r"(?i)\b(фильм|кино|movie|film|scene from|сцена из)\b", "", candidate)
-
-    # 3. Убираем троеточия в конце (TMDb их ненавидит)
-    # "Чак и Ларри: Пожарная ..." -> "Чак и Ларри: Пожарная"
     candidate = re.sub(r"[\.…]+$", "", candidate)
+    candidate = re.sub(r"[^\w\s\-\.,:!?'()]+", " ", candidate, flags=re.UNICODE)
 
-    # 4. Убираем эмодзи и мусор (оставляем буквы, цифры, дефис, точку, двоеточие)
-    candidate = re.sub(r"[^\w\s\-\.,:!?']+", " ", candidate, flags=re.UNICODE)
-
-    # 5. Если осталось слишком длинное описание сцены (> 6 слов),
-    # и есть двоеточие — пробуем взять то, что ДО двоеточия (это часто название фильма)
-    # "Чак и Ларри: Пожарная свадьба сцена с забором" -> "Чак и Ларри"
-    if ":" in candidate and len(candidate.split()) > 6:
+    if ":" in candidate and len(candidate.split()) > 5:
         parts = candidate.split(":")
-        if len(parts[0]) > 3:
+        if len(parts[0].strip()) > 3:
             candidate = parts[0]
 
     return re.sub(r"\s+", " ", candidate).strip()
@@ -695,7 +715,7 @@ async def run_assistant(
     is_media = (
         bool(has_media)
         or bool(is_intent_media)
-        or is_nav  # <--- Добавили сюда
+        or is_nav
         or (sticky_media_db and bool(is_intent_media))
         or (bool(st) and bool(is_intent_media))
     )
