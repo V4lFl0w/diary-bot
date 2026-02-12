@@ -16,6 +16,16 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from PIL import Image, ImageDraw, ImageFont
+
+# --- optional emoji renderer (keeps emojis on image cards) ---
+try:
+    from pilmoji import Pilmoji  # type: ignore
+
+    _PILMOJI_OK = True
+except Exception:
+    Pilmoji = None  # type: ignore
+    _PILMOJI_OK = False
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -101,6 +111,8 @@ class CaloriesFSM(StatesGroup):
     waiting_input = State()
     waiting_photo = State()
 
+    waiting_portion = State()
+
 
 # -------------------- i18n helpers --------------------
 
@@ -139,6 +151,16 @@ def _cal_hook_inline_kb(lang_code: str) -> InlineKeyboardMarkup:
         callback_data="cal:photo",
     )
     kb.adjust(1, 1)
+    return kb.as_markup()
+
+
+def _cal_result_inline_kb(lang_code: str) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text=_tr(lang_code, "🧮 Уточнить порцию", "🧮 Уточнити порцію", "🧮 уточнить portion"),
+        callback_data="cal:portion",
+    )
+    kb.adjust(1)
     return kb.as_markup()
 
 
@@ -442,6 +464,20 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont |
     return lines
 
 
+def _draw_text_emoji(draw: ImageDraw.ImageDraw, img: Image.Image, xy, text: str, font, fill):
+    """Draw text with emojis if pilmoji is available; fallback to draw.text."""
+    if not text:
+        return
+    if _PILMOJI_OK and Pilmoji is not None:
+        try:
+            with Pilmoji(img) as pil:
+                pil.text(xy, text, font=font, fill=fill)
+            return
+        except Exception:
+            pass
+    draw.text(xy, text, font=font, fill=fill)
+
+
 def render_text_card(text: str) -> bytes:
     W, H = 1080, 620
     PAD = 54
@@ -455,7 +491,7 @@ def render_text_card(text: str) -> bytes:
         font_title = ImageFont.load_default()
         font_body = ImageFont.load_default()
 
-    draw.text((PAD, 40), "Nutrition AI", font=font_title, fill=(255, 255, 255))
+    _draw_text_emoji(draw, bg, (PAD, 40), "Nutrition AI", font_title, (255, 255, 255))
 
     max_w = W - PAD * 2
     lines = _wrap_text(draw, text, font_body, max_w)
@@ -464,7 +500,7 @@ def render_text_card(text: str) -> bytes:
         color = (220, 230, 240)
         if "🔥" in ln:
             color = (255, 215, 0)
-        draw.text((PAD, y), ln, font=font_body, fill=color)
+        _draw_text_emoji(draw, bg, (PAD, y), ln, font_body, color)
         y += 50
 
     buf = BytesIO()
@@ -509,7 +545,7 @@ def render_result_card(photo_bytes: bytes, text: str) -> bytes:
         color = (230, 230, 230)
         if "🔥" in ln or "kcal" in ln:
             color = (255, 215, 0)
-        draw.text((PAD, y), ln, font=font_body, fill=color)
+        _draw_text_emoji(draw, out, (PAD, y), ln, font_body, color)
         y += 52
 
     buf = BytesIO()
@@ -788,7 +824,11 @@ async def analyze_photo(message: types.Message, lang_code: str = "ru") -> Option
         '{"title": string, "ingredients": array, "portion": string, '
         '"kcal": number, "p": number, "f": number, "c": number, '
         '"confidence": number, "assumptions": array}. '
-        "Estimate total calories. "
+        "IMPORTANT PORTION RULES: "
+        "1) Do NOT write '1 порция' by default. "
+        "2) Estimate portion based on visible counts (eggs, sausage pieces, cheese slices) and mention them in 'portion'. "
+        "3) If portion is uncertain, state the assumption explicitly in 'assumptions' and lower confidence. "
+        "Estimate total calories for the full plate shown. "
         f"IMPORTANT: All text fields must be in {lang_name}!"
     )
 
@@ -1062,6 +1102,43 @@ async def cal_photo_cb(
 # -------------------- cancel --------------------
 
 
+@router.callback_query(F.data == "cal:portion")
+async def cal_portion_cb(
+    cb: types.CallbackQuery, state: FSMContext, session: AsyncSession, lang: Optional[str] = None
+) -> None:
+    tg_lang = getattr(cb.from_user, "language_code", None)
+    user = await _get_user(session, cb.from_user.id)
+    lang_code = _user_lang(user, lang, tg_lang)
+
+    msg = cb.message
+    if msg is None or not isinstance(msg, types.Message):
+        await cb.answer()
+        return
+
+    await state.set_state(CaloriesFSM.waiting_portion)
+    await cb.answer()
+
+    await msg.answer(
+        _tr(
+            lang_code,
+            "🧮 Ок, уточни порцию одним сообщением — я пересчитаю точнее.\n"
+            "Примеры:\n"
+            "• 4 яйца, 1 сарделька, 2 ломтика сыра, 3 шт сулугуни\n"
+            "• яичница: 3 яйца, сосиска 80 г, сыр 40 г\n"
+            "/cancel — выйти",
+            "🧮 Ок, уточни порцію одним повідомленням — я перерахую точніше.\n"
+            "Приклади:\n"
+            "• 4 яйця, 1 сарделька, 2 скибки сиру, 3 шт сулугуні\n"
+            "• яєчня: 3 яйця, сосиска 80 г, сир 40 г\n"
+            "/cancel — вийти",
+            "🧮 Ok, уточни portion in one message — I'll recalc.\n"
+            "Examples:\n"
+            "• 4 eggs, 1 sausage, 2 cheese slices, 3 suluguni pieces\n"
+            "/cancel — exit",
+        )
+    )
+
+
 @router.message(Command("cancel"))
 async def cal_cancel_global(
     message: types.Message,
@@ -1159,6 +1236,7 @@ async def cal_photo_in_input_mode(
             BufferedInputFile(card, filename="calories.jpg"),
             caption=f"{details}\n\n{total_line}",
             parse_mode="HTML",
+            reply_markup=_cal_result_inline_kb(lang_code),
         )
     else:
         await message.answer(f"{details}\n\n{total_line}")
@@ -1201,7 +1279,10 @@ async def cal_photo_waiting(
     if img_bytes:
         card = render_result_card(img_bytes, card_text)
         await message.answer_photo(
-            BufferedInputFile(card, filename="calories.jpg"), caption=f"{details}\n\n{total_line}", parse_mode="HTML"
+            BufferedInputFile(card, filename="calories.jpg"),
+            caption=f"{details}\n\n{total_line}",
+            parse_mode="HTML",
+            reply_markup=_cal_result_inline_kb(lang_code),
         )
     else:
         await message.answer(f"{details}\n\n{total_line}")
@@ -1272,7 +1353,10 @@ async def cal_photo_caption_trigger(message: types.Message, session: AsyncSessio
     img_bytes = await _download_photo_bytes(message)
     if img_bytes:
         card = render_result_card(img_bytes, card_text)
-        await message.answer_photo(BufferedInputFile(card, filename="calories.jpg"))
+        await message.answer_photo(
+            BufferedInputFile(card, filename="calories.jpg"),
+            reply_markup=_cal_result_inline_kb(lang_code),
+        )
     else:
         await message.answer(f"{details}\n\n{total_line}")
 
