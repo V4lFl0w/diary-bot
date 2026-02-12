@@ -22,6 +22,8 @@ from sqlalchemy import desc, select
 from app.models.journal import JournalEntry
 from app.models.user import User
 from app.services.intent_router import Intent, detect_intent
+from app.services.web_search import serpapi_search
+from app.services.web_reader import extract_first_url, fetch_page_text
 from app.services.media.formatting import (
     MEDIA_NOT_FOUND_REPLY_RU,
     MEDIA_VIDEO_STUB_REPLY_RU,
@@ -658,6 +660,51 @@ async def run_assistant(
     items = []
     raw = (text or "").strip()
 
+
+    # --- WEB MODE (PRO/MAX): url or "web:" prefix -> build analysis prompt and continue normal assistant flow ---
+    t0 = (text or "").strip()
+    if t0 and (t0.lower().startswith("web:") or ("http://" in t0) or ("https://" in t0)):
+        q_or_url = t0[4:].strip() if t0.lower().startswith("web:") else t0
+        url = extract_first_url(q_or_url) or extract_first_url(t0)
+        try:
+            if url:
+                title, page_text = await fetch_page_text(url, max_chars=12000)
+                if page_text:
+                    text = (
+                        "Ты — аналитик. Разбери веб-страницу.\n"
+                        "Дай:\n"
+                        "1) 6–10 буллетов по сути\n"
+                        "2) 2 короткие цитаты (1 строка каждая)\n"
+                        "3) 1 практический вывод\n\n"
+                        f"URL: {url}\n"
+                        f"TITLE: {title}\n\n"
+                        f"TEXT:\n{page_text}\n"
+                    )
+                    raw = (text or "").strip()
+            else:
+                results = await serpapi_search(q_or_url, count=5)
+                if results:
+                    parts = []
+                    for i, it in enumerate(results[:2], 1):
+                        u = (it.get("url") or "").strip()
+                        t = (it.get("title") or "").strip()
+                        sn = (it.get("snippet") or "").strip()
+                        pt = ""
+                        if u:
+                            _ttl, _txt = await fetch_page_text(u, max_chars=8000)
+                            pt = (_txt or "")[:6000]
+                        parts.append(f"[{i}] {t}\nURL: {u}\nSNIPPET: {sn}\nTEXT_EXCERPT:\n{pt}\n")
+                    text = (
+                        "Ты — аналитик. Суммируй результаты поиска и выдержки страниц.\n"
+                        "Дай:\n"
+                        "1) 8–12 буллетов\n"
+                        "2) Отметь противоречия (если есть)\n"
+                        "3) Источники указывай как [1], [2]\n\n"
+                        f"QUERY: {q_or_url}\n\n" + "\n\n".join(parts)
+                    )
+                    raw = (text or "").strip()
+        except Exception:
+            pass
     now = datetime.now(timezone.utc)
     kind_marker = _extract_media_kind_marker(text)
     if kind_marker:
