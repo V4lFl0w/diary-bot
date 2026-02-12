@@ -19,3 +19,4 @@ Pillow
 boto3>=1.28.0
 yt-dlp
 telethon>=1.34.0
+pilmoji
