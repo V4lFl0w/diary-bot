@@ -242,6 +242,19 @@ def _tmdb_is_worthy_cand(q: str) -> bool:
     return True
 
 
+def _is_garbage_query(q: str) -> bool:
+    """Фильтр для мусорных запросов от Lens (хэши, имена файлов)."""
+    if not q:
+        return True
+    q = q.strip()
+    if len(q) < 3:
+        return True
+    # Если это одно слово, длинное и без гласных или цифр -> скорее всего мусор
+    if " " not in q and len(q) > 8 and any(c.isdigit() for c in q):
+        return True
+    return False
+
+
 # --- External Services Stubs/Imports ---
 
 try:
@@ -636,12 +649,7 @@ async def run_assistant(
             # 1) Другие варианты (Пагинация)
             if _tmdb_is_refinement(raw_text) and "другие" in raw_text.lower():
                 opts = st.get("items") or []
-                # Если есть элементы, просто возвращаем, но со смещением (логика форматирования обрабатывает срез)
-                # На самом деле _format_media_ranked показывает топ-3, если хотим следующие - нужна логика "offset" или
-                # просто перетасовать/показать следующие.
-                # В текущей реализации `_format_media_ranked` показывает топ.
-                # Для кнопки "Другие варианты" мы обычно ожидаем, что бот покажет #4, #5, #6.
-                # Реализуем простую ротацию: берем текущие items, отрезаем топ-3 и ставим их в конец (или удаляем).
+                # FIX: Явно обрабатываем ситуацию, когда вариантов нет, чтобы бот не молчал.
                 if len(opts) > 3:
                     rotated_opts = opts[3:] + opts[:3]  # Rotate
                     _media_set(uid, prev_q, rotated_opts)
@@ -655,6 +663,8 @@ async def run_assistant(
                         )
                         + "\n\n(Показаны следующие варианты)"
                     )
+                else:
+                    return "📭 Это были все найденные варианты.\nПопробуй прислать другой кадр или уточни детали (актер, год, сюжет)."
 
         except Exception:
             pass
@@ -1051,7 +1061,13 @@ async def run_assistant_vision(
     if parts_b:
         query_b_desc = " ".join(parts_b)
 
-    _d("vision.parsed", query_a=query_a_title, query_b=query_b_desc, lens_count=len(lens_cands))
+    # FIX: Логируем реальные кандидаты от Lens, а не count
+    _d(
+        "vision.parsed",
+        query_a=query_a_title,
+        query_b=query_b_desc,
+        lens_cands=(lens_cands or [])[:5],
+    )
 
     # --- 3 УДАРА (Параллельный поиск в TMDb) ---
 
@@ -1060,6 +1076,9 @@ async def run_assistant_vision(
             return []
         q = _tmdb_sanitize_query(_normalize_tmdb_query(q))
         if _is_bad_media_query(q):
+            return []
+        # FIX: фильтр от мусорных запросов (hash, filenames)
+        if _is_garbage_query(q):
             return []
         try:
             res = await _tmdb_best_effort(q, limit=limit)
@@ -1081,7 +1100,7 @@ async def run_assistant_vision(
     else:
         tasks.append(_asyncio.sleep(0, result=[]))
 
-    # 3. Запрос В (Lens - берем топ-2 кандидата и ищем)
+    # 3. Запрос В (Lens - берем топ-3 кандидата и ищем)
     lens_queries = _pick_best_lens_candidates(lens_cands, limit=3)
     lens_search_tasks = [_safe_search(lq, limit=3) for lq in lens_queries]
 
