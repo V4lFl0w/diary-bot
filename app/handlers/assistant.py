@@ -75,6 +75,11 @@ def _assistant_tools_kb() -> InlineKeyboardMarkup:
         width=2,
     )
     kb.row(
+        InlineKeyboardButton(text="❓ Спросить", callback_data="assistant:ask"),
+        InlineKeyboardButton(text="📚 База знаний", callback_data="assistant:kb"),
+        width=2,
+    )
+    kb.row(
         InlineKeyboardButton(text="⛔️ Стоп", callback_data="assistant:stop"),
         width=1,
     )
@@ -92,7 +97,7 @@ async def assistant_stop_cb(cb: CallbackQuery, state: FSMContext, session: Async
         return
 
     user = await _get_user(session, cb.from_user.id)
-    lang = _normalize_lang(getattr(cb.from_user, "language_code", None) or "ru")
+    lang = _normalize_lang((getattr(user, "locale", None) if user else None) or (getattr(user, "lang", None) if user else None) or getattr(cb.from_user, "language_code", None) or "ru")
     is_admin = is_admin_tg(cb.from_user.id)
 
     await state.clear()
@@ -115,6 +120,11 @@ async def assistant_web_cb(cb: CallbackQuery, state: FSMContext) -> None:
     except Exception:
         pass
 
+    try:
+        await state.update_data(_assistant_mode="web")
+    except Exception:
+        pass
+
     m_any = cb.message
     m = m_any if isinstance(m_any, Message) else None
     if m is None:
@@ -131,6 +141,53 @@ async def assistant_web_cb(cb: CallbackQuery, state: FSMContext) -> None:
 async def assistant_media_cb(cb: CallbackQuery, state: FSMContext) -> None:
     try:
         await cb.answer()
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data == "assistant:ask")
+async def assistant_ask_cb(cb: CallbackQuery, state: FSMContext) -> None:
+    try:
+        await cb.answer()
+    except Exception:
+        pass
+    try:
+        await state.update_data(_assistant_mode="ask")
+    except Exception:
+        pass
+    m_any = cb.message
+    m = m_any if isinstance(m_any, Message) else None
+    if m is None:
+        return
+    await m.answer("❓ Режим вопроса. Напиши, что нужно решить (1–2 предложения).", reply_markup=_assistant_tools_kb())
+
+
+@router.callback_query(F.data == "assistant:kb")
+async def assistant_kb_cb(cb: CallbackQuery, state: FSMContext) -> None:
+    try:
+        await cb.answer()
+    except Exception:
+        pass
+    try:
+        await state.update_data(_assistant_mode="kb")
+    except Exception:
+        pass
+    m_any = cb.message
+    m = m_any if isinstance(m_any, Message) else None
+    if m is None:
+        return
+        await m.answer(
+        """📚 База знаний.
+
+• чтобы добавить: `kb+: <текст>`
+• чтобы спросить: `kb?: <вопрос>`
+""",
+        parse_mode="Markdown",
+        reply_markup=_assistant_tools_kb(),
+    )
+
+    try:
+        await state.update_data(_assistant_mode="media")
     except Exception:
         pass
 
@@ -691,7 +748,18 @@ async def _assistant_media_fallback_message(message: Message, state: FSMContext,
     lang = _detect_lang(user, message)
 
     try:
-        reply = await run_assistant(user, text, lang, session=session)
+        effective_text = text
+        data = await state.get_data()
+        mode = (data.get("_assistant_mode") or "").strip().lower()
+        if mode == "web":
+            # force web pipeline (no TMDB)
+            effective_text = f"web: {text}"
+        elif mode == "ask":
+            effective_text = text
+        elif mode == "kb":
+            effective_text = text
+
+        reply = await run_assistant(user, effective_text, lang, session=session)
     except Exception:
         try:
             await message.answer(
@@ -742,6 +810,8 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
         data = await state.get_data()
     except Exception:
         data = {}
+
+    mode = (data.get("_assistant_mode") or "").strip().lower()
 
     if data.get("_media_waiting_hint"):
         last_q = (data.get("_media_last_query") or "").strip()
@@ -856,7 +926,7 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
     # typing loop (optional)
     typing_task = asyncio.create_task(_typing_loop(call.message.chat.id, interval=4.0)) if call.message else None
     try:
-        reply = await run_assistant(user, "другие варианты", lang, session=session)
+        reply = await run_assistant(user, f"{last_q}\n\nДругие варианты", lang, session=session)
     finally:
         if typing_task:
             typing_task.cancel()
