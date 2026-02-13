@@ -75,7 +75,6 @@ async def _send_dbg(logger, kind: str, fn, *args, **kwargs):
             if "text" in kwargs and isinstance(kwargs.get("text"), str):
                 txt = kwargs.get("text")[:180]
         except Exception:
-
             pass
         _atrace(
             logger,
@@ -103,11 +102,10 @@ def _atrace(logger, stage: str, **kv):
         return
     try:
         logger.info("[trace] %s | %s | %s", _atrace_id(), stage, kv)
+
+
     except Exception:
-
         pass
-
-
 class _ASpan:
     def __init__(self, logger, stage: str, **kv):
         self.logger = logger
@@ -132,19 +130,17 @@ class _ASpan:
 def _atrace_set(tid: str):
     try:
         _trace_id_var.set(tid)
+
+
     except Exception:
-
         pass
-
-
 def _dbg_media(logger, tag: str, **kv):
     try:
         logger.info("[media][dbg] %s | %s", tag, kv)
+
+
     except Exception:
-
         pass
-
-
 # --- FlowPatch: media query clean + refinement detection (assistant) ---
 _TMDB_STOPWORDS = {
     "photo",
@@ -377,11 +373,10 @@ def _vision_cache_set(key: str, reply: str) -> None:
     try:
         if key and reply:
             _VISION_IMG_CACHE[key] = (_time.time(), reply)
+
+
     except Exception:
-
         pass
-
-
 # --- Service fallbacks ---
 try:
     from app.services.media_search import tmdb_search_multi
@@ -549,6 +544,7 @@ async def _enforce_quota(
 def _assistant_plan(user: Optional[User]) -> str:
     if not user:
         return "free"
+
     now = datetime.now(timezone.utc)
     pu = getattr(user, "premium_until", None)
     if pu is not None:
@@ -758,9 +754,13 @@ async def run_assistant(
     raw = (text or "").strip()
 
 
+
+
+    web_mode = False  # web-mode: skip media/TMDB
     # --- WEB MODE (PRO/MAX): url or "web:" prefix -> build analysis prompt and continue normal assistant flow ---
     t0 = (text or "").strip()
     if t0 and (t0.lower().startswith("web:") or ("http://" in t0) or ("https://" in t0)):
+        web_mode = True
         # quota guard for web mode
         if session and user:
             qmsg = await _enforce_quota(session=session, user=user, plan=plan, feature="assistant_web")
@@ -807,8 +807,99 @@ async def run_assistant(
                     )
                     raw = (text or "").strip()
         except Exception:
-
             pass
+    # --- WEB SHORT-CIRCUIT: never route web-mode content into media/TMDB ---
+    if web_mode:
+        ctx = await build_context(session, user, lang, plan)
+        prev_id = getattr(user, "assistant_prev_response_id", None) if user else None
+        if user:
+            last_used = getattr(user, "assistant_last_used_at", None)
+            if last_used and (datetime.now(timezone.utc) - last_used) > timedelta(hours=24):
+                prev_id = None
+        prompt = f"Context:\n{ctx}\n\nUser message:\n" + (text or "") + "\n"
+
+        try:
+            resp = await client.responses.create(
+                previous_response_id=prev_id,
+                model=model,
+                instructions=_instructions(lang, plan),
+                input=prompt,
+                max_output_tokens=(260 if plan == "basic" else 650),
+            )
+        except Exception as e:
+            return f"⚠️ API Error: {str(e)}"
+
+        if session:
+            await log_llm_usage(
+                session,
+                user_id=getattr(user, "id", None) if user else None,
+                feature="assistant_web",
+                model=model,
+                plan=plan,
+                resp=resp,
+                meta={"lang": lang},
+            )
+
+        out_text = (getattr(resp, "output_text", None) or "").strip()
+        resp_id = getattr(resp, "id", None)
+        if session and user and resp_id:
+            changed = False
+            if user.assistant_prev_response_id != str(resp_id):
+                user.assistant_prev_response_id = str(resp_id)
+                changed = True
+            user.assistant_last_used_at = datetime.now(timezone.utc)
+            changed = True
+            if changed:
+                await session.commit()
+
+        if out_text:
+            return out_text
+        try:
+            return str(getattr(resp, "output", "")).strip() or "⚠️ Empty response."
+        except Exception:
+            return "⚠️ Не смог прочитать ответ модели."
+    # --- WEB SHORT-CIRCUIT: web mode never goes into media/TMDB ---
+    if web_mode:
+        ctx = await build_context(session, user, lang, plan)
+        prev_id = getattr(user, "assistant_prev_response_id", None) if user else None
+        if user:
+            last_used = getattr(user, "assistant_last_used_at", None)
+            if last_used and (datetime.now(timezone.utc) - last_used) > timedelta(hours=24):
+                prev_id = None
+        prompt = f"Context:\n{ctx}\n\nUser message:\n" + (text or "") + "\n"
+
+        try:
+            resp = await client.responses.create(
+                previous_response_id=prev_id,
+                model=model,
+                instructions=_instructions(lang, plan),
+                input=prompt,
+                max_output_tokens=(260 if plan == "basic" else 650),
+            )
+        except Exception as e:
+            return f"⚠️ API Error: {str(e)}"
+
+        if session:
+            await log_llm_usage(
+                session,
+                user_id=getattr(user, "id", None) if user else None,
+                feature="assistant_web",
+                model=model,
+                plan=plan,
+                resp=resp,
+                meta={"lang": lang},
+            )
+
+        out_text = (getattr(resp, "output_text", None) or "").strip()
+        resp_id = getattr(resp, "id", None)
+        if session and user and resp_id:
+            if user.assistant_prev_response_id != str(resp_id):
+                user.assistant_prev_response_id = str(resp_id)
+            user.assistant_last_used_at = datetime.now(timezone.utc)
+            await session.commit()
+
+        return out_text or (str(getattr(resp, "output", "")).strip() or "⚠️ Empty response.")
+
     now = datetime.now(timezone.utc)
     kind_marker = _extract_media_kind_marker(text)
     if kind_marker:
@@ -859,10 +950,9 @@ async def run_assistant(
                 if session:
 
                     await session.commit()
+
             except Exception:
-
                 pass
-
     # 4. ВХОД В МЕДИА-ЛОГИКУ
     is_media = (
         bool(has_media) or
@@ -961,10 +1051,9 @@ async def run_assistant(
                 query = _tmdb_sanitize_query(
                     _normalize_tmdb_query(_tmdb_clean_user_text(query or ""))
                 )
+
         except Exception:
-
             pass
-
         # Stabilize query logic...
         try:
             prev_q_n = (prev_q or "").strip()
@@ -994,10 +1083,9 @@ async def run_assistant(
             if prev_q_n and q_n and (" " not in q_n) and len(q_n) <= 10:
                 if _is_bad_tmdb_candidate(q_n) or (not _mf_is_worthy_tmdb(q_n)):
                     query = prev_q_n
+
         except Exception:
-
             pass
-
         if is_media:
             if len(query) < 2 and ("фильм" in (raw or "").lower() or "что за" in (raw or "").lower()):
                 if user is not None:
@@ -1039,10 +1127,9 @@ async def run_assistant(
             try:
                 if items and raw and _looks_like_freeform_media_query(raw):
                     items = []
+
             except Exception:
-
                 pass
-
             if not items and query and len(query) > 3:
                 query = _normalize_tmdb_query(query)
 
@@ -1075,10 +1162,9 @@ async def run_assistant(
                     try:
                         cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
                         items = await _try_cands(cands)
+
                     except Exception:
-
                         pass
-
             if user is not None:
                 setattr(user, "assistant_mode", "media")
                 setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
@@ -1200,10 +1286,9 @@ async def run_assistant_vision(
         cached = _vision_cache_get(img_key)
         if cached:
             return cached
+
     except Exception:
-
         pass
-
     # --- Подготовка задач (Запуск параллельно Lens и Vision) ---
 
     # Задача 1: Google Lens (фон)

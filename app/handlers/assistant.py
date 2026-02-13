@@ -143,6 +143,20 @@ async def assistant_media_cb(cb: CallbackQuery, state: FSMContext) -> None:
         await cb.answer()
     except Exception:
         pass
+    try:
+        await state.update_data(_assistant_mode="media")
+    except Exception:
+        pass
+
+    m_any = cb.message
+    m = m_any if isinstance(m_any, Message) else None
+    if m is None:
+        return
+
+    await m.answer(
+        "🎬 Режим кадра/фото. Пришли скрин/фото или опиши сцену (год/актёр если знаешь).",
+        reply_markup=_assistant_tools_kb(),
+    )
 
 
 @router.callback_query(F.data == "assistant:ask")
@@ -172,24 +186,6 @@ async def assistant_kb_cb(cb: CallbackQuery, state: FSMContext) -> None:
         await state.update_data(_assistant_mode="kb")
     except Exception:
         pass
-    m_any = cb.message
-    m = m_any if isinstance(m_any, Message) else None
-    if m is None:
-        return
-        await m.answer(
-        """📚 База знаний.
-
-• чтобы добавить: `kb+: <текст>`
-• чтобы спросить: `kb?: <вопрос>`
-""",
-        parse_mode="Markdown",
-        reply_markup=_assistant_tools_kb(),
-    )
-
-    try:
-        await state.update_data(_assistant_mode="media")
-    except Exception:
-        pass
 
     m_any = cb.message
     m = m_any if isinstance(m_any, Message) else None
@@ -197,8 +193,11 @@ async def assistant_kb_cb(cb: CallbackQuery, state: FSMContext) -> None:
         return
 
     await m.answer(
-        "🎬 Режим кадра/фото. Пришли скрин/фото или опиши сцену (год/актёр если знаешь).",
+        "📚 База знаний.\n\n"
+        "• чтобы добавить: `kb+: <текст>`\n"
+        "• чтобы спросить: `kb?: <вопрос>`\n",
         reply_markup=_assistant_tools_kb(),
+        parse_mode="Markdown",
     )
 
 
@@ -813,6 +812,7 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
 
     mode = (data.get("_assistant_mode") or "").strip().lower()
 
+
     if data.get("_media_waiting_hint"):
         last_q = (data.get("_media_last_query") or "").strip()
         if last_q:
@@ -822,6 +822,14 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
         except Exception:
             pass
 
+    # route by mode (AFTER hint merge)
+    effective_text = text
+    if mode == "web":
+        # force web pipeline (skip TMDB/media)
+        if not effective_text.lower().startswith("web:"):
+            effective_text = f"web: {effective_text}"
+
+
     # save last query for media buttons
     try:
         await state.update_data(_media_last_query=text, _media_last_lang=lang)
@@ -829,6 +837,8 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
         pass
 
     is_media_like = _looks_like_media_text(text)
+    if mode == "web":
+        is_media_like = False
     if user:
         now_utc = datetime.now(timezone.utc)
         mode = getattr(user, "assistant_mode", None)
@@ -842,7 +852,7 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
         typing_task = asyncio.create_task(_typing_loop(m.chat.id, interval=4.0))
 
     try:
-        reply = await run_assistant(user, text, lang, session=session)
+        reply = await run_assistant(user, effective_text, lang, session=session)
     finally:
         await _reset_media_ack(state)
         if typing_task:
