@@ -1,5 +1,4 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from aiogram.types import FSInputFile
 from pathlib import Path
 

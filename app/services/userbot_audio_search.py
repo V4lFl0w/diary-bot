@@ -1,11 +1,9 @@
-
 from __future__ import annotations
 
 import os
 import re
-import asyncio
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any, Iterable, Tuple
+from typing import Optional, List, Dict, Any
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -113,6 +111,7 @@ def _is_audio_message(m: Message) -> bool:
             return True
     return False
 
+
 def _doc_id(m: Message) -> int:
     """Best-effort unique audio/document id for dedupe across many channels."""
     try:
@@ -122,7 +121,6 @@ def _doc_id(m: Message) -> int:
     except Exception:
         pass
     return 0
-
 
 
 def _pick_title(m: Message, fallback: str) -> str:
@@ -228,8 +226,6 @@ async def search_audio_in_tg(
     return None
 
 
-
-
 # ===== Storage bridge (UserBot -> Storage Channel) =====
 def _storage_peer() -> tuple[object, int]:
     """
@@ -305,11 +301,11 @@ async def forward_to_storage(*, src: str | int, message_id: int) -> dict:
     }
 
 
-
 def _norm_text(x: str) -> str:
     x = (x or "").lower()
     x = re.sub(r"\s+", " ", x).strip()
     return x
+
 
 def _tokens(x: str) -> list[str]:
     x = _norm_text(x)
@@ -318,6 +314,7 @@ def _tokens(x: str) -> list[str]:
     x = re.sub(r"\s+", " ", x).strip()
     return [t for t in x.split(" ") if t]
 
+
 def _match_all_tokens(title: str, query: str) -> bool:
     tt = _tokens(title)
     qt = _tokens(query)
@@ -325,6 +322,7 @@ def _match_all_tokens(title: str, query: str) -> bool:
         return True
     tset = set(tt)
     return all(t in tset for t in qt)
+
 
 def _looks_like_variant(title: str, base: str) -> bool:
     # base = "жизнь" или другое слово
@@ -336,6 +334,7 @@ def _looks_like_variant(title: str, base: str) -> bool:
         return True
     # ремиксы/версии часто идут как "(remix)" или " - remix" и т.п.
     return False
+
 
 async def search_audio_many_in_tg(
     *,
@@ -357,7 +356,7 @@ async def search_audio_many_in_tg(
     variants = _query_variants(title, query)
     if not variants:
         return []
-    seen: set[tuple[int,int]] = set()
+    seen: set[tuple[int, int]] = set()
     seen_docs: set[int] = set()
     seen_titles: set[str] = set()
     out: list[FoundAudio] = []
@@ -394,12 +393,14 @@ async def search_audio_many_in_tg(
                         if doc_id:
                             seen_docs.add(doc_id)
                         seen_titles.add(nt)
-                        out.append(FoundAudio(
-                            chat_id=chat_id,
-                            message_id=int(m.id),
-                            title=t,
-                            chat_ref=str(chat),
-                        ))
+                        out.append(
+                            FoundAudio(
+                                chat_id=chat_id,
+                                message_id=int(m.id),
+                                title=t,
+                                chat_ref=str(chat),
+                            )
+                        )
                         if len(out) >= int(max_tracks):
                             return out
                 except Exception:
@@ -451,12 +452,14 @@ async def debug_search_audio_in_tg(
                                 chat_id = int(getattr(m, "chat_id", 0) or 0)
                                 if not chat_id:
                                     continue
-                                chat_row["hits"].append({
-                                    "q": q,
-                                    "chat_id": chat_id,
-                                    "message_id": int(m.id),
-                                    "title": _pick_title(m, q),
-                                })
+                                chat_row["hits"].append(
+                                    {
+                                        "q": q,
+                                        "chat_id": chat_id,
+                                        "message_id": int(m.id),
+                                        "title": _pick_title(m, q),
+                                    }
+                                )
                                 hits += 1
                                 if hits >= per_chat_hits:
                                     break

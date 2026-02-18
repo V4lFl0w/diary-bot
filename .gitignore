@@ -75,3 +75,11 @@ __pycache__/
 logs/*.log*
 legacy/
 _exports/*.bak*
+
+# cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.env

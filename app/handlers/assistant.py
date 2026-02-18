@@ -67,6 +67,26 @@ except Exception:  # pragma: no cover
 router = Router(name="assistant")
 
 
+
+# ===== upgrade marker -> inline button (web quota softback) =====
+
+_UPGRADE_MARKER = "[Upgrade to Pro]"
+
+def _strip_upgrade_marker(text: str) -> tuple[str, bool]:
+    if not isinstance(text, str):
+        return str(text), False
+    if _UPGRADE_MARKER not in text:
+        return text, False
+    t = text.replace(_UPGRADE_MARKER, "")
+    t = re.sub(r"\n{3,}", "\n\n", t).strip()
+    return t, True
+
+def _upgrade_to_pro_inline_kb() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="Upgrade to Pro", callback_data="open_premium")
+    kb.adjust(1)
+    return kb.as_markup()
+
 def _assistant_tools_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(
@@ -97,7 +117,12 @@ async def assistant_stop_cb(cb: CallbackQuery, state: FSMContext, session: Async
         return
 
     user = await _get_user(session, cb.from_user.id)
-    lang = _normalize_lang((getattr(user, "locale", None) if user else None) or (getattr(user, "lang", None) if user else None) or getattr(cb.from_user, "language_code", None) or "ru")
+    lang = _normalize_lang(
+        (getattr(user, "locale", None) if user else None)
+        or (getattr(user, "lang", None) if user else None)
+        or getattr(cb.from_user, "language_code", None)
+        or "ru"
+    )
     is_admin = is_admin_tg(cb.from_user.id)
 
     await state.clear()
@@ -193,9 +218,7 @@ async def assistant_kb_cb(cb: CallbackQuery, state: FSMContext) -> None:
         return
 
     await m.answer(
-        "📚 База знаний.\n\n"
-        "• чтобы добавить: `kb+: <текст>`\n"
-        "• чтобы спросить: `kb?: <вопрос>`\n",
+        "📚 База знаний.\n\n• чтобы добавить: `kb+: <текст>`\n• чтобы спросить: `kb?: <вопрос>`\n",
         reply_markup=_assistant_tools_kb(),
         parse_mode="Markdown",
     )
@@ -759,6 +782,12 @@ async def _assistant_media_fallback_message(message: Message, state: FSMContext,
             effective_text = text
 
         reply = await run_assistant(user, effective_text, lang, session=session)
+        # --- Web quota softback: show Upgrade button if marker is present ---
+        if isinstance(reply, str):
+            clean_q, need_btn = _strip_upgrade_marker(reply)
+            if need_btn:
+                await message.answer(clean_q, reply_markup=_upgrade_to_pro_inline_kb(), parse_mode=None)
+                return
     except Exception:
         try:
             await message.answer(
@@ -812,7 +841,6 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
 
     mode = (data.get("_assistant_mode") or "").strip().lower()
 
-
     if data.get("_media_waiting_hint"):
         last_q = (data.get("_media_last_query") or "").strip()
         if last_q:
@@ -828,7 +856,6 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
         # force web pipeline (skip TMDB/media)
         if not effective_text.lower().startswith("web:"):
             effective_text = f"web: {effective_text}"
-
 
     # save last query for media buttons
     try:
@@ -853,6 +880,12 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
 
     try:
         reply = await run_assistant(user, effective_text, lang, session=session)
+        # --- Web quota softback: show Upgrade button if marker is present ---
+        if isinstance(reply, str):
+            clean_q, need_btn = _strip_upgrade_marker(reply)
+            if need_btn:
+                await m.answer(clean_q, reply_markup=_upgrade_to_pro_inline_kb(), parse_mode=None)
+                return
     finally:
         await _reset_media_ack(state)
         if typing_task:
@@ -902,6 +935,7 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
     else:
         await m.answer(str(reply), reply_markup=_assistant_tools_kb())
 
+
 @router.callback_query(F.data == "media:pick")
 async def media_ok(call: CallbackQuery, state: FSMContext) -> None:
     # user confirmed the result
@@ -937,6 +971,13 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
     typing_task = asyncio.create_task(_typing_loop(call.message.chat.id, interval=4.0)) if call.message else None
     try:
         reply = await run_assistant(user, f"{last_q}\n\nДругие варианты", lang, session=session)
+        # --- Web quota softback: show Upgrade button if marker is present ---
+        if isinstance(reply, str):
+            clean_q, need_btn = _strip_upgrade_marker(reply)
+            if need_btn and call.message:
+                await call.message.answer(clean_q, reply_markup=_upgrade_to_pro_inline_kb(), parse_mode=None)
+                await call.answer()
+                return
     finally:
         if typing_task:
             typing_task.cancel()

@@ -12,8 +12,10 @@ def download_from_youtube(query: str) -> Path:
     cmd = [
         "yt-dlp",
         "-x",
-        "--audio-format", "mp3",
-        "-o", tmp.name,
+        "--audio-format",
+        "mp3",
+        "-o",
+        tmp.name,
         f"ytsearch1:{query}",
     ]
 
@@ -34,7 +36,11 @@ def download_from_youtube(query: str) -> Path:
         err_low = err.lower()
 
         # YouTube anti-bot / sign-in gate
-        if ("sign in to confirm" in err_low) or ("you're not a bot" in err_low) or ("confirm you’re not a bot" in err_low):
+        if (
+            ("sign in to confirm" in err_low)
+            or ("you're not a bot" in err_low)
+            or ("confirm you’re not a bot" in err_low)
+        ):
             raise RuntimeError("YTDLP_YT_BOT_CHECK")
 
         # generic failure

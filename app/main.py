@@ -9,18 +9,19 @@ import logging
 import os
 import subprocess
 
+
 def _get_commit_sha():
     for k in ("GIT_SHA", "GIT_COMMIT", "SOURCE_VERSION", "HEROKU_SLUG_COMMIT"):
         v = (os.getenv(k) or "").strip()
         if v:
             return v[:12]
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL
-        ).decode().strip()
+        return (
+            subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
+        )
     except Exception:
         return "unknown"
+
 
 STARTUP_COMMIT_SHA = _get_commit_sha()
 

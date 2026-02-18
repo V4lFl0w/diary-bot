@@ -103,9 +103,10 @@ def _atrace(logger, stage: str, **kv):
     try:
         logger.info("[trace] %s | %s | %s", _atrace_id(), stage, kv)
 
-
     except Exception:
         pass
+
+
 class _ASpan:
     def __init__(self, logger, stage: str, **kv):
         self.logger = logger
@@ -131,16 +132,18 @@ def _atrace_set(tid: str):
     try:
         _trace_id_var.set(tid)
 
-
     except Exception:
         pass
+
+
 def _dbg_media(logger, tag: str, **kv):
     try:
         logger.info("[media][dbg] %s | %s", tag, kv)
 
-
     except Exception:
         pass
+
+
 # --- FlowPatch: media query clean + refinement detection (assistant) ---
 _TMDB_STOPWORDS = {
     "photo",
@@ -290,13 +293,13 @@ def _smart_clean_lens_candidate(text: str) -> str:
             match = re.search(r"(?i)\b" + re.escape(anchor) + r"\b", text_clean)
             if match:
                 # Берем то, что ПОСЛЕ якоря: "Сериал Малкольм в центре внимания" -> "Малкольм..."
-                candidate = text_clean[match.end():].strip()
+                candidate = text_clean[match.end() :].strip()
                 # Или то, что ДО якоря, если после - мусор?
                 # Обычно Lens пишет: "Со смыслом... Сериал Малкольм..."
                 # Попробуем взять то, что выглядит как название
 
                 # Чистим результат от "2000 год", "смотреть онлайн"
-                candidate = re.sub(r"\b(19|20)\d{2}\b.*", "", candidate) # Отрезаем год и все что после
+                candidate = re.sub(r"\b(19|20)\d{2}\b.*", "", candidate)  # Отрезаем год и все что после
                 candidate = re.sub(r"^[^a-zA-Zа-яА-Я0-9]+", "", candidate)
                 if len(candidate) > 2 and not _is_garbage_query(candidate):
                     return candidate.strip()
@@ -374,9 +377,10 @@ def _vision_cache_set(key: str, reply: str) -> None:
         if key and reply:
             _VISION_IMG_CACHE[key] = (_time.time(), reply)
 
-
     except Exception:
         pass
+
+
 # --- Service fallbacks ---
 try:
     from app.services.media_search import tmdb_search_multi
@@ -452,11 +456,10 @@ def _user_tz(user: Optional[User]) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
-
-
 # ===========================
 # === Quotas / Daily limits ==
 # ===========================
+
 
 def _env_int(name: str, default: int) -> int:
     try:
@@ -464,6 +467,7 @@ def _env_int(name: str, default: int) -> int:
         return int(v) if v is not None and str(v).strip() != "" else int(default)
     except Exception:
         return int(default)
+
 
 def _quota_limits_tokens(plan: str, feature: str) -> int:
     """
@@ -486,11 +490,13 @@ def _quota_limits_tokens(plan: str, feature: str) -> int:
             return _env_int("ASSISTANT_DAILY_TOKENS_BASIC", 35_000)
         return _env_int("ASSISTANT_DAILY_TOKENS_FREE", 15_000)
 
+
 async def _usage_tokens_last_24h(session: Any, user_id: int, feature: str) -> int:
     if not session or not user_id:
         return 0
     try:
         from app.models.llm_usage import LLMUsage  # local import to avoid circulars
+
         since = datetime.utcnow() - timedelta(hours=24)
         q = select(func.coalesce(func.sum(LLMUsage.total_tokens), 0)).where(
             LLMUsage.user_id == user_id,
@@ -503,6 +509,7 @@ async def _usage_tokens_last_24h(session: Any, user_id: int, feature: str) -> in
     except Exception:
         return 0
 
+
 def _quota_msg_ru(feature: str, used: int, limit: int) -> str:
     feat = "🌐 Web" if (feature == "assistant_web") else ("📷 Фото" if feature == "vision" else "🤖 Ассистент")
     return (
@@ -510,6 +517,20 @@ def _quota_msg_ru(feature: str, used: int, limit: int) -> str:
         f"Использовано: {used:,} токенов из {limit:,} за последние 24 часа.\n\n"
         "Попробуй завтра или обнови тариф."
     )
+
+
+def _soft_quota_web_ru(plan: str) -> str:
+    # UX: мягко, без злости, с понятным CTA
+    # NOTE: "3 дня" — твой продуктовый цикл
+    p = (plan or "basic").strip().lower()
+    plan_label = "Basic" if p == "basic" else ("Pro" if p == "pro" else ("Max" if p in {"pro_max", "max"} else p))
+    return (
+        f"⚠️ Лимит на Web-поиск по тарифу {plan_label} исчерпан.\n\n"
+        "Ты использовал лимит текущего тарифа.\n"
+        "Следующее обновление через 3 дня.\n\n"
+        "Или можешь увеличить лимит прямо сейчас:"
+    )
+
 
 async def _enforce_quota(
     *,
@@ -540,6 +561,7 @@ async def _enforce_quota(
         return _quota_msg_ru(feature, used, limit)
 
     return None
+
 
 def _assistant_plan(user: Optional[User]) -> str:
     if not user:
@@ -742,7 +764,6 @@ async def run_assistant(
     model = _pick_model()
     plan = _assistant_plan(user)
 
-
     # quota guard (before any external calls)
     if session and user:
         qmsg = await _enforce_quota(session=session, user=user, plan=plan, feature="assistant")
@@ -752,9 +773,6 @@ async def run_assistant(
     prev_q = ""
     items = []
     raw = (text or "").strip()
-
-
-
 
     web_mode = False  # web-mode: skip media/TMDB
     # --- WEB MODE (PRO/MAX): url or "web:" prefix -> build analysis prompt and continue normal assistant flow ---
@@ -785,7 +803,12 @@ async def run_assistant(
                     )
                     raw = (text or "").strip()
             else:
-                results = await serpapi_search(q_or_url, count=5)
+                results = await serpapi_search(session, cast(User, user), q_or_url, count=5)
+                # quota softback from serpapi gateway
+                if results and isinstance(results, list) and isinstance(results[0], dict) and results[0].get('quota_exceeded'):
+                    plan = (results[0].get('plan') or getattr(user, 'premium_plan', None) or 'basic')
+                    # IMPORTANT: handler layer should attach the button; we return text marker here.
+                    return _soft_quota_web_ru(str(plan)) + "\n\n[Upgrade to Pro]"
                 if results:
                     parts = []
                     for i, it in enumerate(results[:2], 1):
@@ -858,48 +881,6 @@ async def run_assistant(
             return str(getattr(resp, "output", "")).strip() or "⚠️ Empty response."
         except Exception:
             return "⚠️ Не смог прочитать ответ модели."
-    # --- WEB SHORT-CIRCUIT: web mode never goes into media/TMDB ---
-    if web_mode:
-        ctx = await build_context(session, user, lang, plan)
-        prev_id = getattr(user, "assistant_prev_response_id", None) if user else None
-        if user:
-            last_used = getattr(user, "assistant_last_used_at", None)
-            if last_used and (datetime.now(timezone.utc) - last_used) > timedelta(hours=24):
-                prev_id = None
-        prompt = f"Context:\n{ctx}\n\nUser message:\n" + (text or "") + "\n"
-
-        try:
-            resp = await client.responses.create(
-                previous_response_id=prev_id,
-                model=model,
-                instructions=_instructions(lang, plan),
-                input=prompt,
-                max_output_tokens=(260 if plan == "basic" else 650),
-            )
-        except Exception as e:
-            return f"⚠️ API Error: {str(e)}"
-
-        if session:
-            await log_llm_usage(
-                session,
-                user_id=getattr(user, "id", None) if user else None,
-                feature="assistant_web",
-                model=model,
-                plan=plan,
-                resp=resp,
-                meta={"lang": lang},
-            )
-
-        out_text = (getattr(resp, "output_text", None) or "").strip()
-        resp_id = getattr(resp, "id", None)
-        if session and user and resp_id:
-            if user.assistant_prev_response_id != str(resp_id):
-                user.assistant_prev_response_id = str(resp_id)
-            user.assistant_last_used_at = datetime.now(timezone.utc)
-            await session.commit()
-
-        return out_text or (str(getattr(resp, "output", "")).strip() or "⚠️ Empty response.")
-
     now = datetime.now(timezone.utc)
     kind_marker = _extract_media_kind_marker(text)
     if kind_marker:
@@ -933,7 +914,6 @@ async def run_assistant(
         intent = getattr(intent_res, "intent", None) or intent_res
         is_intent_media = intent in (Intent.MEDIA_IMAGE, Intent.MEDIA_TEXT)
 
-
     # Guard: intent_router can be noisy. If there is no media, no sticky mode and the text doesn't look like a media query,
     # do NOT enter media pipeline.
     if is_intent_media and (not has_media) and (not sticky_media_db) and (not st) and (not _is_media_query(text or "")):
@@ -948,17 +928,12 @@ async def run_assistant(
                 setattr(user, "assistant_mode", None)
                 setattr(user, "assistant_mode_until", now - timedelta(seconds=1))
                 if session:
-
                     await session.commit()
 
             except Exception:
                 pass
     # 4. ВХОД В МЕДИА-ЛОГИКУ
-    is_media = (
-        bool(has_media) or
-        bool(is_intent_media) or
-        (is_nav and bool(st))
-    )
+    is_media = bool(has_media) or bool(is_intent_media) or (is_nav and bool(st))
 
     if is_media:
         _d(
@@ -1001,10 +976,7 @@ async def run_assistant(
             opts = st.get("items") or []
             if 0 <= idx < len(opts):
                 picked = opts[idx]
-                return (
-                    _format_media_pick(picked)
-                    + "\n\nХочешь — напиши другое название/описание, я поищу ещё."
-                )
+                return _format_media_pick(picked) + "\n\nХочешь — напиши другое название/описание, я поищу ещё."
 
         # 1.5) Asking for title again
         if st and _is_asking_for_title(raw_text):
@@ -1015,9 +987,7 @@ async def run_assistant(
 
         # 2) Build query
         raw = raw_text
-        if st and re.search(
-            r"(?i)\b(не\s*то|не\s*подходит|ничего\s*не|такого\s*фильма|не\s*существует)\b", raw
-        ):
+        if st and re.search(r"(?i)\b(не\s*то|не\s*подходит|ничего\s*не|такого\s*фильма|не\s*существует)\b", raw):
             return MEDIA_NOT_FOUND_REPLY_RU
 
         # Normalization
@@ -1032,7 +1002,7 @@ async def run_assistant(
                 if _looks_like_year_or_hint(raw):
                     query = f"{prev_q} {raw}"
                 else:
-                    query = prev_q # Если мусор, оставляем старый
+                    query = prev_q  # Если мусор, оставляем старый
             else:
                 query = _tmdb_sanitize_query(_clean_media_search_query(raw))
         else:
@@ -1048,9 +1018,7 @@ async def run_assistant(
             if raw_clean and _tmdb_is_refinement(raw_clean):
                 query = _tmdb_sanitize_query(_normalize_tmdb_query(raw_clean))
             else:
-                query = _tmdb_sanitize_query(
-                    _normalize_tmdb_query(_tmdb_clean_user_text(query or ""))
-                )
+                query = _tmdb_sanitize_query(_normalize_tmdb_query(_tmdb_clean_user_text(query or "")))
 
         except Exception:
             pass
@@ -1061,19 +1029,11 @@ async def run_assistant(
             raw_n = (raw or "").strip() if "raw" in locals() else (raw_text or "").strip()
             raw_titleish = tmdb_query_compact(raw_n) if raw_n else ""
             if raw_titleish and not is_bad_tmdb_query(raw_titleish):
-                if (
-                    (not q_n)
-                    or is_bad_tmdb_query(q_n)
-                    or _is_bad_tmdb_candidate(q_n)
-                    or (not _mf_is_worthy_tmdb(q_n))
-                ):
+                if (not q_n) or is_bad_tmdb_query(q_n) or _is_bad_tmdb_candidate(q_n) or (not _mf_is_worthy_tmdb(q_n)):
                     query = raw_titleish
                     q_n = raw_titleish
             if prev_q_n and (
-                not q_n
-                or is_bad_tmdb_query(q_n)
-                or _is_bad_tmdb_candidate(q_n)
-                or (not _mf_is_worthy_tmdb(q_n))
+                not q_n or is_bad_tmdb_query(q_n) or _is_bad_tmdb_candidate(q_n) or (not _mf_is_worthy_tmdb(q_n))
             ):
                 query = prev_q_n
                 q_n = prev_q_n
@@ -1092,7 +1052,6 @@ async def run_assistant(
                     setattr(user, "assistant_mode", "media")
                     setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
                     if session:
-
                         await session.commit()
                 return MEDIA_NOT_FOUND_REPLY_RU
 
@@ -1116,9 +1075,7 @@ async def run_assistant(
                     for actor in hints["cast"]:
                         pid = await tmdb_search_person(actor)
                         if pid:
-                            items = await tmdb_discover_with_people(
-                                pid, year=hints.get("year"), kind=hints.get("kind")
-                            )
+                            items = await tmdb_discover_with_people(pid, year=hints.get("year"), kind=hints.get("kind"))
                             if items:
                                 break
             except Exception:
@@ -1153,14 +1110,14 @@ async def run_assistant(
                             if not _tmdb_is_refinement(t):
                                 query = t
                                 items = []
-                    cands, tag = await web_to_tmdb_candidates(query, use_serpapi=False)
+                    cands, tag = await web_to_tmdb_candidates(query, use_serpapi=False, session=session, user=user)
                     items = await _try_cands(cands)
                 except Exception:
                     items = []
 
                 if (not items) and (os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")):
                     try:
-                        cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True)
+                        cands, tag = await web_to_tmdb_candidates(query, use_serpapi=True, session=session, user=user)
                         items = await _try_cands(cands)
 
                     except Exception:
@@ -1169,7 +1126,6 @@ async def run_assistant(
                 setattr(user, "assistant_mode", "media")
                 setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
                 if session:
-
                     await session.commit()
 
             if not items:
@@ -1270,7 +1226,6 @@ async def run_assistant_vision(
     if plan != "pro":
         return "Фото доступно только в PRO (обнови тариф)."
 
-
     # quota guard for vision
     if session and user:
         qmsg = await _enforce_quota(session=session, user=user, plan=plan, feature="vision")
@@ -1308,9 +1263,8 @@ async def run_assistant_vision(
     # Задача 2: OpenAI Vision Model
     async def _task_vision_model():
         prompt_text = (
-            (caption or "").strip()
-            or "Identify the movie/series frame. Return JSON with actors, title hints, keywords."
-        )
+            caption or ""
+        ).strip() or "Identify the movie/series frame. Return JSON with actors, title hints, keywords."
         b64 = base64.b64encode(image_bytes).decode("utf-8")
         data_url = f"data:image/jpeg;base64,{b64}"
 
@@ -1514,7 +1468,6 @@ async def run_assistant_vision(
         setattr(user, "assistant_mode", "media")
         setattr(user, "assistant_mode_until", now + timedelta(minutes=10))
         if session:
-
             await session.commit()
 
     uid = _media_uid(user)

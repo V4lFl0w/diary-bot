@@ -17,6 +17,8 @@ from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from PIL import Image, ImageDraw, ImageFont
 
+from app.services.quota_units import cache_key, cache_get_json, cache_set_json, enforce_and_add_units
+
 # --- optional emoji renderer (keeps emojis on image cards) ---
 try:
     from pilmoji import Pilmoji  # type: ignore
@@ -664,7 +666,7 @@ def render_result_card(photo_bytes: bytes, text: str) -> bytes:
 # -------------------- analyze text --------------------
 
 
-async def analyze_text(text: str, lang_code: str = "ru") -> Dict[str, Any]:
+async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None) -> Dict[str, Any]:
     """
     1) Ninjas API (если есть ключ).
     2) Локальная база (FALLBACK) + Регулярки.
@@ -839,6 +841,19 @@ async def analyze_text(text: str, lang_code: str = "ru") -> Dict[str, Any]:
     # ---------------------------------------------------------
     # 3. OPENAI "SMART TRACK" (Если локально не нашли)
     # ---------------------------------------------------------
+
+    # ---- quota+cache (optional: only if session+user exist in scope) ----
+    _sess = session
+    _usr = user
+    namespace = "openai_calories_text"
+    key = None
+    add_units = 1
+    if _sess is not None and _usr is not None:
+        key = cache_key({"t": text, "lang": lang_code})
+        cached = await cache_get_json(_sess, namespace, key)
+        if isinstance(cached, dict):
+            return cached
+
     # Если мы здесь, значит локальная база не справилась.
     # Зовем GPT-4o-mini, чтобы он понял что такое "шаурма" или "борщ со сметаной"
 
@@ -861,6 +876,9 @@ async def analyze_text(text: str, lang_code: str = "ru") -> Dict[str, Any]:
         f"Ensure all text fields are in {lang_name}."
     )
 
+    if _sess is not None and _usr is not None:
+        await enforce_and_add_units(_sess, _usr, namespace, add_units)
+
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
             r = await client.post(
@@ -879,7 +897,7 @@ async def analyze_text(text: str, lang_code: str = "ru") -> Dict[str, Any]:
             result = json.loads(content)
 
             # Валидация ответа
-            return {
+            out = {
                 "kcal": float(result.get("kcal", 0)),
                 "p": float(result.get("p", 0)),
                 "f": float(result.get("f", 0)),
@@ -887,8 +905,13 @@ async def analyze_text(text: str, lang_code: str = "ru") -> Dict[str, Any]:
                 "confidence": float(result.get("confidence", 0.8)),  # Доверяем AI, если он вернул JSON
                 "title": result.get("title", text),
             }
+            if _sess is not None and _usr is not None and key:
+                await cache_set_json(_sess, namespace, key, out, ttl_sec=7 * 24 * 60 * 60)
+            return out
 
     except Exception as e:
+        if _sess is not None and _usr is not None:
+            await enforce_and_add_units(_sess, _usr, namespace, -add_units)
         logging.error(f"Text AI Analysis Error: {e}")
         return {"kcal": 0, "p": 0, "f": 0, "c": 0, "confidence": 0.0}
 
@@ -912,7 +935,9 @@ async def _download_photo_bytes(message: types.Message) -> Optional[bytes]:
         return None
 
 
-async def analyze_photo(message: types.Message, lang_code: str = "ru") -> Optional[Dict[str, Any]]:
+async def analyze_photo(
+    message: types.Message, lang_code: str = "ru", session: AsyncSession | None = None, user: User | None = None
+) -> Optional[Dict[str, Any]]:
     """
     OpenAI Vision (Responses API) с динамическим языком.
     """
@@ -947,6 +972,16 @@ async def analyze_photo(message: types.Message, lang_code: str = "ru") -> Option
         "Estimate total calories for the full plate shown. "
         f"IMPORTANT: All text fields must be in {lang_name}!"
     )
+
+    namespace = "openai_calories_vision"
+    key = None
+    add_units = 1
+    if session is not None and user is not None:
+        key = cache_key({"img": b64[:256], "lang": lang_code, "model": model})
+        cached = await cache_get_json(session, namespace, key)
+        if isinstance(cached, dict):
+            return cached
+        await enforce_and_add_units(session, user, namespace, add_units)
 
     payload = {
         "model": model,
@@ -995,7 +1030,7 @@ async def analyze_photo(message: types.Message, lang_code: str = "ru") -> Option
             return None
         data = json.loads(m.group(0))
 
-        return {
+        out = {
             "title": (data.get("title") or "") if isinstance(data.get("title"), str) else "",
             "ingredients": data.get("ingredients") if isinstance(data.get("ingredients"), (list, str)) else [],
             "portion": (data.get("portion") or "") if isinstance(data.get("portion"), str) else "",
@@ -1006,6 +1041,9 @@ async def analyze_photo(message: types.Message, lang_code: str = "ru") -> Option
             "c": float(data.get("c", 0) or 0),
             "confidence": float(data.get("confidence", 0) or 0),
         }
+        if session is not None and user is not None and key:
+            await cache_set_json(session, namespace, key, out, ttl_sec=7 * 24 * 60 * 60)
+        return out
     except Exception:
         return None
 
@@ -1404,7 +1442,7 @@ async def cal_photo_in_input_mode(
         return
 
     wait_msg = await message.answer("⏳ ...")
-    res = await analyze_photo(message, lang_code=lang_code)
+    res = await analyze_photo(message, lang_code=lang_code, session=session, user=user)
     await wait_msg.delete()
 
     if not res:
@@ -1457,7 +1495,7 @@ async def cal_photo_waiting(
         return
 
     wait_msg = await message.answer("⏳ ...")
-    res = await analyze_photo(message, lang_code=lang_code)
+    res = await analyze_photo(message, lang_code=lang_code, session=session, user=user)
     await wait_msg.delete()
 
     if not res:
@@ -1544,7 +1582,7 @@ async def cal_photo_caption_trigger(
         return
 
     wait_msg = await message.answer("⏳ ...")
-    res = await analyze_photo(message, lang_code=lang_code)
+    res = await analyze_photo(message, lang_code=lang_code, session=session, user=user)
     await wait_msg.delete()
 
     if not res:

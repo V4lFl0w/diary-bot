@@ -7,10 +7,83 @@ import os
 import re
 import urllib.parse
 import urllib.request
-from typing import List, Tuple
+from typing import List, Tuple, TYPE_CHECKING
 
 from app.services.media_text import SXXEYY_RE as _SXXEYY_RE
 from app.services.media_text import YEAR_RE as _YEAR_RE
+
+# --- optional DB-aware serpapi gateway (typing-only imports) ---
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.models.user import User
+
+
+def _extract_serp_titles(results, limit: int = 10) -> list[str]:
+    """Best-effort normalize serpapi_search output into list[str]."""
+    out: list[str] = []
+    if results is None:
+        return out
+
+    # serpapi_search may return list[str] or list[dict] or dict
+    if isinstance(results, dict):
+        # common patterns
+        for k in ("titles", "candidates", "results"):
+            v = results.get(k)
+            if isinstance(v, list):
+                results = v
+                break
+
+    if isinstance(results, list):
+        for it in results:
+            if isinstance(it, str):
+                s = it
+            elif isinstance(it, dict):
+                s = it.get("title") or it.get("query") or it.get("name") or ""
+            else:
+                continue
+            s = _norm(s)
+            if not s:
+                continue
+            out.append(s)
+            if len(out) >= limit:
+                break
+
+    return _dedupe(out)[:limit]
+
+
+async def _serpapi_candidates_db(q: str, session, user, limit: int = 6) -> list[str]:
+    """Use serpapi_search if available (enforced quotas + kv_cache)."""
+    try:
+        from app.services.web_search import serpapi_search
+    except Exception:
+        return []
+    if session is None or user is None:
+        return []
+
+    # feature separation (optional): try feature param, fallback if not supported
+    try:
+        res = await serpapi_search(session, user, q, count=limit, feature="media_serp")
+    except TypeError:
+        res = await serpapi_search(session, user, q, count=limit)
+    return _extract_serp_titles(res, limit=limit)
+
+
+async def _serpapi_lens_candidates_db(image_url: str, session, user, limit: int = 10, hl: str = "ru") -> list[str]:
+    """Use serpapi_search for lens-style lookup if supported (separate feature)."""
+    try:
+        from app.services.web_search import serpapi_search
+    except Exception:
+        return []
+    if session is None or user is None:
+        return []
+
+    # serpapi_search у тебя уже принимает q_or_url, так что URL картинки прокатывает
+    try:
+        res = await serpapi_search(session, user, image_url, count=limit, feature="media_lens")
+    except TypeError:
+        res = await serpapi_search(session, user, image_url, count=limit)
+    return _extract_serp_titles(res, limit=limit)
+
 
 # --- candidate cleanup: drop SEO/stock-image junk that often comes from web search ---
 _SEO_TRASH_TOKENS = (
@@ -142,67 +215,8 @@ def _wiki_opensearch(q: str, lang: str = "en", limit: int = 6) -> List[str]:
 
 
 def _serpapi_candidates(q: str, limit: int = 6) -> List[str]:
-    key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
-    if _DEBUG:
-        _LOG.info("SERPAPI CALL q=%r limit=%s has_key=%s", q, limit, bool(key))
-    if not key:
-        _LOG.info("SERPAPI: enabled=%s (no key)", False)
-        return []
-    _LOG.info("SERPAPI: enabled=%s", True)
-    q = _norm(q)
-    if not q:
-        return []
-
-    base = "https://serpapi.com/search.json"
-    params = {
-        "engine": "google",
-        "q": q,
-        "api_key": key,
-        "num": str(max(3, min(limit, 10))),
-    }
-    url = base + "?" + urllib.parse.urlencode(params)
-    data = _http_json(url, timeout=15)
-    if not isinstance(data, dict):
-        return []
-
-    out: List[str] = []
-
-    def add_title(t):
-        if not isinstance(t, str):
-            return
-        t = _norm(t)
-        if not t:
-            return
-        if _is_bad_lens_title(t):
-            return
-        out.append(t)
-
-    kg = data.get("knowledge_graph") or {}
-    if isinstance(kg, dict):
-        add_title(kg.get("title"))
-
-    ab = data.get("answer_box") or {}
-    if isinstance(ab, dict):
-        add_title(ab.get("title"))
-        org = ab.get("organic_result") or {}
-        if isinstance(org, dict):
-            add_title(org.get("title"))
-
-    for block_key in ("movie_results", "tv_results"):
-        block = data.get(block_key) or {}
-        if isinstance(block, dict):
-            add_title(block.get("title") or block.get("name"))
-
-    organic = data.get("organic_results") or []
-    if isinstance(organic, list):
-        for r in organic[: limit * 3]:
-            if not isinstance(r, dict):
-                continue
-            add_title(r.get("title"))
-            if len(out) >= limit:
-                break
-
-    return _dedupe(out)[:limit]
+    """Direct SerpAPI is forbidden here (must go through web_search.serpapi_search with cache+quota)."""
+    return []
 
 
 # --- Lens post-processing (cleanup titles -> TMDB-friendly short candidates) ---
@@ -370,82 +384,16 @@ def _clean_lens_candidates(raw: List[str], limit: int = 15) -> List[str]:
 
 
 def _serpapi_lens_candidates(image_url: str, limit: int = 8, hl: str = "ru") -> List[str]:
-    """
-    SerpAPI Google Lens: по публичному URL картинки достаём кандидаты названий
-    (visual_matches titles + related_content queries).
-    """
-    key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
-    image_url = _norm(image_url)
-    if _DEBUG:
-        _LOG.info("SERPAPI LENS CALL url=%r limit=%s has_key=%s", image_url, limit, bool(key))
-    if not key or not image_url:
-        return []
-
-    base = "https://serpapi.com/search.json"
-    params = {
-        "engine": "google_lens",
-        "url": image_url,
-        "api_key": key,
-        "hl": hl,
-    }
-    url = base + "?" + urllib.parse.urlencode(params)
-    data = _http_json(url, timeout=25)
-    if not isinstance(data, dict):
-        return []
-
-    out: List[str] = []
-
-    def add(s: str):
-        if not isinstance(s, str):
-            return
-        s2 = _norm(s)
-        if not s2:
-            return
-        sl = s2.lower()
-        bad = (
-            "watch",
-            "online",
-            "stream",
-            "full movie",
-            "hd",
-            "netflix",
-            "torrent",
-            "смотреть",
-            "онлайн",
-            "hdrezka",
-            "торрент",
-        )
-        if any(x in sl for x in bad):
-            return
-        if len(s2) > 100:
-            return
-        out.append(s2)
-
-    vm = data.get("visual_matches") or []
-    if isinstance(vm, list):
-        for r in vm[: max(10, limit * 2)]:
-            if not isinstance(r, dict):
-                continue
-            add(r.get("title") or "")
-            if len(out) >= limit:
-                break
-
-    rc = data.get("related_content") or []
-    if isinstance(rc, list) and len(out) < limit:
-        for r in rc[: max(10, limit * 2)]:
-            if not isinstance(r, dict):
-                continue
-            add(r.get("query") or "")
-            if len(out) >= limit:
-                break
-
-    return _dedupe(out)[:limit]
+    """Direct SerpAPI Lens is forbidden here (must go through web_search.serpapi_search with cache+quota)."""
+    return []
 
 
 async def image_to_tmdb_candidates(
     image_url: str,
     use_serpapi_lens: bool = True,
     hl: str = "ru",
+    session: AsyncSession | None = None,
+    user: User | None = None,
 ) -> Tuple[List[str], str]:
     """
     Кадр/скрин (по URL) -> SerpAPI Lens -> список текстовых кандидатов,
@@ -458,7 +406,10 @@ async def image_to_tmdb_candidates(
     cands: List[str] = []
 
     if use_serpapi_lens:
-        lens = _serpapi_lens_candidates(u, limit=10, hl=hl)
+        if session is not None and user is not None:
+            lens = await _serpapi_lens_candidates_db(u, session, user, limit=10, hl=hl)
+        else:
+            lens = _serpapi_lens_candidates(u, limit=10, hl=hl)
         cands.extend(lens)
 
     # post-process: raw lens titles -> TMDB-friendly candidates
@@ -473,6 +424,8 @@ async def image_bytes_to_tmdb_candidates(
     use_serpapi_lens: bool = True,
     hl: str = "ru",
     prefix: str = "frames",
+    session: AsyncSession | None = None,
+    user: User | None = None,
 ) -> Tuple[List[str], str]:
     """
     Bytes (Telegram photo/file bytes) -> upload to Spaces -> public URL -> SerpAPI Lens -> TMDB-friendly candidates.
@@ -496,11 +449,15 @@ async def image_bytes_to_tmdb_candidates(
             _LOG.warning("media_web_pipeline: Spaces upload failed: %r", e)
         return [], "spaces_upload_fail"
 
-    cands, tag = await image_to_tmdb_candidates(public_url, use_serpapi_lens=use_serpapi_lens, hl=hl)
+    cands, tag = await image_to_tmdb_candidates(
+        public_url, use_serpapi_lens=use_serpapi_lens, hl=hl, session=session, user=user
+    )
     return cands, f"{tag}+spaces"
 
 
-async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple[List[str], str]:
+async def web_to_tmdb_candidates(
+    query: str, use_serpapi: bool = False, session: AsyncSession | None = None, user: User | None = None
+) -> Tuple[List[str], str]:
     q = _norm(query)
     if not q:
         return [], "empty_query"
@@ -526,7 +483,10 @@ async def web_to_tmdb_candidates(query: str, use_serpapi: bool = False) -> Tuple
 
     # 🔥 1. SERPAPI ПЕРВЫМ (самый чистый источник названий)
     if use_serpapi:
-        serp = _serpapi_candidates(q, limit=6)
+        if session is not None and user is not None:
+            serp = await _serpapi_candidates_db(q, session, user, limit=6)
+        else:
+            serp = _serpapi_candidates(q, limit=6)
         for t in serp:
             t2 = _norm(t)
             if not t2:

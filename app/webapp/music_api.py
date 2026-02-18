@@ -16,7 +16,6 @@ from app.models.user_track import UserTrack
 # Дальше можно усилить до verify initData подписи.
 
 
-
 router = APIRouter(prefix="/webapp/music/api", tags=["webapp-music"])
 
 # ===== Rate limits (comfort + anti-flood) =====
@@ -28,6 +27,7 @@ router = APIRouter(prefix="/webapp/music/api", tags=["webapp-music"])
 # - in-memory limiter (MVP). If you run multiple workers, limits are per-worker.
 from collections import defaultdict, deque
 import time
+
 
 class _UserRateLimiter:
     def __init__(self) -> None:
@@ -56,13 +56,16 @@ class _UserRateLimiter:
             qd.append(now)
         return True, {"scope": "ok", "hour_used": len(qh), "day_used": len(qd)}
 
+
 _rl = _UserRateLimiter()
 
-def _limits() -> tuple[int,int,int]:
+
+def _limits() -> tuple[int, int, int]:
     env_pack = int((os.getenv("MUSIC_SEND_LIMIT") or "6").strip() or "6")
     env_h = int((os.getenv("MUSIC_LIMIT_PER_HOUR") or "30").strip() or "30")
     env_d = int((os.getenv("MUSIC_LIMIT_PER_DAY") or "150").strip() or "150")
     return env_pack, env_h, env_d
+
 
 def _enforce_limits(tg_id: int, want: int) -> None:
     pack, per_h, per_d = _limits()
@@ -80,7 +83,7 @@ def _enforce_limits(tg_id: int, want: int) -> None:
         )
 
 
-def _parse_tgmsg(fid: str) -> Optional[tuple[int,int]]:
+def _parse_tgmsg(fid: str) -> Optional[tuple[int, int]]:
     fid = (fid or "").strip()
     if not fid.startswith("tgmsg:"):
         return None
@@ -91,14 +94,15 @@ def _parse_tgmsg(fid: str) -> Optional[tuple[int,int]]:
         return None
 
 
-
 async def session_dep() -> AsyncIterator[AsyncSession]:
     async with async_session() as session:
         yield session
 
+
 import urllib.parse
 
 TELEGRAM_API = "https://api.telegram.org"
+
 
 async def _tg_get_me() -> Dict[str, Any]:
     token = await _bot_token()
@@ -124,6 +128,7 @@ async def _tg_get_chat(chat_ref: str) -> Dict[str, Any]:
         async with session.get(url, params={"chat_id": chat_ref}, timeout=15) as r:  # type: ignore[arg-type]
             data = await r.json()
             return {"http_status": r.status, "data": data}
+
 
 async def _bot_can_access_chat(chat_ref: Union[int, str]) -> Dict[str, Any]:
     """
@@ -216,10 +221,8 @@ async def resolve_track(
         raise HTTPException(status_code=404, detail="user not found")
 
     t: Optional[UserTrack] = (
-        (await session.execute(
-            select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == track_id)
-        )).scalar_one_or_none()
-    )
+        await session.execute(select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == track_id))
+    ).scalar_one_or_none()
     if not t:
         raise HTTPException(status_code=404, detail="track not found")
 
@@ -236,7 +239,6 @@ async def resolve_track(
     return {"ok": True, "url": url, "kind": "tg_file"}
 
 
-
 async def _session_dep() -> AsyncIterator[AsyncSession]:
     async with async_session() as session:
         yield session
@@ -245,8 +247,6 @@ async def _session_dep() -> AsyncIterator[AsyncSession]:
 @router.get("/health")
 async def health() -> Dict[str, str]:
     return {"ok": "1"}
-
-
 
 
 @router.get("/tg_botinfo")
@@ -262,6 +262,7 @@ async def tg_botinfo() -> Dict[str, Any]:
     r = d.get("result") or {}
     return {"ok": True, "bot": {"id": r.get("id"), "username": r.get("username"), "first_name": r.get("first_name")}}
 
+
 @router.get("/tg_check_chat")
 async def tg_check_chat(
     chat: str = Query(..., description="@channel or -100..."),
@@ -273,12 +274,16 @@ async def tg_check_chat(
     d = res.get("data") or {}
     if res.get("http_status") == 200 and d.get("ok"):
         r = d.get("result") or {}
-        return {"ok": True, "chat": {"id": r.get("id"), "type": r.get("type"), "title": r.get("title"), "username": r.get("username")}}
+        return {
+            "ok": True,
+            "chat": {"id": r.get("id"), "type": r.get("type"), "title": r.get("title"), "username": r.get("username")},
+        }
     return {"ok": False, "error": {"http_status": res.get("http_status"), "data": d}}
+
+
 @router.get("/my")
 async def my_playlist(
     tg_id: Optional[int] = Query(None, description="Telegram user id (from initDataUnsafe.user.id)"),
-    
     x_tg_id: Optional[int] = Header(None, alias="X-TG-ID"),
     session: AsyncSession = Depends(session_dep),
 ) -> Dict[str, Any]:
@@ -336,9 +341,7 @@ async def my_add(
     if not tg_id:
         raise HTTPException(status_code=400, detail="tg_id missing (open mini app inside Telegram)")
 
-    user: Optional[User] = (
-        await session.execute(select(User).where(User.tg_id == int(tg_id)))
-    ).scalar_one_or_none()
+    user: Optional[User] = (await session.execute(select(User).where(User.tg_id == int(tg_id)))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
 
@@ -385,16 +388,12 @@ async def my_delete(
     if not tg_id:
         raise HTTPException(status_code=400, detail="tg_id missing")
 
-    user: Optional[User] = (
-        await session.execute(select(User).where(User.tg_id == int(tg_id)))
-    ).scalar_one_or_none()
+    user: Optional[User] = (await session.execute(select(User).where(User.tg_id == int(tg_id)))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
 
     track: Optional[UserTrack] = (
-        await session.execute(
-            select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == int(track_id))
-        )
+        await session.execute(select(UserTrack).where(UserTrack.user_id == user.id, UserTrack.id == int(track_id)))
     ).scalar_one_or_none()
     if not track:
         return {"ok": True, "deleted": False, "reason": "NOT_FOUND"}
@@ -414,22 +413,17 @@ async def my_clear(
     if not tg_id:
         raise HTTPException(status_code=400, detail="tg_id missing")
 
-    user: Optional[User] = (
-        await session.execute(select(User).where(User.tg_id == int(tg_id)))
-    ).scalar_one_or_none()
+    user: Optional[User] = (await session.execute(select(User).where(User.tg_id == int(tg_id)))).scalar_one_or_none()
     if not user:
         return {"ok": True, "cleared": 0}
 
-    rows = (
-        (await session.execute(select(UserTrack).where(UserTrack.user_id == user.id))).scalars().all()
-    )
+    rows = (await session.execute(select(UserTrack).where(UserTrack.user_id == user.id))).scalars().all()
     n = 0
     for t in rows:
         await session.delete(t)
         n += 1
     await session.commit()
     return {"ok": True, "cleared": n}
-
 
 
 @router.get("/search")
@@ -466,13 +460,15 @@ async def search_youtube(q: str = Query(..., min_length=2), limit: int = 12):
             continue
         thumbs = sn.get("thumbnails") or {}
         thumb = (thumbs.get("high") or thumbs.get("medium") or thumbs.get("default") or {}).get("url")
-        items.append({
-            "video_id": vid,
-            "title": sn.get("title") or "",
-            "channel": sn.get("channelTitle") or "",
-            "thumb": thumb,
-            "published": sn.get("publishedAt"),
-        })
+        items.append(
+            {
+                "video_id": vid,
+                "title": sn.get("title") or "",
+                "channel": sn.get("channelTitle") or "",
+                "thumb": thumb,
+                "published": sn.get("publishedAt"),
+            }
+        )
 
     return {"q": q, "items": items}
 
@@ -507,6 +503,7 @@ async def _tg_send_audio(chat_id: int, audio_ref: str, caption: str = "") -> Dic
                 raise HTTPException(status_code=502, detail={"tg_sendAudio": data})
     return data
 
+
 async def _tg_send_message(chat_id: int, text: str) -> Dict[str, Any]:
     token = await _bot_token()
     url = f"{TELEGRAM_API}/bot{token}/sendMessage"
@@ -517,7 +514,6 @@ async def _tg_send_message(chat_id: int, text: str) -> Dict[str, Any]:
             if r.status != 200 or not data.get("ok"):
                 raise HTTPException(status_code=502, detail={"tg_sendMessage": data})
     return data
-
 
 
 async def _tg_send_audio_file(chat_id: int, file_path, title: str = "", caption: str = "") -> Dict[str, Any]:
@@ -544,28 +540,23 @@ async def _tg_send_audio_file(chat_id: int, file_path, title: str = "", caption:
         )
         async with aiohttp.ClientSession() as session:
             async with session.post(
-              url,
-              data=form,
-              timeout=aiohttp.ClientTimeout(total=120),
-        ) as r:
+                url,
+                data=form,
+                timeout=aiohttp.ClientTimeout(total=120),
+            ) as r:
                 data = await r.json()
                 if r.status != 200 or not data.get("ok"):
                     raise HTTPException(status_code=502, detail={"tg_sendAudio_file": data})
                 return data
 
 
-from app.services.music_full_sender import send_or_fetch_full_track
-from app.services.userbot_audio_search import search_audio_in_tg, debug_search_audio_in_tg, forward_to_storage, search_audio_many_in_tg
-from fastapi import Query, Header, HTTPException, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-
-from app.models.user import User
-from app.models.user_track import UserTrack
-from aiogram.types import FSInputFile
-from app.bot import bot
-
-
+from app.services.userbot_audio_search import (
+    search_audio_in_tg,
+    debug_search_audio_in_tg,
+    forward_to_storage,
+    search_audio_many_in_tg,
+)
+from fastapi import Query, Header, Depends
 
 
 @router.get("/tg_debug")
@@ -584,6 +575,8 @@ async def tg_debug(
         raise HTTPException(status_code=400, detail="tg_id missing")
     data = await debug_search_audio_in_tg(query=q, title=title)
     return {"ok": True, "debug": data}
+
+
 @router.post("/tg_pipeline")
 async def tg_pipeline(
     q: str = Query(..., min_length=2),
@@ -655,18 +648,29 @@ async def tg_pipeline(
                 message_id=int(storage_mid),
             )
 
-            sent_items.append({
-                "title": getattr(f, "title", None),
-                "from": {"chat": getattr(f, "chat_ref", None), "chat_id": getattr(f, "chat_id", None), "message_id": getattr(f, "message_id", None)},
-                "storage": {"peer": str(storage_peer), "message_id": storage_mid},
-                "tg_copyMessage": tg_copy,
-            })
+            sent_items.append(
+                {
+                    "title": getattr(f, "title", None),
+                    "from": {
+                        "chat": getattr(f, "chat_ref", None),
+                        "chat_id": getattr(f, "chat_id", None),
+                        "message_id": getattr(f, "message_id", None),
+                    },
+                    "storage": {"peer": str(storage_peer), "message_id": storage_mid},
+                    "tg_copyMessage": tg_copy,
+                }
+            )
 
             if tg_copy and tg_copy.get("ok"):
                 ok_sent = True
 
         except Exception as e:
-            sent_items.append({"title": getattr(f, "title", None), "error": {"stage": "bulk_send", "type": type(e).__name__, "msg": str(e)}})
+            sent_items.append(
+                {
+                    "title": getattr(f, "title", None),
+                    "error": {"stage": "bulk_send", "type": type(e).__name__, "msg": str(e)},
+                }
+            )
 
         await asyncio.sleep(0.7 + (0.6 * (os.urandom(1)[0] / 255.0)))
 
@@ -680,6 +684,7 @@ async def tg_pipeline(
         "sent_items": sent_items,
         "debug": debug,
     }
+
 
 @router.post("/play")
 async def play_track(
@@ -696,9 +701,7 @@ async def play_track(
     if not tg_id:
         raise HTTPException(status_code=400, detail="tg_id missing (open mini app inside Telegram)")
 
-    user: Optional[User] = (
-        await session.execute(select(User).where(User.tg_id == int(tg_id)))
-    ).scalar_one_or_none()
+    user: Optional[User] = (await session.execute(select(User).where(User.tg_id == int(tg_id)))).scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="user not found")
 
@@ -737,7 +740,6 @@ async def play_track(
         )
         return {"ok": True, "source": "my", "via": "sendAudio"}
 
-    
     # ===== SEARCH (TG userbot search -> storage -> copyMessage -> cache tgmsg) =====
     if kind == "search":
         if not (title or query):
@@ -746,9 +748,15 @@ async def play_track(
         found = await search_audio_in_tg(query=(query or ""), title=(title or ""), limit_per_chat=60)
 
         if not found:
-            yurl = f"https://www.youtube.com/watch?v={video_id}" if (video_id or "").strip() else "https://www.youtube.com/"
+            yurl = (
+                f"https://www.youtube.com/watch?v={video_id}"
+                if (video_id or "").strip()
+                else "https://www.youtube.com/"
+            )
             try:
-                await _tg_send_message(int(tg_id), "⚠️ Не нашёл аудио в Telegram-каналах по запросу.\nОткрой в YouTube:\n" + yurl)
+                await _tg_send_message(
+                    int(tg_id), "⚠️ Не нашёл аудио в Telegram-каналах по запросу.\nОткрой в YouTube:\n" + yurl
+                )
             except Exception:
                 pass
             raise HTTPException(status_code=409, detail={"code": "TG_AUDIO_NOT_FOUND", "youtube_url": yurl})
@@ -784,6 +792,4 @@ async def play_track(
 
         return {"ok": True, "source": "tg_search", "cached": cached}
 
-
     raise HTTPException(status_code=400, detail="unknown kind")
-

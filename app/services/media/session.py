@@ -2,11 +2,35 @@ from __future__ import annotations
 
 # --- FlowPatch: query cleaning & candidate filtering (media) ---
 _TMDb_STOP = {
-    "photo","<photo>","уточнение","уточнение:","уточни","дай","другие","варианты",
-    "жанр","страна","год","серия","эпизод","сезон",
-    "film","movie","series","tv","what","is","the","a","an",
-    "drama","romance","prison","fence",  # частый шум из vision-json
+    "photo",
+    "<photo>",
+    "уточнение",
+    "уточнение:",
+    "уточни",
+    "дай",
+    "другие",
+    "варианты",
+    "жанр",
+    "страна",
+    "год",
+    "серия",
+    "эпизод",
+    "сезон",
+    "film",
+    "movie",
+    "series",
+    "tv",
+    "what",
+    "is",
+    "the",
+    "a",
+    "an",
+    "drama",
+    "romance",
+    "prison",
+    "fence",  # частый шум из vision-json
 }
+
 
 def _mf_clean_query(q: str) -> str:
     if not q:
@@ -23,6 +47,7 @@ def _mf_clean_query(q: str) -> str:
 
     return q
 
+
 def _mf_is_worthy_tmdb(q: str) -> bool:
     if not q:
         return False
@@ -38,6 +63,8 @@ def _mf_is_worthy_tmdb(q: str) -> bool:
     if toks and sum(1 for t in toks if t in _TMDb_STOP) / max(1, len(toks)) > 0.6:
         return False
     return True
+
+
 # --- /FlowPatch ---
 
 

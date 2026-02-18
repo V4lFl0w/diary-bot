@@ -33,18 +33,18 @@ def _sort_media(items: list[dict], query: str = "") -> list[dict]:
             base_s = float(it.get("popularity") or 0) * 0.8 + float(it.get("vote_average") or 0) * 2.0
             q_low = query.lower()
             t_low = (it.get("title") or it.get("name") or "").lower()
-            
+
             # Если хотя бы одно слово из запроса (например, "Куба") есть в названии
             if q_low and any(word in t_low for word in q_low.split() if len(word) > 3):
-                base_s += 150.0 # Огромный приоритет
+                base_s += 150.0  # Огромный приоритет
             return base_s
-        except Exception: return 0.0
+        except Exception:
+            return 0.0
+
     return sorted(items or [], key=score, reverse=True)
 
 
 async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
-   
-
     q = _normalize_tmdb_query(_clean_tmdb_query(query))
     if not q:
         return []
@@ -63,7 +63,7 @@ async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
 
     if year:
         filtered = [it for it in items if str(it.get("year") or "") == year]
-        if filtered: items = filtered
+        if filtered:
+            items = filtered
 
-    return _sort_media(items, query=q)[:limit] # Передаем query для бонуса
-
+    return _sort_media(items, query=q)[:limit]  # Передаем query для бонуса

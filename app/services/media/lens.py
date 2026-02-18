@@ -3,6 +3,7 @@ from __future__ import annotations
 # app/services/assistant.py
 import re
 
+
 def _lens_clean_candidate(s: str) -> str:
     """
     Clean Lens candidate line into something TMDb-friendly BEFORE normalize/sanitize.
@@ -232,5 +233,6 @@ def _pick_best_lens_candidates(lens_cands: list[str], *, limit: int = 12) -> lis
             out.append(cand)
 
     return out[:limit]
+
 
 # --- /FlowPatch: lens_rank_v3 ---

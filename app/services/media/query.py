@@ -8,6 +8,7 @@ def _mf_is_refinement(raw: str) -> bool:
     r = raw.lower()
     return ("уточнение" in r) or r.strip().startswith(("уточни", "добавь", "актёр", "актриса", "год", "страна", "жанр"))
 
+
 def _mf_strip_refinement(raw: str) -> str:
     if not raw:
         return ""
@@ -15,6 +16,8 @@ def _mf_strip_refinement(raw: str) -> str:
     raw = re.sub(r"(?i)\\bуточнение\\s*:\\s*", " ", raw)
     raw = re.sub(r"\\s+", " ", raw).strip()
     return raw
+
+
 # --- /FlowPatch ---
 
 
@@ -184,12 +187,13 @@ def _extract_hints(text: str) -> MediaHints:
 
 def clean_user_text_for_media(text: str) -> str:
     q0 = _norm(text)
-    if not q0: return ""
+    if not q0:
+        return ""
     ql = q0.lower()
-    
+
     # Убираем " и " между фамилиями, это критично для TMDb
     ql = re.sub(r"\bи\b", " ", ql)
-    
+
     for p in _MEDIA_LEADING_NOISE:
         ql = ql.replace(p, " ")
     for pat in _MEDIA_NOISE_REGEX:
@@ -562,6 +566,8 @@ def _mf_is_worthy_tmdb(q: str) -> bool:
         pass
     # if it survived filters — treat as worthy
     return True
+
+
 # 3) совместимость с assistant.py (ожидаемые имена)
 # -----------------------------
 
@@ -609,6 +615,7 @@ def _looks_like_choice(text: str) -> bool:
 
 
 _ASKING_TITLE_RE = re.compile(r"(?i)\b(как называется|что за фильм|что за сериал|что за мультик|откуда кадр)\b")
+
 
 def _looks_like_year_or_hint(text: str) -> bool:
     # год / сезон / серия / SxxEyy / короткий числовой хинт
