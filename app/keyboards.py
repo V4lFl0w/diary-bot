@@ -485,11 +485,11 @@ def get_settings_menu_kb(lang: str) -> ReplyKeyboardMarkup:
         ),
         KeyboardButton(
             text=_t(
-                lang, 
-                "btn_about", 
+                lang,
+                "btn_about",
                 {
-                    "ru": "ℹ️ О боте", 
-                    "uk": "ℹ️ Про бота", 
+                    "ru": "ℹ️ О боте",
+                    "uk": "ℹ️ Про бота",
                     "en": "ℹ️ About"
                 }
             )

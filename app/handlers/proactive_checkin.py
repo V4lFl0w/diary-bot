@@ -23,8 +23,10 @@ class ProactiveCheckinFSM(StatesGroup):
 
 def _normalize_lang(code: str | None) -> str:
     s = (code or "ru").strip().lower()
-    if s.startswith(("ua", "uk")): return "uk"
-    if s.startswith("en"): return "en"
+    if s.startswith(("ua", "uk")):
+        return "uk"
+    if s.startswith("en"):
+        return "en"
     return "ru"
 
 
@@ -51,22 +53,32 @@ async def proactive_checkin_start(cb: CallbackQuery, session: AsyncSession, stat
         await cb.answer("Пользователь не найден", show_alert=True)
         return
 
-    lang = _normalize_lang(getattr(u, "lang", None) or getattr(u, "locale", None) or tg.language_code)
+    lang = getattr(u, "lang", None) or getattr(u, "locale", None) or tg.language_code or "ru"
+    if lang.startswith(("ua", "uk")):
+        lang = "uk"
+    elif lang.startswith("en"):
+        lang = "en"
+    else:
+        lang = "ru"
+
     kind = cb.data.split(":")[-1]  # morning/evening
-    
     await state.clear()
+
     await state.update_data(kind=kind, answers={}, lang=lang)
 
     k, q = _flow(kind, lang)[0]
     await state.set_state(ProactiveCheckinFSM.waiting_a1)
-    
+
     header = "⚡ Проактивность • Утро"
-    if lang == "uk": header = f"⚡ Проактивність • {'Ранок' if kind == 'morning' else 'Вечір'}"
-    elif lang == "en": header = f"⚡ Proactivity • {'Morning' if kind == 'morning' else 'Evening'}"
-    else: header = f"⚡ Проактивность • {'Утро' if kind == 'morning' else 'Вечер'}"
-        
+    if lang == "uk":
+        header = f"⚡ Проактивність • {'Ранок' if kind == 'morning' else 'Вечір'}"
+    elif lang == "en":
+        header = f"⚡ Proactivity • {'Morning' if kind == 'morning' else 'Evening'}"
+    else:
+        header = f"⚡ Проактивность • {'Утро' if kind == 'morning' else 'Вечер'}"
+
     await cb.message.answer(f"{header}\n\n{q}")
-    await cb.answer()
+    await cb.answer("Ок")
 
 
 @router.message(ProactiveCheckinFSM.waiting_a1, F.text)
@@ -113,9 +125,14 @@ async def proactive_finish(m: Message, session: AsyncSession, state: FSMContext)
 
     tg = m.from_user
     u = (await session.execute(select(User).where(User.tg_id == tg.id))).scalar_one_or_none()
-    
+
     if not u:
-        await m.answer("User not found" if lang == "en" else ("Користувача не знайдено" if lang == "uk" else "Пользователь не найден"))
+        if lang == "en":
+            await m.answer("User not found")
+        elif lang == "uk":
+            await m.answer("Користувача не знайдено")
+        else:
+            await m.answer("Пользователь не найден")
         await state.clear()
         return
 
@@ -123,6 +140,9 @@ async def proactive_finish(m: Message, session: AsyncSession, state: FSMContext)
     await state.clear()
 
     msg = "✅ Готово. Ответ сохранён. Стрик обновлён."
-    if lang == "uk": msg = "✅ Готово. Відповідь збережено. Серію оновлено."
-    elif lang == "en": msg = "✅ Done. Answer saved. Streak updated."
+    if lang == "uk":
+        msg = "✅ Готово. Відповідь збережено. Серію оновлено."
+    elif lang == "en":
+        msg = "✅ Done. Answer saved. Streak updated."
+
     await m.answer(msg)

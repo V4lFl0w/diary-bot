@@ -457,7 +457,7 @@ async def journal_stats(
     plan = _assistant_plan(user)
     limit_ast = _quota_limits_tokens(plan, "assistant")
     used_ast = await _usage_tokens_last_24h(session, user.id, "assistant")
-    
+
     limit_vis = _quota_limits_tokens(plan, "vision")
     used_vis = await _usage_tokens_last_24h(session, user.id, "vision")
 
@@ -466,7 +466,7 @@ async def journal_stats(
     left_vis = max(0, limit_vis - used_vis)
 
     parts: list[str] = []
-    
+
     stats_text = _tr(
         loc,
         f"📒 <b>Дневник</b>\n• Записей всего: {total}\n\n"
@@ -474,13 +474,13 @@ async def journal_stats(
         f"• Текстовые запросы: ~{left_ast // 500} шт. (остаток {left_ast} токенов)\n"
         f"• Анализ фото: {left_vis // 800} шт.\n\n"
         f"👑 Твой тариф: {plan.upper()}",
-        
+
         f"📒 <b>Щоденник</b>\n• Записів всього: {total}\n\n"
         f"🤖 <b>Нейромережі (доступно на сьогодні):</b>\n"
         f"• Текстові запити: ~{left_ast // 500} шт. (залишок {left_ast} токенів)\n"
         f"• Аналіз фото: {left_vis // 800} шт.\n\n"
         f"👑 Твій тариф: {plan.upper()}",
-        
+
         f"📒 <b>Journal</b>\n• Total entries: {total}\n\n"
         f"🤖 <b>AI limits (available today):</b>\n"
         f"• Text queries: ~{left_ast // 500} (left {left_ast} tokens)\n"

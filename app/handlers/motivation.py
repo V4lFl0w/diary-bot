@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 from datetime import timezone
 from typing import Optional
 from aiogram import F, Router
@@ -169,10 +168,10 @@ async def motivation_support_reply(m: Message, session: AsyncSession, state: FSM
         "1. Если сообщение позитивное (радость, успех, всё хорошо) — похвали, дай заряд энергии, скажи что он красавчик. НИКАКОГО УТЕШЕНИЯ И ЖАЛОСТИ!\n"
         "2. Если сообщение негативное (усталость, грусть, страх) — дай короткую эмпатичную поддержку без воды и один микро-совет.\n"
     )
-    
+
     # Гоняем через твоего ассистента (он сам разберется с языком)
     reply = await run_assistant(user, prompt, lang, session=session)
-    
+
     await wait_msg.delete()
     await m.answer(reply, reply_markup=_kb())
 
@@ -389,7 +388,7 @@ async def motivation_quote(m: Message, session: AsyncSession):
 
     # Гоняем через ассистента — он выдаст уникальную мысль на нужном языке (ru/uk/en)
     reply = await run_assistant(user, prompt, lang, session=session)
-    
+
     await wait_msg.delete()
     await m.answer(reply, reply_markup=_kb())
 
