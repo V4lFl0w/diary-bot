@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
-from app.services.quotes_bank import generate_quote
+from app.services.assistant import run_assistant
 
 try:
     from zoneinfo import ZoneInfo
@@ -87,200 +87,6 @@ def _t(lang: str, ru: str, uk: str, en: str) -> str:
 
 
 # ---- support infinite combinatorics (ru/uk/en) ----
-_SUPPORT_BANK = {
-    "ru": {
-        "openers": [
-            "Слышу тебя.",
-            "Я рядом.",
-            "Ок, я понял(а).",
-            "Понял(а).",
-            "Принял(а).",
-            "Дышим.",
-            "Стоп. Я тут.",
-            "Спасибо, что написал(а).",
-            "Не один(одна). Я здесь.",
-            "Я с тобой.",
-            "Сейчас без героизма.",
-            "По-человечески:",
-        ],
-        "validate": [
-            "То, что ты это чувствуешь — нормально.",
-            "Это не делает тебя слабым(ой).",
-            "Это не приговор — это сигнал.",
-            "Тебя можно понять.",
-            "С тобой всё ок — ты просто устал(а).",
-            "Да, так бывает.",
-            "Это реально может давить.",
-            "Ты не обязан(а) тащить в одиночку.",
-        ],
-        "reframe": [
-            "Нам не нужна идеальность — нам нужен один шаг.",
-            "Не надо чинить всю жизнь — только ближайшие 2 минуты.",
-            "Сейчас важнее действие, чем настроение.",
-            "Сначала маленькое — потом станет легче.",
-            "Мы не ускоряемся — мы стабилизируемся.",
-            "Один микро-шаг возвращает контроль.",
-        ],
-        "micro": [
-            "Сделай вдох/выдох 3 раза.",
-            "Поставь таймер на 2 минуты.",
-            "Открой задачу, но ничего не делай 10 секунд — просто посмотри.",
-            "Убери одну помеху (закрой лишнюю вкладку/чат).",
-            "Сядь ровно и расслабь плечи.",
-            "Сделай глоток воды.",
-            "Напиши одно слово: что важнее всего прямо сейчас?",
-        ],
-        "next": [
-            "Выбирай кнопку ниже 👇",
-            "Какой вариант берём?",
-            "Что тебе нужно сейчас больше всего?",
-            "Давай выберем один вариант и пойдём.",
-            "Ок — выбираем следующий шаг.",
-            "Дальше — только один пункт.",
-        ],
-    },
-    "uk": {
-        "openers": [
-            "Чую тебе.",
-            "Я поруч.",
-            "Ок, зрозумів(ла).",
-            "Зрозумів(ла).",
-            "Прийняв(ла).",
-            "Дихаємо.",
-            "Стоп. Я тут.",
-            "Дякую, що написав(ла).",
-            "Ти не один(одна). Я тут.",
-            "Я з тобою.",
-            "Зараз без героїзму.",
-            "По-людськи:",
-        ],
-        "validate": [
-            "Те, що ти це відчуваєш — нормально.",
-            "Це не робить тебе слабким(ою).",
-            "Це не вирок — це сигнал.",
-            "Тебе можна зрозуміти.",
-            "З тобою все ок — ти просто втомився(лась).",
-            "Так буває.",
-            "Це реально може тиснути.",
-            "Ти не мусиш тягнути сам(а).",
-        ],
-        "reframe": [
-            "Нам не потрібна ідеальність — потрібен один крок.",
-            "Не треба лагодити все життя — лише найближчі 2 хвилини.",
-            "Зараз важливіша дія, ніж настрій.",
-            "Спочатку маленьке — потім стане легше.",
-            "Ми не прискорюємось — ми стабілізуємось.",
-            "Один мікро-крок повертає контроль.",
-        ],
-        "micro": [
-            "Зроби вдих/видих 3 рази.",
-            "Постав таймер на 2 хвилини.",
-            "Відкрий задачу й 10 секунд просто подивись — без дій.",
-            "Прибери одну перешкоду (закрий зайву вкладку/чат).",
-            "Сядь рівно й розслаб плечі.",
-            "Зроби ковток води.",
-            "Напиши одне слово: що найважливіше просто зараз?",
-        ],
-        "next": [
-            "Обирай кнопку нижче 👇",
-            "Який варіант беремо?",
-            "Що тобі потрібно зараз найбільше?",
-            "Обираємо один варіант і йдемо.",
-            "Ок — обираємо наступний крок.",
-            "Далі — лише один пункт.",
-        ],
-    },
-    "en": {
-        "openers": [
-            "I hear you.",
-            "I’m here.",
-            "Ok, got you.",
-            "Got it.",
-            "Accepted.",
-            "Breathe.",
-            "Pause. I’m here.",
-            "Thanks for saying it.",
-            "You’re not alone — I’m here.",
-            "I’m with you.",
-            "No hero mode right now.",
-            "Human truth:",
-        ],
-        "validate": [
-            "Feeling this is normal.",
-            "This doesn’t make you weak.",
-            "It’s not a sentence — it’s a signal.",
-            "It makes sense.",
-            "You’re not broken — you’re tired.",
-            "Yeah, it happens.",
-            "This can genuinely feel heavy.",
-            "You don’t have to carry it alone.",
-        ],
-        "reframe": [
-            "We don’t need perfection — we need one step.",
-            "Don’t fix your whole life — just the next 2 minutes.",
-            "Action matters more than mood right now.",
-            "Start small — it gets easier.",
-            "We’re not rushing — we’re stabilizing.",
-            "One micro-step brings control back.",
-        ],
-        "micro": [
-            "Take 3 slow breaths.",
-            "Set a 2-minute timer.",
-            "Open the task and just look at it for 10 seconds — no action.",
-            "Remove one blocker (close one tab/chat).",
-            "Relax your shoulders.",
-            "Drink a sip of water.",
-            "Write one word: what matters most right now?",
-        ],
-        "next": [
-            "Pick a button below 👇",
-            "Which option do we take?",
-            "What do you need most right now?",
-            "Let’s pick one option and move.",
-            "Ok — choose the next step.",
-            "Next — only one item.",
-        ],
-    },
-}
-
-
-def generate_support(lang: str, user_text: str, *, seed: int | None = None) -> str:
-    # seed можно не задавать — тогда будет максимально “живое”
-    # user_text участвует в тексте => уже добавляет уникальности
-    lang = (lang or "ru").lower()
-    if lang.startswith(("ua", "uk")):
-        lang = "uk"
-    elif lang.startswith("en"):
-        lang = "en"
-    else:
-        lang = "ru"
-
-    b = _SUPPORT_BANK[lang]
-    rnd = random.Random(seed) if seed is not None else random
-
-    # “склейка” из 5 частей => огромная комбинаторика
-    opener = rnd.choice(b["openers"])
-    validate = rnd.choice(b["validate"])
-    reframe = rnd.choice(b["reframe"])
-    micro = rnd.choice(b["micro"])
-    nxt = rnd.choice(b["next"])
-
-    # user_text аккуратно вставляем (не всегда первым)
-    if lang == "en":
-        echo = f"“{user_text}”"
-    else:
-        echo = f"«{user_text}»"
-
-    # иногда ставим echo в начале, иногда — в середине (ещё вариативность)
-    if rnd.random() < 0.5:
-        line1 = f"{opener} {echo}"
-    else:
-        line1 = f"{opener} {validate}"
-
-    # итоговый текст
-    return f"{line1}\n\n{validate}\n{reframe}\n\n{micro}\n\n{nxt}"
-
-
 # ---- /support infinite combinatorics ----
 
 
@@ -353,8 +159,22 @@ async def motivation_support_reply(m: Message, session: AsyncSession, state: FSM
     txt = (m.text or "").strip()
     await state.clear()
 
-    msg = generate_support(lang, txt)
-    await m.answer(msg, reply_markup=_kb())
+    # Показываем эмодзи загрузки, пока ИИ думает
+    wait_msg = await m.answer("⏳")
+
+    # Формируем промпт для ИИ, чтобы он оценил тональность
+    prompt = (
+        f"Пользователь написал в разделе Мотивации/Поддержки: «{txt}».\n"
+        "Правила ответа (максимум 3-4 короткие строки):\n"
+        "1. Если сообщение позитивное (радость, успех, всё хорошо) — похвали, дай заряд энергии, скажи что он красавчик. НИКАКОГО УТЕШЕНИЯ И ЖАЛОСТИ!\n"
+        "2. Если сообщение негативное (усталость, грусть, страх) — дай короткую эмпатичную поддержку без воды и один микро-совет.\n"
+    )
+    
+    # Гоняем через твоего ассистента (он сам разберется с языком)
+    reply = await run_assistant(user, prompt, lang, session=session)
+    
+    await wait_msg.delete()
+    await m.answer(reply, reply_markup=_kb())
 
 
 @router.message(F.text == BTN_JUMP)
@@ -557,8 +377,21 @@ async def motivation_quote(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
-    # “бесконечность”: каждый раз новая комбинация
-    await m.answer(generate_quote(lang))
+    wait_msg = await m.answer("⏳")
+
+    # Жесткий промпт, чтобы ИИ выдавал реально крутые и неочевидные вещи
+    prompt = (
+        "Сгенерируй одну мощную, хлесткую и нестандартную мысль для фокуса и дисциплины. "
+        "СТРОГО ЗАПРЕЩЕНО использовать банальности вроде 'никогда не сдавайся', 'верь в себя', 'следуй за мечтой'. "
+        "Стиль: стоицизм, суровый прагматизм, глубокая психология. "
+        "Максимум 1-2 предложения. Без приветствий, кавычек, хэштегов и лишней воды. Только сама суть."
+    )
+
+    # Гоняем через ассистента — он выдаст уникальную мысль на нужном языке (ru/uk/en)
+    reply = await run_assistant(user, prompt, lang, session=session)
+    
+    await wait_msg.delete()
+    await m.answer(reply, reply_markup=_kb())
 
 
 @router.message(F.text == BTN_BACK)

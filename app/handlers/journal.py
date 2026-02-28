@@ -17,6 +17,8 @@ from sqlalchemy import func, select
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.assistant import _usage_tokens_last_24h, _quota_limits_tokens, _assistant_plan
+
 from app.keyboards import (
     get_main_kb,
     is_history_btn,
@@ -272,41 +274,36 @@ async def journal_prompt(
         _tr(
             loc,
             (
-                "📒 Дневник\n"
-                "Напиши одним сообщением всё, что важно сегодня — мысли, события, чувства, планы.\n\n"
-                "Подсказки, если не знаешь с чего начать:\n"
-                "• Что сегодня было самым сильным моментом?\n"
-                "• Что сейчас беспокоит/радует?\n"
-                "• Какой 1 шаг сделает завтра лучше?\n\n"
-                + (
-                    "💎 Premium: поиск по дневнику, диапазоны, расширенная история и статистика.\n\n"
-                    if not is_premium
-                    else ""
-                )
+                "📒 <b>Твой личный дневник</b>\n\n"
+                "Выгружай сюда всё, что крутится в голове. Я не просто сохраню текст, а помогу найти взаимосвязи, подсвечу главное и напомню о важных инсайтах.\n\n"
+                "💡 <i>С чего начать?</i>\n"
+                "• Какая главная победа или мысль за сегодня?\n"
+                "• Что забирает твою энергию прямо сейчас?\n"
+                "• Какой один микро-шаг сделает завтрашний день лучше?\n\n"
+                "Напиши всё одним сообщением 👇\n"
+                + ("<i>💎 В Premium доступен поиск, фильтры и глубокая аналитика мыслей.</i>\n\n" if not is_premium else "")
                 + "/cancel — отменить"
             ),
             (
-                "📒 Щоденник\n"
-                "Напиши одним повідомленням усе важливе за сьогодні — думки, події, емоції, плани.\n\n"
-                "Підказки, якщо не знаєш з чого почати:\n"
-                "• Який момент сьогодні був найсильнішим?\n"
-                "• Що зараз турбує/радує?\n"
-                "• Який 1 крок зробить завтра кращим?\n\n"
-                + (
-                    "💎 Premium: пошук по щоденнику, діапазони, розширена історія та статистика.\n\n"
-                    if not is_premium
-                    else ""
-                )
+                "📒 <b>Твій особистий щоденник</b>\n\n"
+                "Вивантажуй сюди все, що крутиться в голові. Я не просто збережу текст, а допоможу знайти взаємозв'язки, підсвічу головне і нагадаю про важливі інсайти.\n\n"
+                "💡 <i>З чого почати?</i>\n"
+                "• Яка головна перемога чи думка за сьогодні?\n"
+                "• Що забирає твою енергію прямо зараз?\n"
+                "• Який один мікро-крок зробить завтрашній день кращим?\n\n"
+                "Напиши все одним повідомленням 👇\n"
+                + ("<i>💎 У Premium доступний пошук, фільтри та глибока аналітика думок.</i>\n\n" if not is_premium else "")
                 + "/cancel — скасувати"
             ),
             (
-                "📒 Journal\n"
-                "Send one message with what matters today — thoughts, events, feelings, plans.\n\n"
-                "Prompts if you’re stuck:\n"
-                "• What was the strongest moment today?\n"
-                "• What worries/excites you right now?\n"
-                "• What 1 step will make tomorrow better?\n\n"
-                + ("💎 Premium: search, ranges, extended history and stats.\n\n" if not is_premium else "")
+                "📒 <b>Your personal journal</b>\n\n"
+                "Offload everything on your mind. I won't just save the text, I'll help you find patterns, highlight what matters, and remind you of key insights.\n\n"
+                "💡 <i>Where to start?</i>\n"
+                "• What was your main win or thought today?\n"
+                "• What's draining your energy right now?\n"
+                "• What's one micro-step to make tomorrow better?\n\n"
+                "Write it all in one message 👇\n"
+                + ("<i>💎 Premium unlocks search, filters, and deep thought analytics.</i>\n\n" if not is_premium else "")
                 + "/cancel — cancel"
             ),
         )
@@ -457,14 +454,40 @@ async def journal_stats(
     ).scalar() or 0
 
     parts: list[str] = []
-    parts.append(
-        _tr(
-            loc,
-            f"📒 Дневник\n• Записей всего: {total}",
-            f"📒 Щоденник\n• Записів всього: {total}",
-            f"📒 Journal\n• Total entries: {total}",
-        )
+    plan = _assistant_plan(user)
+    limit_ast = _quota_limits_tokens(plan, "assistant")
+    used_ast = await _usage_tokens_last_24h(session, user.id, "assistant")
+    
+    limit_vis = _quota_limits_tokens(plan, "vision")
+    used_vis = await _usage_tokens_last_24h(session, user.id, "vision")
+
+    # Считаем остаток
+    left_ast = max(0, limit_ast - used_ast)
+    left_vis = max(0, limit_vis - used_vis)
+
+    parts: list[str] = []
+    
+    stats_text = _tr(
+        loc,
+        f"📒 <b>Дневник</b>\n• Записей всего: {total}\n\n"
+        f"🤖 <b>Нейросети (доступно на сегодня):</b>\n"
+        f"• Текстовые запросы: ~{left_ast // 500} шт. (остаток {left_ast} токенов)\n"
+        f"• Анализ фото: {left_vis // 800} шт.\n\n"
+        f"👑 Твой тариф: {plan.upper()}",
+        
+        f"📒 <b>Щоденник</b>\n• Записів всього: {total}\n\n"
+        f"🤖 <b>Нейромережі (доступно на сьогодні):</b>\n"
+        f"• Текстові запити: ~{left_ast // 500} шт. (залишок {left_ast} токенів)\n"
+        f"• Аналіз фото: {left_vis // 800} шт.\n\n"
+        f"👑 Твій тариф: {plan.upper()}",
+        
+        f"📒 <b>Journal</b>\n• Total entries: {total}\n\n"
+        f"🤖 <b>AI limits (available today):</b>\n"
+        f"• Text queries: ~{left_ast // 500} (left {left_ast} tokens)\n"
+        f"• Photo analysis: {left_vis // 800} left\n\n"
+        f"👑 Your plan: {plan.upper()}",
     )
+    parts.append(stats_text)
 
     # analytics_events (7d)
     try:

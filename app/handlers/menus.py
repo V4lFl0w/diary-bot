@@ -22,6 +22,7 @@ from app.keyboards import (
     is_root_premium_btn,
     is_root_proactive_btn,
     is_root_settings_btn,
+    is_about_btn,
 )
 from app.models.user import User
 from app.services.analytics_helpers import log_ui
@@ -105,7 +106,8 @@ async def open_journal_menu(m: Message, session: AsyncSession, state: FSMContext
     lang = _user_lang(user, tg_lang)
 
     await _log(session, user, tg_lang, "open_journal_menu", "menu")
-    await m.answer("📓 Журнал", reply_markup=get_journal_menu_kb(lang))
+    txt = {"ru": "📓 Журнал", "uk": "📓 Щоденник", "en": "📓 Journal"}.get(lang, "📓 Журнал")
+    await m.answer(txt, reply_markup=get_journal_menu_kb(lang))
 
 
 @router.message(F.text.func(is_root_media_btn))
@@ -119,7 +121,8 @@ async def open_media_menu(m: Message, session: AsyncSession, state: FSMContext) 
     lang = _user_lang(user, tg_lang)
 
     await _log(session, user, tg_lang, "open_media_menu", "menu")
-    await m.answer("🧘 Медиа", reply_markup=get_media_menu_kb(lang))
+    txt = {"ru": "🧘 Медиа", "uk": "🧘 Медіа", "en": "🧘 Media"}.get(lang, "🧘 Медиа")
+    await m.answer(txt, reply_markup=get_media_menu_kb(lang))
 
 
 @router.message(F.text.func(is_root_settings_btn))
@@ -133,7 +136,20 @@ async def open_settings_menu(m: Message, session: AsyncSession, state: FSMContex
     lang = _user_lang(user, tg_lang)
 
     await _log(session, user, tg_lang, "open_settings_menu", "menu")
-    await m.answer("⚙️ Настройки", reply_markup=get_settings_menu_kb(lang))
+    txt = {"ru": "⚙️ Настройки", "uk": "⚙️ Налаштування", "en": "⚙️ Settings"}.get(lang, "⚙️ Настройки")
+    await m.answer(txt, reply_markup=get_settings_menu_kb(lang))
+
+@router.message(F.text.func(is_about_btn))
+async def open_about_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
+    if not m.from_user:
+        return
+    await state.clear()
+
+    await m.answer(
+        "<b>Diary-Bot</b> — твой умный помощник.\n\n"
+        "🎬 <i>This product uses the TMDB API but is not endorsed or certified by TMDB.</i>",
+        parse_mode="HTML"
+    )
 
 
 @router.message(F.text.func(is_root_proactive_btn))
@@ -168,8 +184,9 @@ async def open_premium_menu(m: Message, session: AsyncSession, state: FSMContext
 
     from aiogram.types import ReplyKeyboardRemove
 
-    await m.answer("💎 Премиум", reply_markup=ReplyKeyboardRemove())
-    await m.answer("💎 Премиум", reply_markup=get_premium_menu_kb(lang, is_premium=is_premium, tg_id=m.from_user.id))
+    btn_txt = {"ru": "💎 Премиум", "uk": "💎 Преміум", "en": "💎 Premium"}.get(lang, "💎 Премиум")
+    await m.answer(btn_txt, reply_markup=ReplyKeyboardRemove())
+    await m.answer(btn_txt, reply_markup=get_premium_menu_kb(lang, is_premium=is_premium, tg_id=m.from_user.id))
 
 
 @router.callback_query(F.data == "menu:home")
@@ -179,8 +196,9 @@ async def cb_back_to_main(call: CallbackQuery, session: AsyncSession, state: FSM
     user = await _get_user(session, call.from_user.id)
     lang = _user_lang(user, getattr(call.from_user, "language_code", None))
 
+    txt = {"ru": "🏠 Главное меню", "uk": "🏠 Головне меню", "en": "🏠 Main menu"}.get(lang, "🏠 Главное меню")
     await call.message.answer(
-        "🏠 Главное меню",
+        txt,
         reply_markup=get_main_kb(
             lang,
             is_premium=_is_premium_user(user),
@@ -208,8 +226,9 @@ async def back_to_main(m: Message, session: AsyncSession, state: FSMContext) -> 
 
     await _log(session, user, tg_lang, "back_to_main", "button")
 
+    txt = {"ru": "🏠 Главное меню", "uk": "🏠 Головне меню", "en": "🏠 Main menu"}.get(lang, "🏠 Главное меню")
     await m.answer(
-        "🏠 Главное меню",
+        txt,
         reply_markup=get_main_kb(
             lang,
             is_premium=_is_premium_user(user),
@@ -220,7 +239,6 @@ async def back_to_main(m: Message, session: AsyncSession, state: FSMContext) -> 
 
 @router.message(F.text & ~F.text.startswith("/"))
 async def media_mode_text_router(message: Message, session: AsyncSession, state: FSMContext):
-    # ✅ если в любом FSM (журнал/калории/ассистент/и т.д.) — НЕ перехватываем, пропускаем дальше
     st = None
     try:
         st = await state.get_state()
@@ -233,8 +251,6 @@ async def media_mode_text_router(message: Message, session: AsyncSession, state:
     if not getattr(message, "from_user", None):
         raise SkipHandler()
 
-    # Если включен assistant_mode == 'media', то любой текст уходит в run_assistant.
-    # Если media mode не активен — пропускаем дальше.
     user = await session.scalar(select(User).where(User.tg_id == message.from_user.id))
     if not user or getattr(user, "assistant_mode", None) != "media":
         raise SkipHandler()

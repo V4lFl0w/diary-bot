@@ -12,15 +12,16 @@
     .card { border: 1px solid rgba(127,127,127,.25); border-radius: 16px; padding: 14px; margin: 10px 0; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .row4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
     .row5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-    .btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; padding: 12px 10px; font-size: 15px; border-radius: 12px; border: 1px solid rgba(127,127,127,.35); background: rgba(127,127,127,.08); }
-    .btn.primary { font-weight: 700; }
-    .btn.active { outline: 2px solid rgba(0, 128, 255, .55); }
-    .big { font-size: 26px; text-align: center; padding: 12px 0; }
+    .btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; padding: 12px 6px; font-size: 14px; border-radius: 12px; border: 1px solid rgba(127,127,127,.35); background: rgba(127,127,127,.08); cursor: pointer; }
+    .btn.primary { font-weight: 700; background: rgba(0, 128, 255, .15); }
+    .btn.active { outline: 2px solid rgba(0, 128, 255, .55); background: rgba(0, 128, 255, .1); }
+    .big { font-size: 26px; text-align: center; padding: 12px 0; font-weight: bold; }
     .muted { opacity: .7; font-size: 13px; line-height: 1.35; }
-    label { font-size: 13px; opacity: .85; display: block; margin-bottom: 6px; }
-    input[type="range"] { width: 100%; }
-    .status { font-size: 14px; }
+    label { font-size: 13px; opacity: .85; display: block; margin-bottom: 6px; font-weight: 600; }
+    input[type="range"] { width: 100%; margin-top: 8px; }
+    .status { font-size: 14px; text-align: center; }
     .ok { color: #18a558; font-weight: 700; }
     .warn { color: #d97706; font-weight: 700; }
   </style>
@@ -32,13 +33,13 @@
     <div class="card">
       <div class="big" id="timeLeft">Готов</div>
       <div class="status" id="status">Настрой параметры и нажми Start.</div>
-      <div class="muted" style="margin-top:10px">
-        Важно: в Telegram нужен 1 клик “Start”, чтобы браузер разрешил звук. После этого колокол/фон работают нормально.
+      <div class="muted" style="margin-top:10px; text-align: center;">
+        Нажми “Start”, чтобы запустить таймер и звуки.
       </div>
     </div>
 
     <div class="card">
-      <label>⏱ Длительность</label>
+      <label>⏱ Длительность (мин)</label>
       <div class="row5" id="durRow">
         <button class="btn" data-min="5">5</button>
         <button class="btn" data-min="10">10</button>
@@ -47,7 +48,7 @@
         <button class="btn" id="durCustomBtn">Кастом</button>
       </div>
       <div style="margin-top:10px">
-        <input id="durCustom" type="number" min="1" max="180" step="1" value="10" style="width:100%; padding:12px; border-radius:12px; border:1px solid rgba(127,127,127,.35); display:none;">
+        <input id="durCustom" type="number" min="1" max="180" step="1" value="10" style="width:100%; box-sizing: border-box; padding:12px; border-radius:12px; border:1px solid rgba(127,127,127,.35); display:none;">
       </div>
     </div>
 
@@ -56,15 +57,15 @@
         <div>
           <label>🎛 Режим</label>
           <div class="row3" id="modeRow">
-            <button class="btn" data-mode="timer">Timer</button>
-            <button class="btn" data-mode="guided">Guided</button>
-            <button class="btn" data-mode="sleep">Sleep</button>
+            <button class="btn" data-mode="timer">Таймер</button>
+            <button class="btn" data-mode="guided">Голос</button>
+            <button class="btn" data-mode="sleep">Сон</button>
           </div>
         </div>
         <div>
           <label>🔔 Колокол</label>
           <div class="row">
-            <button class="btn" id="bellToggle">On</button>
+            <button class="btn" id="bellToggle">Вкл</button>
             <button class="btn" id="testSound">Тест</button>
           </div>
         </div>
@@ -72,16 +73,24 @@
     </div>
 
     <div class="card">
-      <label>🎵 Фон</label>
-      <div class="row" id="bgRow">
-        <button class="btn" data-bg="off">Off</button>
-        <button class="btn" data-bg="rain">Rain</button>
-        <button class="btn" data-bg="forest">Forest</button>
-        <button class="btn" data-bg="white">White</button>
+      <label>🍃 Природный фон</label>
+      <div class="row4" id="bgRow">
+        <button class="btn" data-bg="off">Выкл</button>
+        <button class="btn" data-bg="rain">Дождь</button>
+        <button class="btn" data-bg="forest">Лес</button>
+        <button class="btn" data-bg="white">Шум</button>
       </div>
 
-      <div style="margin-top:12px">
-        <label>🔊 Громкость: <span id="volLabel">70%</span></label>
+      <label style="margin-top: 15px;">🎧 Музыка</label>
+      <div class="row4" id="musicRow">
+        <button class="btn" data-music="off">Выкл</button>
+        <button class="btn" data-music="lofi">Lo-Fi</button>
+        <button class="btn" data-music="ambient">Ambient</button>
+        <button class="btn" data-music="bowls">Чаши</button>
+      </div>
+
+      <div style="margin-top:16px">
+        <label>🔊 Общая громкость: <span id="volLabel">70%</span></label>
         <input id="vol" type="range" min="0" max="100" value="70">
       </div>
     </div>
@@ -96,14 +105,21 @@
         <button class="btn" id="stopBtn" disabled>⏹ Stop</button>
       </div>
     </div>
-<audio id="bellStart" src="/static/sounds/meditation_start.mp3" preload="auto"></audio>
-<audio id="bellEnd" src="/static/sounds/meditation_end.mp3" preload="auto"></audio>
-
-
-    </div>
+    
+    <audio id="bellStart" src="/static/sounds/meditation_start.mp3" preload="auto"></audio>
+    <audio id="bellEnd" src="/static/sounds/meditation_end.mp3" preload="auto"></audio>
+    <audio id="bgMusic" loop preload="none"></audio>
+  </div>
 
   <script>
   (() => {
+    // --- Твои ссылки на музыку ---
+    const MUSIC_SOURCES = {
+      "lofi": "/static/sounds/lofi.mp3",
+      "ambient": "/static/sounds/ambient.mp3",
+      "bowls": "/static/sounds/bowls.mp3"
+    };
+
     // --- Telegram WebApp ---
     const tg = window.Telegram?.WebApp;
     try { tg?.ready?.(); tg?.expand?.(); } catch(e) {}
@@ -112,7 +128,6 @@
       try { tg?.sendData?.(JSON.stringify({ type, ...payload })); } catch(e) {}
     }
 
-    // --- Query params for prefill (from bot) ---
     function qs(name, defVal=null){
       const u = new URL(window.location.href);
       return u.searchParams.get(name) ?? defVal;
@@ -123,6 +138,7 @@
       durationMin: clampInt(parseInt(qs("duration_min","10"),10), 1, 180),
       mode: (qs("mode","timer") || "timer"),
       bg: (qs("bg","off") || "off"),
+      music: "off",
       vol: clampInt(parseInt(qs("vol","70"),10), 0, 100),
       bell: (qs("bell","1") || "1") !== "0",
       running: false,
@@ -140,6 +156,7 @@
 
     const $modeRow = document.getElementById("modeRow");
     const $bgRow = document.getElementById("bgRow");
+    const $musicRow = document.getElementById("musicRow");
     const $bellToggle = document.getElementById("bellToggle");
     const $testSound = document.getElementById("testSound");
 
@@ -150,6 +167,8 @@
     const $pauseBtn = document.getElementById("pauseBtn");
     const $resumeBtn = document.getElementById("resumeBtn");
     const $stopBtn = document.getElementById("stopBtn");
+    
+    const $bgMusic = document.getElementById("bgMusic");
 
     // --- Helpers ---
     function clampInt(n, lo, hi){ n = Number.isFinite(n) ? n : lo; return Math.max(lo, Math.min(hi, Math.trunc(n))); }
@@ -161,10 +180,10 @@
     }
     function vibrate(ms){ try { navigator.vibrate?.(ms); } catch(e) {} }
 
-    // --- WebAudio (single context + master gain) ---
+    // --- WebAudio (Звуки природы) ---
     let audioCtx = null;
     let master = null;
-    let bgNode = null; // object with stop()
+    let bgNode = null; 
 
     function ensureAudio() {
       if (!audioCtx) {
@@ -188,63 +207,25 @@
       state.vol = clampInt(v, 0, 100);
       $vol.value = String(state.vol);
       $volLabel.textContent = `${state.vol}%`;
+      // Громкость WebAudio
       if (master) master.gain.value = state.vol / 100;
+      // Громкость Музыки и Колоколов
+      if ($bgMusic) $bgMusic.volume = state.vol / 100;
+      document.getElementById("bellStart").volume = state.vol / 100;
+      document.getElementById("bellEnd").volume = state.vol / 100;
     }
 
-    // Bell (through master)
+    // Bell
     function bell(pattern="start") {
       if (!state.bell) return;
-      const el = pattern === "start"
-        ? document.getElementById("bellStart")
-        : document.getElementById("bellEnd");
+      const el = pattern === "start" ? document.getElementById("bellStart") : document.getElementById("bellEnd");
       if (!el) return;
       el.volume = state.vol / 100;
       el.currentTime = 0;
-      el.play().catch(()=>{ try{ _oldBell(pattern); }catch(e){} });
-      return;
+      el.play().catch(()=>{});
     }
 
-// legacy fallback
-function _oldBell(pattern="start") {
-      if (!state.bell) return;
-      const ctx = ensureAudio();
-      if (!ctx || !master) return;
-      const now = ctx.currentTime;
-
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, now);
-      g.gain.exponentialRampToValueAtTime(pattern==="start" ? 0.25 : 0.30, now + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + (pattern==="start" ? 0.35 : 0.75));
-      g.connect(master);
-
-      function tone(freq, t0, dur) {
-        const o = ctx.createOscillator();
-        o.type = "sine";
-        o.frequency.setValueAtTime(freq, t0);
-        o.connect(g);
-        o.start(t0);
-        o.stop(t0 + dur);
-      }
-
-      if (pattern === "start") {
-        tone(880, now + 0.00, 0.35);
-        tone(1320, now + 0.05, 0.30);
-        vibrate(30);
-      } else {
-        tone(784,  now + 0.00, 0.60);
-        tone(1174, now + 0.06, 0.60);
-        tone(1568, now + 0.12, 0.60);
-        vibrate([60,40,60]);
-      }
-    }
-
-    // Background (generated, no mp3)
-    function stopBg() {
-      try { bgNode?.stop?.(); } catch(e) {}
-      bgNode = null;
-    }
-
-    // Background (generated, no mp3)
+    // Generated Backgrounds (Rain, Forest, White Noise)
     function stopBg() {
       try { bgNode?.stop?.(); } catch(e) {}
       bgNode = null;
@@ -253,7 +234,6 @@ function _oldBell(pattern="start") {
     function startBg(kind) {
       stopBg();
       if (kind === "off") return;
-
       const ctx = ensureAudio();
       if (!ctx || !master) return;
 
@@ -270,72 +250,63 @@ function _oldBell(pattern="start") {
         const src = ctx.createBufferSource();
         src.buffer = makeNoiseBuffer(2.0);
         src.loop = true;
-
         const g = ctx.createGain();
         g.gain.value = 0.35;
         src.connect(g).connect(master);
         src.start();
-
         bgNode = { stop: () => { try{ src.stop(); }catch(e){} } };
-        return;
-      }
-
-      if (kind === "rain") {
+      } else if (kind === "rain") {
         const src = ctx.createBufferSource();
         src.buffer = makeNoiseBuffer(2.0);
         src.loop = true;
-
         const lp = ctx.createBiquadFilter();
         lp.type = "lowpass";
         lp.frequency.value = 1800;
-
         const g = ctx.createGain();
         g.gain.value = 0.40;
-
         src.connect(lp).connect(g).connect(master);
         src.start();
-
         bgNode = { stop: () => { try{ src.stop(); }catch(e){} } };
-        return;
-      }
-
-      if (kind === "forest") {
+      } else if (kind === "forest") {
         const src = ctx.createBufferSource();
         src.buffer = makeNoiseBuffer(2.0);
         src.loop = true;
-
         const lp = ctx.createBiquadFilter();
         lp.type = "lowpass";
         lp.frequency.value = 900;
-
         const g = ctx.createGain();
         g.gain.value = 0.45;
-
         const rumble = ctx.createOscillator();
         rumble.type = "sine";
         rumble.frequency.value = 80;
-
         const rg = ctx.createGain();
         rg.gain.value = 0.05;
-
         src.connect(lp).connect(g).connect(master);
         rumble.connect(rg).connect(master);
-
         src.start();
         rumble.start();
-
-        bgNode = {
-          stop: () => {
-            try{ src.stop(); }catch(e){}
-            try{ rumble.stop(); }catch(e){}
-          }
-        };
-        return;
+        bgNode = { stop: () => { try{ src.stop(); rumble.stop(); }catch(e){} } };
       }
     }
 
-    // --- UI render ---
+    // Music Player
+    function stopMusic() {
+      if (!$bgMusic) return;
+      $bgMusic.pause();
+      $bgMusic.currentTime = 0;
+    }
 
+    function startMusic(kind) {
+      if (!$bgMusic) return;
+      $bgMusic.pause();
+      if (kind === "off" || !MUSIC_SOURCES[kind]) return;
+      
+      $bgMusic.src = MUSIC_SOURCES[kind];
+      $bgMusic.volume = state.vol / 100;
+      $bgMusic.play().catch(e => console.log("Auto-play blocked"));
+    }
+
+    // --- UI render ---
     function setActiveButtons(container, attr, value) {
       [...container.querySelectorAll("button")].forEach(b => {
         const v = b.getAttribute(attr);
@@ -350,13 +321,12 @@ function _oldBell(pattern="start") {
       $resumeBtn.disabled = !state.running || !state.paused;
       $stopBtn.disabled = !state.running;
 
-      // lock settings while running
       $durRow.querySelectorAll("button").forEach(b => b.disabled = state.running);
       $durCustom.disabled = state.running;
       $modeRow.querySelectorAll("button").forEach(b => b.disabled = state.running);
       $bgRow.querySelectorAll("button").forEach(b => b.disabled = state.running);
+      $musicRow.querySelectorAll("button").forEach(b => b.disabled = state.running);
       $bellToggle.disabled = state.running;
-      $vol.disabled = false; // громкость можно менять на лету
     }
 
     function updateHeader() {
@@ -372,8 +342,7 @@ function _oldBell(pattern="start") {
     function startTicking() {
       stopTicking();
       interval = setInterval(() => {
-        if (!state.running) return;
-        if (state.paused) return;
+        if (!state.running || state.paused) return;
         const left = Math.max(0, Math.ceil((state.endAt - Date.now())/1000));
         if (left <= 0) finish();
         updateHeader();
@@ -389,6 +358,7 @@ function _oldBell(pattern="start") {
       state.paused = false;
       stopTicking();
       stopBg();
+      stopMusic();
 
       $status.innerHTML = '<span class="ok">✅ Сессия завершена.</span>';
       updateHeader();
@@ -402,9 +372,9 @@ function _oldBell(pattern="start") {
     $startBtn.addEventListener("click", async () => {
       await unlockAudio();
 
-      // start bell + bg
       if (state.mode === "timer" || state.mode === "guided") bell("start");
       startBg(state.bg);
+      startMusic(state.music);
 
       const total = state.durationMin * 60;
       state.running = true;
@@ -415,12 +385,9 @@ function _oldBell(pattern="start") {
       $status.textContent = "⏳ Идёт сессия…";
       send("med2_start", {
         duration_s: total,
-        duration_min: state.durationMin,
         mode: state.mode,
         bg: state.bg,
-        vol: state.vol,
-        bell: state.bell ? 1 : 0,
-        at: Date.now()
+        music: state.music
       });
 
       setRunningUI();
@@ -433,10 +400,9 @@ function _oldBell(pattern="start") {
       state.paused = true;
       state.remainingSec = Math.max(0, Math.ceil((state.endAt - Date.now())/1000));
       stopBg();
+      if ($bgMusic) $bgMusic.pause();
 
       $status.innerHTML = '<span class="warn">⏸ Пауза</span>';
-      send("med2_pause", { left_s: state.remainingSec, at: Date.now() });
-
       setRunningUI();
       updateHeader();
     });
@@ -448,10 +414,9 @@ function _oldBell(pattern="start") {
       state.paused = false;
       state.endAt = Date.now() + (state.remainingSec * 1000);
       startBg(state.bg);
+      if ($bgMusic && state.music !== "off") $bgMusic.play();
 
       $status.textContent = "⏳ Идёт сессия…";
-      send("med2_resume", { left_s: state.remainingSec, at: Date.now() });
-
       setRunningUI();
       updateHeader();
     });
@@ -462,106 +427,85 @@ function _oldBell(pattern="start") {
       state.paused = false;
       stopTicking();
       stopBg();
+      stopMusic();
 
       $status.textContent = "⏹ Остановлено.";
-      send("med2_stop", { at: Date.now() });
-
       setRunningUI();
       updateHeader();
     });
 
     // --- Controls binding ---
-    
-$durRow.addEventListener("click", (e) => {
-  const b = e.target.closest("button");
-  if (!b || state.running) return;
+    $durRow.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b || state.running) return;
+      const min = b.getAttribute("data-min");
+      if (min) {
+        state.durationMin = clampInt(parseInt(min, 10), 1, 180);
+        $durCustom.style.display = "none";
+        $durCustomBtn.classList.remove("active");
+        setActiveButtons($durRow, "data-min", String(state.durationMin));
+        updateHeader();
+        return;
+      }
+      if (b === $durCustomBtn) {
+        $durCustom.style.display = ($durCustom.style.display === "none" ? "block" : "none");
+        $durCustom.value = String(state.durationMin);
+        $durCustomBtn.classList.add("active");
+        setActiveButtons($durRow, "data-min", "__none__");
+        updateHeader();
+      }
+    });
 
-  const min = b.getAttribute("data-min");
-  if (min) {
-    state.durationMin = clampInt(parseInt(min, 10), 1, 180);
+    $durCustom.addEventListener("change", () => {
+      if (state.running) return;
+      state.durationMin = clampInt(parseInt($durCustom.value || "10", 10), 1, 180);
+      $durCustomBtn.classList.add("active");
+      updateHeader();
+    });
 
-    // выключаем кастом-режим
-    $durCustom.style.display = "none";
-    $durCustomBtn.classList.remove("active");
+    $modeRow.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b || state.running) return;
+      state.mode = b.getAttribute("data-mode") || state.mode;
+      setActiveButtons($modeRow, "data-mode", state.mode);
+    });
 
-    // подсветка выбранной кнопки длительности
-    setActiveButtons($durRow, "data-min", String(state.durationMin));
+    $bgRow.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b || state.running) return;
+      state.bg = b.getAttribute("data-bg") || state.bg;
+      setActiveButtons($bgRow, "data-bg", state.bg);
+    });
 
-    updateHeader();
-    return;
-  }
+    $musicRow.addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b || state.running) return;
+      state.music = b.getAttribute("data-music") || state.music;
+      setActiveButtons($musicRow, "data-music", state.music);
+    });
 
-  // если нажали "Кастом"
-  if (b === $durCustomBtn) {
-    $durCustom.style.display = ($durCustom.style.display === "none" ? "block" : "none");
-    $durCustom.value = String(state.durationMin);
-    $durCustomBtn.classList.add("active");
+    $bellToggle.addEventListener("click", () => {
+      if (state.running) return;
+      state.bell = !state.bell;
+      $bellToggle.textContent = state.bell ? "Вкл" : "Выкл";
+    });
 
-    // снимаем подсветку с пресетов, т.к. мы в кастоме
-    setActiveButtons($durRow, "data-min", "__none__");
-
-    updateHeader();
-  }
-});
-
-// кастомное поле: обновляем duration + подсветку
-$durCustom.addEventListener("change", () => {
-  if (state.running) return;
-  state.durationMin = clampInt(parseInt($durCustom.value || "10", 10), 1, 180);
-  $durCustomBtn.classList.add("active");
-  updateHeader();
-});
-
-// --- Mode buttons ---
-$modeRow.addEventListener("click", (e) => {
-  const b = e.target.closest("button");
-  if (!b || state.running) return;
-  const mode = b.getAttribute("data-mode");
-  if (!mode) return;
-  state.mode = mode;
-  setActiveButtons($modeRow, "data-mode", state.mode);
-  updateHeader();
-});
-
-// --- Background buttons ---
-$bgRow.addEventListener("click", (e) => {
-  const b = e.target.closest("button");
-  if (!b || state.running) return;
-  const bg = b.getAttribute("data-bg");
-  if (!bg) return;
-  state.bg = bg;
-  setActiveButtons($bgRow, "data-bg", state.bg);
-  updateHeader();
-});
-
-// --- Bell toggle ---
-$bellToggle.addEventListener("click", () => {
-  if (state.running) return;
-  state.bell = !state.bell;
-  $bellToggle.textContent = state.bell ? "On" : "Off";
-});
-
-// --- Test sound ---
-$testSound.addEventListener("click", async () => {
-  await unlockAudio();
-  bell("start");
-});
-
-
-
-    // --- init from state ---
-    setVolume(state.vol);
+    $testSound.addEventListener("click", async () => {
+      await unlockAudio();
+      bell("start");
+    });
 
     $vol.addEventListener("input", () => setVolume(parseInt($vol.value, 10)));
 
-
-$durCustomBtn.classList.remove("active");
-$durCustom.style.display = "none";
-setActiveButtons($durRow, "data-min", String(state.durationMin));
+    // Init
+    $durCustomBtn.classList.remove("active");
+    $durCustom.style.display = "none";
+    setActiveButtons($durRow, "data-min", String(state.durationMin));
     setActiveButtons($modeRow, "data-mode", state.mode);
     setActiveButtons($bgRow, "data-bg", state.bg);
-    $bellToggle.textContent = state.bell ? "On" : "Off";
-    $durCustom.value = String(state.durationMin);
+    setActiveButtons($musicRow, "data-music", state.music);
+    $bellToggle.textContent = state.bell ? "Вкл" : "Выкл";
+    setVolume(state.vol);
     updateHeader();
     setRunningUI();
 

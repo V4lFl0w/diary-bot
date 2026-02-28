@@ -488,7 +488,8 @@ def _quota_limits_tokens(plan: str, feature: str) -> int:
             return _env_int("ASSISTANT_DAILY_TOKENS_PRO", 220_000)
         if plan_n == "basic":
             return _env_int("ASSISTANT_DAILY_TOKENS_BASIC", 35_000)
-        return _env_int("ASSISTANT_DAILY_TOKENS_FREE", 15_000)
+        # Поднимаем лимит для беты, чтобы хватало на 15-20 диалогов
+        return _env_int("ASSISTANT_DAILY_TOKENS_FREE", 45_000)
 
 
 async def _usage_tokens_last_24h(session: Any, user_id: int, feature: str) -> int:
@@ -569,16 +570,24 @@ def _assistant_plan(user: Optional[User]) -> str:
 
     now = datetime.now(timezone.utc)
     pu = getattr(user, "premium_until", None)
+    is_prem = bool(getattr(user, "is_premium", False))
+    plan = str(getattr(user, "premium_plan", "") or "").strip().lower()
+
+    # Если дата истекла, но админ повесил галочку is_premium — не сбрасываем!
     if pu is not None:
         if pu.tzinfo is None:
             pu = pu.replace(tzinfo=timezone.utc)
-        if pu <= now:
+        if pu <= now and not is_prem:
             return "free"
-    if pu is None and not bool(getattr(user, "is_premium", False)):
+
+    # Если даты нет и галочки нет
+    if pu is None and not is_prem:
         return "free"
-    plan = str(getattr(user, "premium_plan", "") or "").strip().lower()
-    if plan in {"basic", "pro"}:
+
+    # Распознаем все твои тарифы
+    if plan in {"basic", "pro", "max", "pro_max"}:
         return plan
+        
     return "basic"
 
 
@@ -732,16 +741,24 @@ def _instructions(lang: str, plan: str) -> str:
         "- Без психоанализа и диагнозов.\n"
         "- Коротко и по делу.\n"
     )
+    tricks = (
+        "\n\nСЕКРЕТНЫЕ НАВЫКИ (Применяй только если это в тему):\n"
+        "1. Формула Карвонена: Если юзер спрашивает про бег, пульс, кардио или похудение, рассчитай ему пульсовые зоны по формуле Карвонена. Запроси возраст и пульс покоя, если их нет.\n"
+        "2. Музыкатерапия: Если юзер пишет, что он выгорел, устал или в депрессии, помимо слов поддержки, посоветуй ему послушать конкретный Lo-Fi/Ambient трек или классику (напиши название и автора) и порекомендуй включить раздел 'Медитация' в боте."
+    )
+    
     if plan == "basic":
         return (
             base
             + style
             + "Режим BASIC:\n- 2–6 предложений.\n- Без планов и стратегий без запроса.\n- Журнал не использовать как память.\n"
+            + tricks
         )
     return (
         base
         + style
         + "Режим PRO:\n- Можно использовать последние записи журнала как контекст.\n- Можно предлагать чеклисты и структуру.\n- Можно задать до 2 уточняющих вопросов.\n- Стиль: умный близкий помощник.\n"
+        + tricks
     )
 
 

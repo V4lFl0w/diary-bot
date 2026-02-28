@@ -1107,10 +1107,11 @@ async def cal_cmd(
     if query:
         res = await analyze_text(query, lang_code=lang_code)
         if _kcal_is_invalid(res):
-            await message.answer(
-                "Не смог нормально посчитать. Укажи граммы/начинку, например: "
-                "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
-            )
+            err_msg = _tr(lang_code,
+                          "Не смог нормально посчитать. Укажи граммы/начинку, например: ‘5 шт (~250 г), начинка: вишня’ или ‘250 г вареников’.",
+                          "Не зміг нормально порахувати. Вкажи грами/начинку, наприклад: ‘5 шт (~250 г), начинка: вишня’ або ‘250 г вареників’.",
+                          "Couldn't calculate properly. Please specify grams/ingredients, eg: ‘5 pcs (~250g)’ or ‘250g chicken’.")
+            await message.answer(err_msg)
             return
         out = _format_cal_total(lang_code, res)
         card = render_text_card(out)
@@ -1446,7 +1447,8 @@ async def cal_photo_in_input_mode(
     await wait_msg.delete()
 
     if not res:
-        await message.answer("Не удалось распознать еду.")
+        err_msg = _tr(lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food.")
+        await message.answer(err_msg)
         return
 
     conf = float(res.get("confidence", 0) or 0)
@@ -1499,7 +1501,8 @@ async def cal_photo_waiting(
     await wait_msg.delete()
 
     if not res:
-        await message.answer("Не удалось распознать еду.")
+        err_msg = _tr(lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food.")
+        await message.answer(err_msg)
         return
 
     conf = float(res.get("confidence", 0) or 0)
@@ -1586,7 +1589,8 @@ async def cal_photo_caption_trigger(
     await wait_msg.delete()
 
     if not res:
-        await message.answer("Не удалось распознать еду.")
+        err_msg = _tr(lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food.")
+        await message.answer(err_msg)
         return
 
     conf = float(res.get("confidence", 0) or 0)
@@ -1639,7 +1643,7 @@ async def cal_portion_recalc(
     res = await analyze_text(text, lang_code=lang_code)
 
     if _kcal_is_invalid(res):
-        await message.answer("Не смог пересчитать. Укажи граммы или количество точнее.")
+        await message.answer(_tr(lang_code, "Не смог пересчитать. Укажи граммы или количество точнее.", "Не зміг перерахувати. Вкажи грами або кількість точніше.", "Couldn't recalculate. Be more specific with grams or quantities."))
         return
 
     total_line = _format_cal_total(lang_code, res)
