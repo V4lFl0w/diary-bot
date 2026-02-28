@@ -494,7 +494,7 @@ def get_settings_menu_kb(lang: str) -> ReplyKeyboardMarkup:
                 }
             )
         )
-    ]
+    ] # <--- СПИСОК ЗАКРЫВАЕТСЯ ЗДЕСЬ КВАДРАТНОЙ СКОБКОЙ
 
     row_back = [
         KeyboardButton(
@@ -523,7 +523,7 @@ def _norm_btn(s: str) -> str:
     - чистим пробелы/регистр
     - убираем ведущий премиум-бейдж 💎 (чтобы клики совпадали у free/premium)
     """
-    t = _norm(s)
+    t = _norm(s).replace('\ufe0f', '')
     if t.startswith("💎 "):
         t = t[2:].strip()
     elif t.startswith("💎"):
@@ -756,6 +756,18 @@ DATA_PRIVACY_TXT = {
     )
 }
 
+ABOUT_TXT = {
+    _norm_btn(x)
+    for x in (
+        "ℹ️ о боте",
+        "ℹ️ про бота",
+        "ℹ️ about",
+        "о боте",
+        "про бота",
+        "about",
+    )
+}
+
 BACK_TXT = {_norm_btn(x) for x in ("⬅️ назад", "назад", "⬅️ back", "back")}
 
 
@@ -898,6 +910,10 @@ def is_data_privacy_btn(text: str) -> bool:
 def is_policy_btn(text: str) -> bool:
     """Legacy-алиас, если где-то использовался is_policy_btn"""
     return is_privacy_btn(text)
+
+
+def is_about_btn(text: str) -> bool:
+    return _norm_btn(text) in ABOUT_TXT
 
 
 # -------------- legacy aliases (root + журнал + прочее) --------------
@@ -1049,4 +1065,5 @@ __all__ = [
     # shared
     "is_back_btn",
     "PRIVACY_LABELS",
+    "is_about_btn",
 ]
