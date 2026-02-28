@@ -83,3 +83,5 @@ __pycache__/
 *.pyd
 .pytest_cache/
 .env
+smart_dump.py
+real_code_dump.txt
