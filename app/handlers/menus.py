@@ -30,6 +30,35 @@ from app.services.assistant import run_assistant
 
 router = Router(name="menus")
 
+# --- РОБАСТНЫЕ ПРОВЕРКИ (Защита от невидимых символов в эмодзи iOS/Android) ---
+def _match_journal(text: str) -> bool:
+    t = (text or "").lower()
+    return "журнал" in t or "щоденник" in t or "journal" in t or is_root_journal_btn(text)
+
+def _match_media(text: str) -> bool:
+    t = (text or "").lower()
+    return "медиа" in t or "медіа" in t or "media" in t or is_root_media_btn(text)
+
+def _match_settings(text: str) -> bool:
+    t = (text or "").lower()
+    return "настройк" in t or "налаштуванн" in t or "settings" in t or is_root_settings_btn(text)
+
+def _match_about(text: str) -> bool:
+    t = (text or "").lower()
+    return "о боте" in t or "про бота" in t or "about" in t or is_about_btn(text)
+
+def _match_proactive(text: str) -> bool:
+    t = (text or "").lower()
+    return "проактив" in t or "proactiv" in t or is_root_proactive_btn(text)
+
+def _match_premium(text: str) -> bool:
+    t = (text or "").lower()
+    return "премиум" in t or "преміум" in t or "premium" in t or is_root_premium_btn(text)
+
+def _match_back(text: str) -> bool:
+    t = (text or "").lower()
+    return "назад" in t or "back" in t or is_back_btn(text)
+# -----------------------------------------------------------------------------
 
 async def _get_user(session: AsyncSession, tg_id: int) -> User:
     user = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
@@ -39,7 +68,6 @@ async def _get_user(session: AsyncSession, tg_id: int) -> User:
         await session.commit()
     return user
 
-
 def _user_lang(user: User, tg_lang: Optional[str]) -> str:
     loc = (getattr(user, "locale", None) or getattr(user, "lang", None) or tg_lang or "ru").lower()
     if loc.startswith(("ua", "uk")):
@@ -47,7 +75,6 @@ def _user_lang(user: User, tg_lang: Optional[str]) -> str:
     if loc.startswith("en"):
         return "en"
     return "ru"
-
 
 def _is_premium_user(user: User) -> bool:
     if not user:
@@ -65,17 +92,14 @@ def _is_premium_user(user: User) -> bool:
             return False
     return False
 
-
 def _is_admin_user(user: User, tg_id: int) -> bool:
     if user and bool(getattr(user, "is_admin", False)):
         return True
     try:
         from app.handlers.admin import is_admin
-
         return bool(is_admin(tg_id, user))
     except Exception:
         return False
-
 
 async def _log(
     session: AsyncSession,
@@ -94,108 +118,85 @@ async def _log(
     )
     await session.commit()
 
-
-@router.message(F.text.func(is_root_journal_btn))
+@router.message(F.text.func(_match_journal))
 async def open_journal_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
-
     user = await _get_user(session, m.from_user.id)
     tg_lang = getattr(m.from_user, "language_code", None)
     lang = _user_lang(user, tg_lang)
-
     await _log(session, user, tg_lang, "open_journal_menu", "menu")
     txt = {"ru": "📓 Журнал", "uk": "📓 Щоденник", "en": "📓 Journal"}.get(lang, "📓 Журнал")
     await m.answer(txt, reply_markup=get_journal_menu_kb(lang))
 
-
-@router.message(F.text.func(is_root_media_btn))
+@router.message(F.text.func(_match_media))
 async def open_media_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
-
     user = await _get_user(session, m.from_user.id)
     tg_lang = getattr(m.from_user, "language_code", None)
     lang = _user_lang(user, tg_lang)
-
     await _log(session, user, tg_lang, "open_media_menu", "menu")
     txt = {"ru": "🧘 Медиа", "uk": "🧘 Медіа", "en": "🧘 Media"}.get(lang, "🧘 Медиа")
     await m.answer(txt, reply_markup=get_media_menu_kb(lang))
 
-
-@router.message(F.text.func(is_root_settings_btn))
+@router.message(F.text.func(_match_settings))
 async def open_settings_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
-
     user = await _get_user(session, m.from_user.id)
     tg_lang = getattr(m.from_user, "language_code", None)
     lang = _user_lang(user, tg_lang)
-
     await _log(session, user, tg_lang, "open_settings_menu", "menu")
     txt = {"ru": "⚙️ Настройки", "uk": "⚙️ Налаштування", "en": "⚙️ Settings"}.get(lang, "⚙️ Настройки")
     await m.answer(txt, reply_markup=get_settings_menu_kb(lang))
 
-@router.message(F.text.func(is_about_btn))
+@router.message(F.text.func(_match_about))
 async def open_about_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
-
     await m.answer(
         "<b>Diary-Bot</b> — твой умный помощник.\n\n"
         "🎬 <i>This product uses the TMDB API but is not endorsed or certified by TMDB.</i>",
         parse_mode="HTML"
     )
 
-
-@router.message(F.text.func(is_root_proactive_btn))
+@router.message(F.text.func(_match_proactive))
 async def open_proactive_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
-
     user = await _get_user(session, m.from_user.id)
     tg_lang = getattr(m.from_user, "language_code", None)
     lang = _user_lang(user, tg_lang)
-
     await _log(session, user, tg_lang, "open_proactive_menu", "menu")
-
     from app.handlers.proactive import show_proactive_screen
-
     await show_proactive_screen(m, session, lang)
 
-
-@router.message(F.text.func(is_root_premium_btn))
+@router.message(F.text.func(_match_premium))
 async def open_premium_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
-
     user = await _get_user(session, m.from_user.id)
     tg_lang = getattr(m.from_user, "language_code", None)
     lang = _user_lang(user, tg_lang)
     is_premium = _is_premium_user(user)
-
     await _log(session, user, tg_lang, "premium_click", "menu")
-
     from aiogram.types import ReplyKeyboardRemove
-
     btn_txt = {"ru": "💎 Премиум", "uk": "💎 Преміум", "en": "💎 Premium"}.get(lang, "💎 Премиум")
     await m.answer(btn_txt, reply_markup=ReplyKeyboardRemove())
     await m.answer(btn_txt, reply_markup=get_premium_menu_kb(lang, is_premium=is_premium, tg_id=m.from_user.id))
 
-
 @router.callback_query(F.data == "menu:home")
 async def cb_back_to_main(call: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()
-
     user = await _get_user(session, call.from_user.id)
     lang = _user_lang(user, getattr(call.from_user, "language_code", None))
-
     txt = {"ru": "🏠 Главное меню", "uk": "🏠 Головне меню", "en": "🏠 Main menu"}.get(lang, "🏠 Главное меню")
     await call.message.answer(
         txt,
@@ -205,27 +206,21 @@ async def cb_back_to_main(call: CallbackQuery, session: AsyncSession, state: FSM
             is_admin=_is_admin_user(user, call.from_user.id),
         ),
     )
-
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
-
     await call.answer()
 
-
-@router.message(F.text.func(is_back_btn))
+@router.message(F.text.func(_match_back))
 async def back_to_main(m: Message, session: AsyncSession, state: FSMContext) -> None:
     if not m.from_user:
         return
     await state.clear()
-
     user = await _get_user(session, m.from_user.id)
     tg_lang = getattr(m.from_user, "language_code", None)
     lang = _user_lang(user, tg_lang)
-
     await _log(session, user, tg_lang, "back_to_main", "button")
-
     txt = {"ru": "🏠 Главное меню", "uk": "🏠 Головне меню", "en": "🏠 Main menu"}.get(lang, "🏠 Главное меню")
     await m.answer(
         txt,
@@ -235,7 +230,6 @@ async def back_to_main(m: Message, session: AsyncSession, state: FSMContext) -> 
             is_admin=_is_admin_user(user, m.from_user.id),
         ),
     )
-
 
 @router.message(F.text & ~F.text.startswith("/"))
 async def media_mode_text_router(message: Message, session: AsyncSession, state: FSMContext):

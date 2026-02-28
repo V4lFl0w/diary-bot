@@ -391,9 +391,3 @@ async def motivation_quote(m: Message, session: AsyncSession):
 
     await wait_msg.delete()
     await m.answer(reply, reply_markup=_kb())
-
-
-@router.message(F.text == BTN_BACK)
-async def motivation_back(m: Message):
-    # меню:home у тебя есть в другом модуле, тут не ломаем — просто текстом
-    await m.answer("Ок. Возвращаю назад 👇", reply_markup=None)
