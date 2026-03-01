@@ -309,9 +309,9 @@ async def motivation_streak(m: Message, session: AsyncSession):
     else:
         msg = _t(
             lang,
-            f"🏆 Серия: {streak} дн.\nТы держишь темп. Продолжим сегодня?",
-            f"🏆 Серія: {streak} дн.\nТи тримаєш темп. Продовжимо сьогодні?",
-            f"🏆 Streak: {streak} days.\nYou’re keeping the pace. Continue today?",
+            f"🏆 Серия: {streak} дн.\nТы держишь темп. Отличная работа!",
+            f"🏆 Серія: {streak} дн.\nТи тримаєш темп. Чудова робота!",
+            f"🏆 Streak: {streak} days.\nYou’re keeping the pace. Great job!",
         )
 
     await m.answer(msg, reply_markup=_kb(lang))

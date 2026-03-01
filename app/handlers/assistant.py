@@ -88,7 +88,7 @@ def _strip_upgrade_marker(text: str) -> tuple[str, bool]:
     t = re.sub(r"\n{3,}", "\n\n", t).strip()
     return t, True
 
-def _upgrade_to_pro_inline_kb() -> InlineKeyboardMarkup:
+def _upgrade_to_pro_inline_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="Upgrade to Pro", callback_data="open_premium")
     kb.adjust(1)
@@ -337,17 +337,17 @@ def _extract_poster_url(text: str) -> tuple[Optional[str], str]:
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return (url or None), cleaned
 
-def _media_inline_kb() -> InlineKeyboardMarkup:
+def _media_inline_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Это оно", callback_data="media:pick")
-    kb.button(text="🔁 Другие варианты", callback_data="media:nav:next")
-    kb.button(text="🧩 Уточнить", callback_data="media:refine")
+    kb.button(text={"ru": "✅ Это оно", "uk": "✅ Це воно", "en": "✅ This is it"}.get(lang, "✅ Это оно"), callback_data="media:pick")
+    kb.button(text={"ru": "🔁 Другие варианты", "uk": "🔁 Інші варіанти", "en": "🔁 Other options"}.get(lang, "🔁 Другие варианты"), callback_data="media:nav:next")
+    kb.button(text={"ru": "🧩 Уточнить", "uk": "🧩 Уточнити", "en": "🧩 Refine"}.get(lang, "🧩 Уточнить"), callback_data="media:refine")
     kb.adjust(2, 1)
     return kb.as_markup()
 
-def _open_premium_inline_kb() -> InlineKeyboardMarkup:
+def _open_premium_inline_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text={"ru": "💎 Открыть Premium", "uk": "💎 Відкрити Premium", "en": "💎 Open Premium"}.get(locals().get("lang", locals().get("l", "ru")), "💎 Открыть Premium"), callback_data="open_premium")
+    kb.button(text={"ru": "💎 Открыть Premium", "uk": "💎 Відкрити Premium", "en": "💎 Open Premium"}.get(lang, "💎 Открыть Premium"), callback_data="open_premium")
     kb.adjust(1)
     return kb.as_markup()
 
@@ -471,7 +471,7 @@ async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) 
             "🤖 Помічник — це твій **розумний режим** у щоденнику.\n\nЩо він робить:\n• 🧠 розкладає думки по поличках\n• 🎯 допомагає знайти фільм, ідею, рішення\n• 📚 аналізує документи та поповнює базу знань\n• 🌊 знижує шум у голові та багато іншого\n\n💎 Доступний у Premium. Натисни кнопку нижче 👇",
             "🤖 Assistant is your **smart mode** in the journal.\n\nWhat it does:\n• 🧠 organizes your thoughts\n• 🎯 helps find a movie, idea, or solution\n• 📚 analyzes documents and builds a knowledge base\n• 🌊 reduces mental noise and much more\n\n💎 Available in Premium. Tap the button below 👇"
         )
-        await m.answer(msg, reply_markup=_open_premium_inline_kb(), parse_mode="Markdown")
+        await m.answer(msg, reply_markup=_open_premium_inline_kb(lang), parse_mode="Markdown")
         return
 
     await state.set_state(AssistantFSM.waiting_question)
@@ -518,7 +518,7 @@ async def assistant_entry_cb(cb: CallbackQuery, state: FSMContext, session: Asyn
             "🤖 Помічник — це твій **розумний режим** у щоденнику.\n\nЩо він робить:\n• 🧠 розкладає думки по поличках\n• 🎯 допомагає знайти фільм, ідею, рішення\n• 📚 аналізує документи та поповнює базу знань\n• 🌊 знижує шум у голові та багато іншого\n\n💎 Доступний у Premium. Натисни кнопку нижче 👇",
             "🤖 Assistant is your **smart mode** in the journal.\n\nWhat it does:\n• 🧠 organizes your thoughts\n• 🎯 helps find a movie, idea, or solution\n• 📚 analyzes documents and builds a knowledge base\n• 🌊 reduces mental noise and much more\n\n💎 Available in Premium. Tap the button below 👇"
         )
-        await m.answer(msg, reply_markup=_open_premium_inline_kb(), parse_mode="Markdown")
+        await m.answer(msg, reply_markup=_open_premium_inline_kb(lang), parse_mode="Markdown")
         return
 
     await state.set_state(AssistantFSM.waiting_question)
@@ -569,7 +569,7 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
         await state.clear()
         await m.answer(
             "🤖 Помощник доступен только в Premium.\nОткрой 💎 Премиум в меню.",
-            reply_markup=_open_premium_inline_kb(),
+            reply_markup=_open_premium_inline_kb(lang),
         )
         return
 
@@ -628,11 +628,11 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
             await m.answer_photo(
                 photo=poster_url,
                 caption=clean2,
-                reply_markup=_media_inline_kb(),
+                reply_markup=_media_inline_kb(lang),
                 parse_mode=None,
             )
         else:
-            await m.answer(clean2, reply_markup=_media_inline_kb(), parse_mode=None)
+            await m.answer(clean2, reply_markup=_media_inline_kb(lang), parse_mode=None)
     else:
         await m.answer(str(reply))
 
@@ -691,7 +691,7 @@ async def _assistant_media_fallback_message(message: Message, state: FSMContext,
         if isinstance(reply, str):
             clean_q, need_btn = _strip_upgrade_marker(reply)
             if need_btn:
-                await message.answer(clean_q, reply_markup=_upgrade_to_pro_inline_kb(), parse_mode=None)
+                await message.answer(clean_q, reply_markup=_upgrade_to_pro_inline_kb(lang), parse_mode=None)
                 return
     except Exception:
         try:
@@ -709,11 +709,11 @@ async def _assistant_media_fallback_message(message: Message, state: FSMContext,
             await message.answer_photo(
                 photo=poster_url,
                 caption=clean2,
-                reply_markup=_media_inline_kb(),
+                reply_markup=_media_inline_kb(lang),
                 parse_mode=None,
             )
         else:
-            await message.answer(clean2, reply_markup=_media_inline_kb(), parse_mode=None)
+            await message.answer(clean2, reply_markup=_media_inline_kb(lang), parse_mode=None)
         return
 
     await message.answer(str(reply))
@@ -729,7 +729,7 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
         await state.clear()
         await m.answer(
             "🤖 Помощник доступен только в Premium.\nОткрой 💎 Премиум в меню.",
-            reply_markup=_open_premium_inline_kb(),
+            reply_markup=_open_premium_inline_kb(lang),
         )
         return
 
@@ -783,7 +783,7 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
         if isinstance(reply, str):
             clean_q, need_btn = _strip_upgrade_marker(reply)
             if need_btn:
-                await m.answer(clean_q, reply_markup=_upgrade_to_pro_inline_kb(), parse_mode=None)
+                await m.answer(clean_q, reply_markup=_upgrade_to_pro_inline_kb(lang), parse_mode=None)
                 return
     finally:
         await _reset_media_ack(state)
@@ -812,11 +812,11 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
             await m.answer_photo(
                 poster_url,
                 caption=clean2,
-                reply_markup=_media_inline_kb(),
+                reply_markup=_media_inline_kb(lang),
                 parse_mode=None,
             )
         else:
-            await m.answer(reply, reply_markup=_media_inline_kb(), parse_mode=None)
+            await m.answer(reply, reply_markup=_media_inline_kb(lang), parse_mode=None)
         return
 
     if isinstance(reply, str) and "Кнопки:" in reply:
@@ -826,11 +826,11 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
             await m.answer_photo(
                 poster_url,
                 caption=clean2,
-                reply_markup=_media_inline_kb(),
+                reply_markup=_media_inline_kb(lang),
                 parse_mode=None,
             )
         else:
-            await m.answer(clean, reply_markup=_media_inline_kb(), parse_mode=None)
+            await m.answer(clean, reply_markup=_media_inline_kb(lang), parse_mode=None)
     else:
         await m.answer(str(reply), reply_markup=_assistant_tools_kb(lang))
 
@@ -868,7 +868,7 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
         if isinstance(reply, str):
             clean_q, need_btn = _strip_upgrade_marker(reply)
             if need_btn and call.message:
-                await call.message.answer(clean_q, reply_markup=_upgrade_to_pro_inline_kb(), parse_mode=None)
+                await call.message.answer(clean_q, reply_markup=_upgrade_to_pro_inline_kb(lang), parse_mode=None)
                 await call.answer()
                 return
     finally:
@@ -895,11 +895,11 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
             await call.message.answer_photo(
                 poster_url,
                 caption=clean2,
-                reply_markup=_media_inline_kb(),
+                reply_markup=_media_inline_kb(lang),
                 parse_mode=None,
             )
         else:
-            await call.message.answer(clean, reply_markup=_media_inline_kb(), parse_mode=None)
+            await call.message.answer(clean, reply_markup=_media_inline_kb(lang), parse_mode=None)
     else:
         await call.message.answer(str(reply))
 

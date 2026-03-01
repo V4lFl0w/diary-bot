@@ -271,4 +271,4 @@ async def media_mode_text_router(message: Message, session: AsyncSession, state:
     reply = await run_assistant(user, text, lang, session=session)
     if reply:
         clean = reply.replace("\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", "")
-        await message.answer(clean, reply_markup=_media_inline_kb(), parse_mode=None)
+        await message.answer(clean, reply_markup=_media_inline_kb(lang), parse_mode=None)
