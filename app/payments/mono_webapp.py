@@ -41,7 +41,7 @@ async def get_mono_pubkey() -> Any:
             r = await client.get(MONO_PUBKEY_URL, headers=headers)
             r.raise_for_status()
             key_str = r.json()["key"]
-            _MONO_PUBKEY = serialization.load_pem_public_key(key_str.encode())
+            _MONO_PUBKEY = serialization.load_pem_public_key(base64.b64decode(key_str))
     return _MONO_PUBKEY
 
 
