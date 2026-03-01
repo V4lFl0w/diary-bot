@@ -491,26 +491,45 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
             )
             return
 
-        # 💳 Mono — заявка (реальный refund делается через провайдера/банк)
+        # 💳 Mono — РЕАЛЬНЫЙ ВОЗВРАТ ЧЕРЕЗ API
         if prov_low == "mono":
-            await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
-            await log_admin_action(
-                session,
-                admin_tg_id=c.from_user.id,
-                action="refund_request_ui",
-                payment_id=payment_id,
-                target_tg_id=tg_id,
-                extra={"provider": "mono", "reason": reason_text},
-            )
-            await c.bot.send_message(
-                tg_id,
-                _t(
-                    lang,
-                    "✅ Заявка на возврат создана.\n" + _refund_info("mono", lang),
-                    "✅ Заявку на повернення створено.\n" + _refund_info("mono", lang),
-                    "✅ Refund request created.\n" + _refund_info("mono", lang),
-                ),
-            )
+            mono_token = os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN") or os.getenv("MONO_API_TOKEN")
+            invoice_id = getattr(pay, "external_id", None)
+            
+            refund_success = False
+            if mono_token and invoice_id:
+                try:
+                    import httpx
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        r = await client.post(
+                            "https://api.monobank.ua/api/merchant/invoice/cancel",
+                            headers={"X-Token": str(mono_token)},
+                            json={"invoiceId": str(invoice_id)}
+                        )
+                        if r.status_code == 200:
+                            refund_success = True
+                except Exception as e:
+                    pass # Упало по сети, обработаем ниже
+
+            if refund_success:
+                # Деньги реально ушли, одобряем в базе
+                await approve_refund(session, payment_id=payment_id, admin_note=f"auto_mono_refund:{reason_text}")
+                await log_admin_action(session, admin_tg_id=c.from_user.id, action="refund_approve_ui", payment_id=payment_id)
+                await c.bot.send_message(
+                    tg_id,
+                    _t(lang, "✅ Возврат успешно проведен. Деньги скоро вернутся на карту.", 
+                             "✅ Повернення успішно проведено. Гроші скоро повернуться на картку.", 
+                             "✅ Refund processed. Money will return to your card soon.")
+                )
+            else:
+                # Если в базе нет external_id или Монобанк лег — создаем ручную заявку
+                await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
+                await c.bot.send_message(
+                    tg_id,
+                    _t(lang, "⚠️ Заявка создана, но автоматический возврат не прошел. Админ проверит вручную.",
+                             "⚠️ Заявку створено, але автоматичне повернення не пройшло. Адмін перевірить вручну.",
+                             "⚠️ Request created, but auto-refund failed. Admin will check manually.")
+                )
             return
 
         # 🪙 Crypto — заявка + просим адрес
