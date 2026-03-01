@@ -257,9 +257,9 @@ async def assistant_kb_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSe
 
     msg = _tr(
         lang,
-        "📚 База знаний.\n\n• чтобы добавить: `kb+: <текст>`\n• чтобы спросить: `kb?: <вопрос>`\n",
-        "📚 База знань.\n\n• щоб додати: `kb+: <текст>`\n• щоб запитати: `kb?: <питання>`\n",
-        "📚 Knowledge base.\n\n• to add: `kb+: <text>`\n• to ask: `kb?: <question>`\n"
+        "📚 База знаний.\n\n• чтобы добавить введи: `kb+: <текст>`\n• чтобы спросить: `kb?: <вопрос>`\n",
+        "📚 База знань.\n\n• щоб додати введи: `kb+: <текст>`\n• щоб запитати: `kb?: <питання>`\n",
+        "📚 Knowledge base.\n\n• to add enter: `kb+: <text>`\n• to ask: `kb?: <question>`\n"
     )
     await m.answer(msg, reply_markup=_assistant_tools_kb(lang), parse_mode="Markdown")
 

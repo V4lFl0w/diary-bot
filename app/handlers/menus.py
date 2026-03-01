@@ -120,7 +120,7 @@ async def open_media_menu(m: Message, session: AsyncSession, state: FSMContext) 
     lang = _user_lang(user, tg_lang)
 
     await _log(session, user, tg_lang, "open_media_menu", "menu")
-    txt = {"ru": "🧘 Медиа", "uk": "🧘 Медіа", "en": "🧘 Media"}.get(lang, "🧘 Медиа")
+    txt = {"ru": "🧘 Медиа\n\nВыберите раздел ниже 👇", "uk": "🧘 Медіа\n\nОберіть розділ нижче 👇", "en": "🧘 Media\n\nChoose a section below 👇"}.get(lang, "🧘 Медиа\n\nВыберите раздел ниже 👇")
     await m.answer(txt, reply_markup=get_media_menu_kb(lang))
 
 
