@@ -17,7 +17,9 @@ from app.webapp.urls import (
     versioned_abs_url,
     WEBAPP_MEDITATION_ENTRY,
 )
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.user import User
 
 # кнопка из главного меню (если есть)
 try:
@@ -73,20 +75,14 @@ BTN = {
 }
 
 
-def _normalize_lang(code: Optional[str]) -> str:
-    raw = (code or "ru").strip().lower()
-    if raw.startswith(("ua", "uk")):
+def _user_lang(user: Optional[User], tg_lang: Optional[str]) -> str:
+    raw = (getattr(user, "locale", None) or getattr(user, "lang", None)) if user is not None else None
+    loc = (raw or tg_lang or "ru").lower()
+    if loc.startswith(("ua", "uk")):
         return "uk"
-    if raw.startswith("en"):
+    if loc.startswith("en"):
         return "en"
     return "ru"
-
-
-def _lang_from_message(m: Message) -> str:
-    tg = getattr(m, "from_user", None)
-    code = getattr(tg, "language_code", None) if tg else None
-    l = _normalize_lang(code)
-    return l if l in SUPPORTED_LANGS else "ru"
 
 
 def _webapp_url() -> str | None:
@@ -117,7 +113,13 @@ async def cmd_meditation(m: Message, session: AsyncSession, state: FSMContext) -
     except Exception:
         pass
 
-    l = _lang_from_message(m)
+    tg_user = m.from_user
+    if not tg_user:
+        return
+
+    user = (await session.execute(select(User).where(User.tg_id == tg_user.id))).scalar_one_or_none()
+    l = _user_lang(user, tg_user.language_code)
+
     url = _webapp_url()
 
     if not url:

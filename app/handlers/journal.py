@@ -373,6 +373,26 @@ async def journal_save(
         return
 
     text = (m.text or "").strip()
+
+    # --- ЗАЩИТА ОТ КНОПОК МЕНЮ ---
+    from app.keyboards import (
+        is_today_btn, is_week_btn, is_history_btn, is_search_btn, is_range_btn,
+        is_journal_add_btn, is_back_btn, is_root_journal_btn, is_root_reminders_btn,
+        is_root_calories_btn, is_root_stats_btn, is_root_assistant_btn, is_root_media_btn,
+        is_root_premium_btn, is_root_settings_btn, is_root_proactive_btn, is_report_btn, is_admin_btn
+    )
+    def is_any_menu_btn(t: str) -> bool:
+        return any(f(t) for f in (
+            is_today_btn, is_week_btn, is_history_btn, is_search_btn, is_range_btn,
+            is_journal_add_btn, is_back_btn, is_root_journal_btn, is_root_reminders_btn,
+            is_root_calories_btn, is_root_stats_btn, is_root_assistant_btn, is_root_media_btn,
+            is_root_premium_btn, is_root_settings_btn, is_root_proactive_btn, is_report_btn, is_admin_btn
+        ))
+    
+    if is_any_menu_btn(text):
+        return
+    # -----------------------------
+
     if len(text) < 3:
         await m.answer(
             _tr(

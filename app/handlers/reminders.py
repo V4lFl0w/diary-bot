@@ -247,7 +247,6 @@ def _fmt_local(dt_utc: datetime, tz_name: str) -> str:
 
 
 def _rid_of(r: Reminder) -> int:
-    # на случай: id может называться по-разному (но обычно id)
     for name in ("id", "reminder_id", "rid"):
         v = getattr(r, name, None)
         if isinstance(v, int):
@@ -311,7 +310,6 @@ async def remind_help(m: Message, session: AsyncSession, lang: Optional[str] = N
     lang_code = await _get_lang(session, m, fallback=lang)
     user = await _load_user(session, m.from_user.id)
 
-    # UX: если нет юзера — не показываем хелп + не даём кнопки
     if not user:
         await m.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"), parse_mode=None)
         return
@@ -385,25 +383,23 @@ _TRIGGER_WORDS: tuple[str, ...] = (
     "off",
 )
 
-
 def _has_trigger(s: Optional[str]) -> bool:
     return bool(s) and any(w in s.lower() for w in _TRIGGER_WORDS)
 
-
+# РОБАСТНЫЙ ПАРСЕР ДЛЯ ВСЕХ 3 ЯЗЫКОВ
 _time_re = re.compile(
     r"(?ix)"
     r"(?:^|\s)"
-    r"(?:в|у|at)\s*\d{1,2}(?::\d{2})?"
+    r"(?:в|у|о|об|at)\s*\d{1,2}(?::\d{2})?"
     r"|"
-    r"(?:через|in)\s+\d+\s*(?:мин|minute|minutes|час|hour|hours|дн|day|days)"
+    r"(?:через|in|за)\s+\d+\s*(?:мин|хв|хвилин|minute|minutes|час|год|годин|hour|hours|дн|днів|день|day|days)"
     r"|"
-    r"(?:завтра|tomorrow|сегодня|today|послезавтра)\b"
+    r"(?:завтра|tomorrow|сегодня|сьогодні|today|послезавтра|післязавтра)\b"
     r"|"
-    r"\d{1,2}[\./-]\d{1,2}(?:[\./-]\d{2,4})?" # Ловит даты: 01.03.2026 или 01.03
+    r"\d{1,2}[\./-]\d{1,2}(?:[\./-]\d{2,4})?"
     r"|"
-    r"(?:в\s+это\s+|в\s+|у\s+|на\s+)?(?:понедельник|вторник|сред[уа]|четверг|пятниц[уа]|суббот[уа]|воскресенье)\b" # Ловит дни недели
+    r"(?:в\s+это\s+|в\s+|у\s+|на\s+|this\s+|next\s+|on\s+)?(?:понедельник|понеділок|monday|вторник|вівторок|tuesday|сред[уа]|середу|wednesday|четверг|четвер|thursday|пятниц[уа]|пʼятницю|friday|суббот[уа]|суботу|saturday|воскресенье|неділю|sunday)\b"
 )
-
 
 def _looks_like_reminder(text: Optional[str]) -> bool:
     if not text:
@@ -415,34 +411,21 @@ def _looks_like_reminder(text: Optional[str]) -> bool:
         return False
     if _time_re.search(t):
         return True
+    
     strong = (
-        "по будням",
-        "по выходным",
-        "ежедневно",
-        "раз в",
-        "каждый",
-        "каждую",
-        "каждое",
-        "каждые",
-        "щодня",
-        "по буднях",
-        "кожного",
-        "every ",
-        "weekdays",
-        "daily",
+        "по будням", "по выходным", "ежедневно", "раз в", "каждый", "каждую", "каждое", "каждые",
+        "щодня", "по буднях", "кожного", "на вихідних", "кожні", "кожна", "кожен",
+        "every ", "weekdays", "weekends", "daily", "everyday"
     )
     return any(x in t for x in strong)
-
 
 def _is_list_alias(text: Optional[str]) -> bool:
     if not text:
         return False
     t = text.strip().lower()
-    return ("покажи" in t or "список" in t or "list" in t or "show" in t) and ("напомин" in t or "remind" in t)
-
+    return ("покажи" in t or "список" in t or "list" in t or "show" in t) and ("напомин" in t or "remind" in t or "нагадуван" in t or "нагадай" in t)
 
 def _should_parse(text: Optional[str]) -> bool:
-    # важно: список не содержит явных time-токенов, поэтому включаем alias отдельно
     return _has_trigger(text) or _looks_like_reminder(text) or _is_list_alias(text)
 
 
@@ -479,7 +462,6 @@ async def remind_parse(m: Message, session: AsyncSession, lang: Optional[str] = 
     now_utc = now_utc_fn()
     now_local = now_utc.astimezone(ZoneInfo(tz_name))
 
-    # алиас списка
     if _is_list_alias(m.text or ""):
         await reminders_list(m, session, lang=lang)
         return
@@ -598,7 +580,6 @@ async def remind_parse(m: Message, session: AsyncSession, lang: Optional[str] = 
         )
         return
 
-    # дедуп активного
     dup: Optional[Reminder] = (
         await session.execute(
             select(Reminder).where(
@@ -698,21 +679,17 @@ async def reminders_list(
 
     rows.sort(key=_sort_key)
 
-    # текст
     top = _tr(lang_code, "📋 Твои напоминания:", "📋 Твої нагадування:", "📋 Your reminders:")
     lines = [top]
     for r in rows[:10]:
         lines.append(_desc_line(lang_code, r, tz_name, now_utc))
 
-    # кнопки — каждое напоминание кликабельно
     kb = InlineKeyboardBuilder()
     for r in rows[:10]:
         rid = _rid_of(r)
         line = _desc_line(lang_code, r, tz_name, now_utc)
-        # компактно, без лишней воды
         kb.button(text=line[:64], callback_data=f"rem:open:{rid}")
 
-    # нижние действия
     kb.button(
         text=_tr(lang_code, "🔔 Вкл всё", "🔔 Увімк все", "🔔 Enable all"),
         callback_data="rem:enable_all",
@@ -746,7 +723,6 @@ async def reminders_pending_input(m: Message, session: AsyncSession, lang: Optio
     if not p:
         return
 
-    # TTL
     if monotonic() - float(p.get("ts", 0.0)) > _PENDING_TTL_SEC:
         _pending.pop(tg_id, None)
         return
@@ -789,7 +765,6 @@ async def reminders_pending_input(m: Message, session: AsyncSession, lang: Optio
         return
 
     if action == "edit":
-        # изменить текст напоминания
         r.title = text
         session.add(r)
         await session.commit()
@@ -807,7 +782,6 @@ async def reminders_pending_input(m: Message, session: AsyncSession, lang: Optio
         return
 
     if action == "move":
-        # переносим время/расписание: парсим как будто "напомни X <время>"
         fake = f"напомни tmp {text}"
         parsed = parse_any(fake, user_tz=tz_name, now=now_local)
         pr = getattr(parsed, "reminder", None) if parsed else None
@@ -845,7 +819,6 @@ async def reminders_pending_input(m: Message, session: AsyncSession, lang: Optio
             r.cron = None
             r.next_run = to_utc(dt, tz_name)
 
-        # при переносе логично включить
         r.is_active = True
 
         session.add(r)
@@ -879,7 +852,6 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
 
     data = (c.data or "").strip().lower()
 
-    # debounce
     key = (c.from_user.id, data)
     ts = monotonic()
     prev = _last_cb.get(key, 0.0)
@@ -891,7 +863,6 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
         return
     _last_cb[key] = ts
 
-    # снять "часики"
     try:
         await c.answer()
     except Exception:
@@ -923,13 +894,11 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
             )
         return
 
-    # LIST
     if data == "rem:list":
         if c.message:
             await reminders_list(c.message, session, lang=lang_code, tg_id_override=c.from_user.id)
         return
 
-    # ENABLE/DISABLE ALL — без спама (тост)
     if data in {"rem:disable_all", "rem:enable_all"}:
         action_enable = data == "rem:enable_all"
 
@@ -963,12 +932,10 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
         except Exception:
             pass
 
-        # обновим список (если есть сообщение)
         if c.message:
             await reminders_list(c.message, session, lang=lang_code, tg_id_override=c.from_user.id)
         return
 
-    # EXAMPLE
     if data == "rem:example":
         tz_name = _user_tz_name(user)
         now_utc = now_utc_fn()
@@ -1002,7 +969,6 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
             )
         return
 
-    # OPEN REMINDER
     if data.startswith("rem:open:"):
         rid = int(data.split(":")[-1])
         r = (
@@ -1051,7 +1017,6 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
             )
         return
 
-    # TOGGLE ONE
     if data.startswith("rem:toggle:"):
         rid = int(data.split(":")[-1])
         r = (
@@ -1066,7 +1031,6 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
         tz_name = _user_tz_name(user)
         now_utc = now_utc_fn()
 
-        # если включаем cron и next_run старый — пересчитать
         if (
             r.is_active
             and _cron_of(r)
@@ -1093,7 +1057,6 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
         except Exception:
             pass
 
-        # перерисуем карточку
         if c.message:
             await reminders_callbacks(
                 CallbackQuery(
@@ -1108,11 +1071,9 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
             )
         return
 
-    # DELETE CONFIRM
     if data.startswith("rem:del:"):
         rid = int(data.split(":")[-1])
 
-        # удаляем сразу, без лишних подтверждений (минимум шума)
         await session.execute(delete(Reminder).where(and_(Reminder.user_id == user.id, Reminder.id == rid)))
         await session.commit()
 
@@ -1125,7 +1086,6 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
             await reminders_list(c.message, session, lang=lang_code, tg_id_override=c.from_user.id)
         return
 
-    # MOVE / EDIT -> ставим pending и просим текст
     if data.startswith("rem:move:") or data.startswith("rem:edit:"):
         parts = data.split(":")
         action = parts[1]  # move / edit
