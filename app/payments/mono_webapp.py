@@ -5,7 +5,7 @@ import base64
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Header, Depends
@@ -46,7 +46,7 @@ async def get_mono_pubkey() -> Any:
     if _MONO_PUBKEY is None:
         token = os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN") or os.getenv("MONO_API_TOKEN")
         # Явное приведение к str для Pyright
-        headers = {"X-Token": str(token)} if token else {}
+        headers: Dict[str, str] = {"X-Token": str(token)} if token else {}
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(MONO_PUBKEY_URL, headers=headers)
             r.raise_for_status()
@@ -63,7 +63,7 @@ async def get_db_session():
 
 class MonoInvoiceIn(BaseModel):
     tg_id: int = Field(..., gt=0)
-    kind: str = Field(..., min_length=1, max_length=32)
+    kind: str = Field(..., min_length=1, max_length=64)
     amount_uah: int = Field(..., gt=0, le=200_000)
     title: str = Field(default="DiaryBot Premium")
     description: str = Field(default="Оплата через Monobank")
@@ -123,7 +123,7 @@ async def create_mono_invoice(
         if base_url:
             payload["webHookUrl"] = f"{base_url}/api/mono/webhook"
 
-    headers = {"X-Token": token}
+    headers: Dict[str, str] = {"X-Token": str(token)}
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -143,11 +143,15 @@ async def create_mono_invoice(
         # СОХРАНЯЕМ EXTERNAL_ID СРАЗУ (Чтобы работал возврат)
         user = (await session.execute(select(User).where(User.tg_id == body.tg_id))).scalar_one_or_none()
         if user:
-            # === ФИКС ОШИБКИ БАЗЫ ДАННЫХ (plan) ===
+            # === ФИКС ОШИБКИ БАЗЫ ДАННЫХ (определяем plan) ===
             plan_enum = PaymentPlan.MONTH
-            if "quarter" in body.kind.lower(): plan_enum = PaymentPlan.QUARTER
-            elif "year" in body.kind.lower(): plan_enum = PaymentPlan.YEAR
-            elif "tokens" in body.kind.lower() or "topup" in body.kind.lower(): plan_enum = PaymentPlan.TOPUP
+            kind_low = body.kind.lower()
+            if "quarter" in kind_low: 
+                plan_enum = PaymentPlan.QUARTER
+            elif "year" in kind_low: 
+                plan_enum = PaymentPlan.YEAR
+            elif "tokens" in kind_low or "topup" in kind_low: 
+                plan_enum = PaymentPlan.TOPUP
 
             # Создаем запись платежа
             new_pay = Payment(
@@ -157,7 +161,7 @@ async def create_mono_invoice(
                 currency="UAH",
                 external_id=invoice_id, 
                 status=PaymentStatus.PENDING,
-                provider="mono",  
+                provider="mono",  # <--- ТЕПЕРЬ СТРОГО "mono"
                 sku=body.kind
             )
             session.add(new_pay)
@@ -205,7 +209,7 @@ async def cancel_mono_subscription(
     if not sub or not sub.external_id:
         raise HTTPException(status_code=400, detail="Active subscription not found or missing external_id")
 
-    headers = {"X-Token": str(token)}
+    headers: Dict[str, str] = {"X-Token": str(token)}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(
