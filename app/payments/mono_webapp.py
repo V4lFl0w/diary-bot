@@ -34,8 +34,11 @@ _MONO_PUBKEY = None
 async def get_mono_pubkey() -> Any:
     global _MONO_PUBKEY
     if _MONO_PUBKEY is None:
+        token = os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN") or os.getenv("MONO_API_TOKEN")
+        # 🔥 ВОТ ОНО: Теперь мы передаем токен, и Монобанк отдаст ключ без 400 ошибки!
+        headers = {"X-Token": token} if token else {}
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(MONO_PUBKEY_URL)
+            r = await client.get(MONO_PUBKEY_URL, headers=headers)
             r.raise_for_status()
             key_str = r.json()["key"]
             _MONO_PUBKEY = serialization.load_pem_public_key(key_str.encode())
@@ -119,13 +122,19 @@ async def mono_webhook(
         logger.warning("Mono webhook: missing X-Sign header")
         return PlainTextResponse("bad request", status_code=400)
 
-    # 1. Проверяем подпись Монобанка
+    # 1. Проверяем подпись Монобанка (ЖЁСТКАЯ ПРОВЕРКА - БЕЗ SOFT FAIL)
     try:
         pubkey = await get_mono_pubkey()
         pubkey.verify(base64.b64decode(x_sign), raw_body, ec.ECDSA(hashes.SHA256()))
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Mono API error while fetching pubkey: {e}")
+        return PlainTextResponse("internal error", status_code=500)
     except (InvalidSignature, ValueError) as e:
         logger.error(f"Mono signature invalid: {e}")
         return PlainTextResponse("forbidden", status_code=403)
+    except Exception as e:
+        logger.error(f"Unexpected error in pubkey verification: {e}")
+        return PlainTextResponse("internal error", status_code=500)
 
     # 2. Читаем JSON
     try:
@@ -140,7 +149,6 @@ async def mono_webhook(
     logger.info(f"Mono webhook received: invoice={invoice_id}, status={status}, ref={reference}")
 
     if status != "success":
-        # Если статус created/processing/reversed, просто отвечаем ОК
         return PlainTextResponse("ok")
 
     # 3. Разбираем reference (формат: webapp:sub:basic:month:319145673)
@@ -249,3 +257,4 @@ async def mono_webhook(
         logger.warning(f"Mono webhook: failed to send telegram notification: {e}")
 
     return PlainTextResponse("ok")
+
