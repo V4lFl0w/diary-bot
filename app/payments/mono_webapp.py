@@ -150,7 +150,7 @@ async def create_mono_invoice(
                 currency="UAH",
                 external_id=invoice_id, 
                 status=PaymentStatus.PENDING,
-                provider="monobank",
+                provider="mono",  # <--- ВОТ ЗДЕСЬ ТЕПЕРЬ СТРОГО "mono"
                 sku=body.kind
             )
             session.add(new_pay)
