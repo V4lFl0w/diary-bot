@@ -23,7 +23,6 @@ from app.webapp.urls import (
     WEBAPP_PREMIUM_ENTRY,
 )
 
-WEBAPP_PREMIUM_URL = os.getenv("WEBAPP_PREMIUM_URL") or WEBAPP_PREMIUM_ENTRY
 from datetime import datetime, timedelta, timezone
 
 from typing import Any, Dict, Optional
@@ -81,7 +80,6 @@ SUPPORTED_LANGS = {"ru", "uk", "en"}
 
 CB_OPEN_PREMIUM = "open_premium"
 CB_PREMIUM_CHECK = "premium:check"
-CB_PAY_STARS = "pay_stars"  # 👈 сюда жмёт инлайн-кнопка Stars
 CB_SUB_CANCEL = "sub:cancel"
 CB_SUB_CANCEL_CONFIRM = "sub:cancel:confirm"
 CB_TRIAL_START = "premium:trial:start"
@@ -405,10 +403,11 @@ def _pay_kb(lang: str, tg_id: int, is_premium: bool = False) -> InlineKeyboardMa
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _active_premium_kb(lang: str) -> InlineKeyboardMarkup:
+def _active_premium_kb(lang: str, tg_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=_t_cancel_label(lang), callback_data=CB_SUB_CANCEL)],
+            [InlineKeyboardButton(text=_t_cancel_label(lang), web_app=WebAppInfo(url=_webapp_url(tg_id, lang)))],
+            [InlineKeyboardButton(text={'ru': '💸 Возврат средств', 'uk': '💸 Повернення коштів', 'en': '💸 Refund'}.get(lang, '💸 Возврат средств'), callback_data='refund:open')],
         ]
     )
 
@@ -707,7 +706,7 @@ async def cmd_premium(
     _resolve_is_admin(m.from_user.id, user)
 
     if active:
-        kb = _active_premium_kb(lang_code)  # 👈 вот тут теперь появится cancel
+        kb = _active_premium_kb(lang_code, m.from_user.id)
     else:
         kb = _subscribe_kb(
             lang_code,
@@ -734,7 +733,7 @@ async def open_premium_cb(
     _resolve_is_admin(c.from_user.id, user)
 
     if active:
-        kb = _active_premium_kb(lang_code)  # 👈 вот тут теперь появится cancel
+        kb = _active_premium_kb(lang_code, c.from_user.id)
     else:
         kb = _subscribe_kb(
             lang_code,
