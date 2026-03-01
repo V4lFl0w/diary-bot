@@ -26,7 +26,7 @@ from app.models.payment import Payment, PaymentPlan, PaymentStatus
 router = APIRouter(prefix="/api/mono", tags=["mono"])
 logger = logging.getLogger(__name__)
 
-MONO_CREATE_URL = "https://api.monobank.ua/api/merchant/invoice/create"
+MONO_CREATE_URL = "https://api.monobank.ua/api/merchant/subscription/create"
 MONO_PUBKEY_URL = "https://api.monobank.ua/api/merchant/pubkey"
 _MONO_PUBKEY = None
 
@@ -65,15 +65,36 @@ class MonoInvoiceOut(BaseModel):
 
 
 @router.post("/invoice", response_model=MonoInvoiceOut)
-async def create_mono_invoice(body: MonoInvoiceIn) -> MonoInvoiceOut:
+async def create_mono_invoice(
+    body: MonoInvoiceIn, 
+    session: AsyncSession = Depends(get_db_session) # Добавили сессию сюда
+) -> MonoInvoiceOut:
     token = os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN") or os.getenv("MONO_API_TOKEN")
     if not token:
         raise HTTPException(status_code=500, detail="MONO_TOKEN/MONOBANK_TOKEN not set")
 
     amount = int(body.amount_uah) * 100
 
+    # 1. ГИБКИЙ ИНТЕРВАЛ (Месяц, Квартал, Год)
+    # Мапим твой kind/period в формат Monobank
+    interval_map = {
+        "month": "1m",
+        "quarter": "3m",
+        "year": "1y"
+    }
+    # Ищем период в kind (например, если kind="sub:basic:month")
+    period_key = "month"
+    for k in interval_map:
+        if k in body.kind.lower():
+            period_key = k
+            break
+    
+    mono_interval = interval_map.get(period_key, "1m")
+
     payload: dict = {
         "amount": amount,
+        "ccy": 980,
+        "interval": mono_interval,
         "merchantPaymInfo": {
             "reference": f"webapp:{body.kind}:{body.tg_id}",
             "destination": body.title,
@@ -84,28 +105,51 @@ async def create_mono_invoice(body: MonoInvoiceIn) -> MonoInvoiceOut:
     if body.redirect_url:
         payload["redirectUrl"] = body.redirect_url
 
+    # 2. ПРАВИЛЬНЫЕ ВЕБХУКИ ДЛЯ ПОДПИСОК
     base_url = (os.getenv("PUBLIC_URL") or os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
     if base_url:
-        payload["webHookUrl"] = f"{base_url}/api/mono/webhook"
+        # Для подписок Моно ждет объект webHookUrls, а не строку!
+        payload["webHookUrls"] = {
+            "chargeUrl": f"{base_url}/api/mono/webhook",
+            "statusUrl": f"{base_url}/api/mono/webhook"
+        }
 
     headers = {"X-Token": token}
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.post(MONO_CREATE_URL, headers=headers, json=payload)
+        
         if r.status_code >= 400:
             raise HTTPException(status_code=500, detail=f"mono api error: {r.status_code}: {r.text}")
 
         data = r.json()
-        url = data.get("pageUrl") or data.get("invoiceUrl") or data.get("url")
+        invoice_id = data.get("invoiceId") # Это ключ для будущих возвратов
+        url = data.get("pageUrl")
+        
         if not url:
-            raise HTTPException(status_code=500, detail="mono response missing invoice url")
+            raise HTTPException(status_code=500, detail="mono response missing url")
+
+        # 3. СОХРАНЯЕМ EXTERNAL_ID СРАЗУ (Чтобы работал возврат)
+        # Создаем запись платежа в статусе pending и записываем туда invoiceId
+        user = (await session.execute(select(User).where(User.tg_id == body.tg_id))).scalar_one_or_none()
+        if user:
+            new_pay = Payment(
+                user_id=user.id,
+                amount_cents=amount,
+                currency="UAH",
+                external_id=invoice_id, # Вот теперь возврат его найдет!
+                status=PaymentStatus.PENDING,
+                provider="monobank",
+                sku=body.kind
+            )
+            session.add(new_pay)
+            await session.commit()
 
         return MonoInvoiceOut(invoice_url=url)
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"mono invoice failed: {type(e).__name__}: {e}")
+        logger.error(f"Mono invoice failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/webhook")

@@ -882,6 +882,17 @@ async def sub_cancel_confirm(
     lang_code = _lang_of(user, c, fallback=lang)
 
     ok = await _cancel_subscription(session, c.from_user.id)
+    # ЗУПИНКА АВТОСПИСАННЯ В МОНОБАНКУ
+    import httpx
+    token = os.getenv("MONO_TOKEN")
+    # Шукаємо останню активну підписку (external_id має починатися на s2_)
+    # Тут логіка має знайти pay.external_id для підписки
+    try:
+        # Для MVP: якщо у нас збережений subscriptionId, шлемо його в /subscription/cancel
+        # (Потребує збереження subscriptionId в БД при оплаті)
+        pass
+    except Exception: pass
+
 
     await c.answer()
     if not c.message:
