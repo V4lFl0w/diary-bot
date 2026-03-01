@@ -143,14 +143,21 @@ async def create_mono_invoice(
         # СОХРАНЯЕМ EXTERNAL_ID СРАЗУ (Чтобы работал возврат)
         user = (await session.execute(select(User).where(User.tg_id == body.tg_id))).scalar_one_or_none()
         if user:
-            # Создаем запись платежа для Refund
+            # === ФИКС ОШИБКИ БАЗЫ ДАННЫХ (plan) ===
+            plan_enum = PaymentPlan.MONTH
+            if "quarter" in body.kind.lower(): plan_enum = PaymentPlan.QUARTER
+            elif "year" in body.kind.lower(): plan_enum = PaymentPlan.YEAR
+            elif "tokens" in body.kind.lower() or "topup" in body.kind.lower(): plan_enum = PaymentPlan.TOPUP
+
+            # Создаем запись платежа
             new_pay = Payment(
                 user_id=user.id,
+                plan=plan_enum,   # <--- ТЕПЕРЬ БАЗА ПРИМЕТ ЗАПИСЬ
                 amount_cents=amount,
                 currency="UAH",
                 external_id=invoice_id, 
                 status=PaymentStatus.PENDING,
-                provider="mono",  # <--- ВОТ ЗДЕСЬ ТЕПЕРЬ СТРОГО "mono"
+                provider="mono",  
                 sku=body.kind
             )
             session.add(new_pay)
