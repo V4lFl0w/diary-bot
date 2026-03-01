@@ -37,6 +37,21 @@
         var(--bg);
       color:var(--text);
       -webkit-font-smoothing: antialiased;
+      
+      /* АНТИ-ПРЫЖОК: Жестко фиксируем окно */
+      height: var(--tg-viewport-stable-height, 100vh);
+      min-height: 100vh;
+      width: 100vw;
+      overflow: hidden; 
+      padding: 0;
+    }
+
+    /* Оборачиваем весь контент в контейнер для внутреннего скролла */
+    .app-container {
+      height: 100%;
+      width: 100%;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
       padding: calc(14px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom));
     }
 
@@ -99,11 +114,11 @@
       box-shadow: 0 10px 30px rgba(0,0,0,.25);
     }
     
-.card.selected{
-  border-color: rgba(45,212,191,.45);
-  box-shadow: 0 8px 20px rgba(0,0,0,.25);
-  background: rgba(255,255,255,.06);
-}
+    .card.selected{
+      border-color: rgba(45,212,191,.45);
+      box-shadow: 0 8px 20px rgba(0,0,0,.25);
+      background: rgba(255,255,255,.06);
+    }
 
     .badge{
       position:absolute;top:12px;right:12px;
@@ -136,20 +151,18 @@
     .smallLine{color:var(--muted);font-size:13px;margin-top:-6px;line-height:1.35;}
     .smallLine strong{color:rgba(255,255,255,.90);font-weight:900}
 
-    
-.gift{
-  background: rgba(255,255,255,.03);
-  border: 1px solid rgba(255,255,255,.06);
-  padding:12px;
-  border-radius:12px;
-  margin:12px 0 6px;
-}
-.giftTop{
-  display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
-}
-.giftText{font-weight:950;}
-.giftMeta{color:var(--muted);font-size:13px;line-height:1.35;}
-    .giftText{font-weight:900;}
+    .gift{
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.06);
+      padding:12px;
+      border-radius:12px;
+      margin:12px 0 6px;
+    }
+    .giftTop{
+      display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+    }
+    .giftText{font-weight:950;}
+    .giftMeta{color:var(--muted);font-size:13px;line-height:1.35;}
 
     .list{margin:10px 0 0;padding:0;list-style:none;display:grid;gap:10px;}
     .li{display:flex;align-items:flex-start;gap:10px;color: rgba(255,255,255,.88);font-size:14px;line-height:1.35;}
@@ -238,36 +251,34 @@
 
     .btn.vf-glow { animation: vfGlow 1.6s ease-in-out infinite; }
 
-  
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
 
-.presale-line {
-  opacity: 0;
-  animation: fadeUp .4s ease forwards;
-}
+    .presale-line {
+      opacity: 0;
+      animation: fadeUp .4s ease forwards;
+    }
 
-.presale-line:nth-child(1){ animation-delay:.05s }
-.presale-line:nth-child(2){ animation-delay:.1s }
-.presale-line:nth-child(3){ animation-delay:.15s }
-.presale-line:nth-child(4){ animation-delay:.2s }
-.presale-line:nth-child(5){ animation-delay:.25s }
-.presale-line:nth-child(6){ animation-delay:.3s }
+    .presale-line:nth-child(1){ animation-delay:.05s }
+    .presale-line:nth-child(2){ animation-delay:.1s }
+    .presale-line:nth-child(3){ animation-delay:.15s }
+    .presale-line:nth-child(4){ animation-delay:.2s }
+    .presale-line:nth-child(5){ animation-delay:.25s }
+    .presale-line:nth-child(6){ animation-delay:.3s }
 
-@keyframes planGlow {
-  0%   { box-shadow: 0 0 0 rgba(0,255,180,0); }
-  50%  { box-shadow: 0 0 18px rgba(0,255,180,0.35); }
-  100% { box-shadow: 0 0 0 rgba(0,255,180,0); }
-}
+    @keyframes planGlow {
+      0%   { box-shadow: 0 0 0 rgba(0,255,180,0); }
+      50%  { box-shadow: 0 0 18px rgba(0,255,180,0.35); }
+      100% { box-shadow: 0 0 0 rgba(0,255,180,0); }
+    }
 
-.card.selected {
-  animation: planGlow 2.4s ease-in-out infinite;
-  border-color: rgba(0,255,180,.6) !important;
-}
+    .card.selected {
+      animation: planGlow 2.4s ease-in-out infinite;
+      border-color: rgba(0,255,180,.6) !important;
+    }
 
-    /* VF_PAY_UI_V4 */
     .payDivider{
       height:1px;
       background: rgba(255,255,255,.08);
@@ -275,7 +286,6 @@
       border-radius: 999px;
     }
 
-    /* periods stay as pill; payment methods become separate row */
     #payTabsSub{
       background: transparent;
       border: 0;
@@ -295,13 +305,10 @@
       box-shadow: 0 6px 14px rgba(0,0,0,.18), inset 0 0 0 1px rgba(45,212,191,.18);
     }
 
-    /* make the footer feel less like one big slab */
     .footer{
       background: rgba(255,255,255,.035);
     }
 
-  
-    /* VF_PLAN_GLOW_V1 */
     .card{
       transition: box-shadow .18s ease, border-color .18s ease, background .18s ease, transform .18s ease;
     }
@@ -314,7 +321,7 @@
         0 0 22px rgba(45,212,191,.16);
       transform: translateY(-1px);
     }
-/* VF_PERIOD_ROW_V1 */
+
     #periodTabsSub{
       background: transparent !important;
       border: 0 !important;
@@ -334,143 +341,130 @@
       box-shadow: 0 6px 14px rgba(0,0,0,.18), inset 0 0 0 1px rgba(45,212,191,.18);
     }
 
+    #payHint, #payHintTok { display:none !important; }
 
-/* VF_FOOTER_GLASS_V2 */
-/* hide any payment hint text placeholders */
-#payHint, #payHintTok { display:none !important; }
+    .footer.vfGlassFooter{
+      background: rgba(15,18,25,0.55) !important;
+      border: 1px solid rgba(255,255,255,0.10) !important;
+      box-shadow: 0 -10px 30px rgba(0,0,0,0.18) !important;
+      -webkit-backdrop-filter: blur(14px) !important;
+      backdrop-filter: blur(14px) !important;
+    }
 
-/* single source of truth: glass footer */
-.footer.vfGlassFooter{
-  background: rgba(15,18,25,0.55) !important;
-  border: 1px solid rgba(255,255,255,0.10) !important;
-  box-shadow: 0 -10px 30px rgba(0,0,0,0.18) !important;
-  -webkit-backdrop-filter: blur(14px) !important;
-  backdrop-filter: blur(14px) !important;
-}
+    body{
+      text-rendering: optimizeLegibility;
+      -webkit-text-size-adjust: 100%;
+    }
+    .title{ letter-spacing:-0.2px }
+    .planName{ letter-spacing:-0.3px }
+    .price{ letter-spacing:-1.1px }
 
+    .btn,.tab,.payTab,.card,.tokenItem{
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active{ transform:translateY(1px) scale(.99) }
+    .tab:active,.payTab:active{ transform:scale(.99) }
+    .card:active{ transform:translateY(0) scale(.995) }
 
+    .tab:focus-visible,.payTab:focus-visible,.btn:focus-visible{
+      outline:none;
+      box-shadow:0 0 0 3px rgba(45,212,191,.18),0 0 0 1px rgba(255,255,255,.10) inset;
+    }
 
-/* VF_APPLE_MICRO_POLISH_V1 */
-body{
-  text-rendering: optimizeLegibility;
-  -webkit-text-size-adjust: 100%;
-}
-.title{ letter-spacing:-0.2px }
-.planName{ letter-spacing:-0.3px }
-.price{ letter-spacing:-1.1px }
+    @media (prefers-reduced-motion:reduce){
+      *{animation:none!important;transition:none!important}
+    }
 
-.btn,.tab,.payTab,.card,.tokenItem{
-  -webkit-tap-highlight-color: transparent;
-}
-.btn:active{ transform:translateY(1px) scale(.99) }
-.tab:active,.payTab:active{ transform:scale(.99) }
-.card:active{ transform:translateY(0) scale(.995) }
+    .carousel{
+      scroll-behavior:smooth;
+      scroll-padding-left:14px;
+      overscroll-behavior-x:contain;
+    }
 
-.tab:focus-visible,.payTab:focus-visible,.btn:focus-visible{
-  outline:none;
-  box-shadow:0 0 0 3px rgba(45,212,191,.18),0 0 0 1px rgba(255,255,255,.10) inset;
-}
+    .tokenItem{
+      transition:transform .14s ease,box-shadow .18s ease,border-color .18s ease;
+    }
+    .tokenItem:active{ transform:scale(.995) }
 
-@media (prefers-reduced-motion:reduce){
-  *{animation:none!important;transition:none!important}
-}
-
-.carousel{
-  scroll-behavior:smooth;
-  scroll-padding-left:14px;
-  overscroll-behavior-x:contain;
-}
-
-.tokenItem{
-  transition:transform .14s ease,box-shadow .18s ease,border-color .18s ease;
-}
-.tokenItem:active{ transform:scale(.995) }
-
-
-</style>
+  </style>
 </head>
 
 <body>
-  <div class="topbar">
-    <div>
-      <h1 class="title">Премиум</h1>
-      <p class="subtitle">Выбери подписку (Бейсик/Про/Макс) или токены для тяжёлых задач.</p>
-    </div>
-    <div class="pill" id="userPill">
-      <span class="dot"></span>
-      <span id="userText">Пользователь</span>
-    </div>
-  </div>
-
-  <div class="tabs" role="tablist">
-    <button class="tab active" data-tab="sub">Подписка</button>
-    <button class="tab" data-tab="tok">Токены</button>
-  </div>
-
-  <section class="screen active" id="screen-sub">
-    <div class="carousel" id="plans"></div>
-
-    <div class="footer vfGlassFooter">
-      <p class="payMethod" id="payHint"></p>
-
-      <div class="payTabs" id="periodTabsSub">
-        <button class="payTab active" data-period="month">Месяц</button>
-        <button class="payTab" data-period="quarter">Квартал −10%</button>
-        <button class="payTab" data-period="year">Год −25%</button>
+  <div class="app-container">
+    <div class="topbar">
+      <div>
+        <h1 class="title">Премиум</h1>
+        <p class="subtitle">Выбери подписку (Бейсик/Про/Макс) или токены для тяжёлых задач.</p>
       </div>
-
-<div class="payDivider"></div>
-
-<div class="payTabs" id="payTabsSub">
-        <button class="payTab active" data-method="card">💳 Карта</button>
-        <button class="payTab" data-method="stars">⭐ Stars</button>
-        <button class="payTab" data-method="crypto">🪙 Крипта</button>
+      <div class="pill" id="userPill">
+        <span class="dot"></span>
+        <span id="userText">Пользователь</span>
       </div>
-
-      <button class="btn" id="payBtn">Оплатить</button>
     </div>
-  </section>
 
-  <section class="screen" id="screen-tok">
-    <div class="tokenBox">
-      <h2 class="tokenTitle">Пакеты токенов</h2>
-      <div class="subtitle" style="margin:0;">Токены списываются за тяжёлые функции (видео/изображения/дорогие запросы).</div>
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="sub">Подписка</button>
+      <button class="tab" data-tab="tok">Токены</button>
+    </div>
 
-      <div class="tokenGrid" id="tokenPacks"></div>
+    <section class="screen active" id="screen-sub">
+      <div class="carousel" id="plans"></div>
 
       <div class="footer vfGlassFooter">
-        <div class="payTabs" id="payTabsTok">
-          <button class="payTab active" data-method="card">💳 Карта</button>
-          <button class="payTab" data-method="crypto" disabled>🪙 Крипта</button>
+        <p class="payMethod" id="payHint"></p>
+
+        <div class="payTabs" id="periodTabsSub">
+          <button class="payTab active" data-period="month">Месяц</button>
+          <button class="payTab" data-period="quarter">Квартал −10%</button>
+          <button class="payTab" data-period="year">Год −25%</button>
         </div>
 
-        <button class="btn" id="buyTokensBtn">Купить токены</button>
-      </div>
-    </div>
-  </section>
+        <div class="payDivider"></div>
 
-    <script>
+        <div class="payTabs" id="payTabsSub">
+          <button class="payTab active" data-method="card">💳 Карта</button>
+          <button class="payTab" data-method="stars">⭐ Stars</button>
+          <button class="payTab" data-method="crypto">🪙 Крипта</button>
+        </div>
+
+        <button class="btn" id="payBtn">Оплатить</button>
+      </div>
+    </section>
+
+    <section class="screen" id="screen-tok">
+      <div class="tokenBox">
+        <h2 class="tokenTitle">Пакеты токенов</h2>
+        <div class="subtitle" style="margin:0;">Токены списываются за тяжёлые функции (видео/изображения/дорогие запросы).</div>
+
+        <div class="tokenGrid" id="tokenPacks"></div>
+
+        <div class="footer vfGlassFooter">
+          <div class="payTabs" id="payTabsTok">
+            <button class="payTab active" data-method="card">💳 Карта</button>
+            <button class="payTab" data-method="crypto" disabled>🪙 Крипта</button>
+          </div>
+
+          <button class="btn" id="buyTokensBtn">Купить токены</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
     const tg = window.Telegram?.WebApp || null;
 
     function tgPopup(msg){
       try { tg?.showPopup?.({ message: String(msg) }); } catch(e) {}
     }
 
-    // VF_HAPTIC_V1
     function haptic(kind="light"){
       try { tg?.HapticFeedback?.impactOccurred?.(kind); } catch(e) {}
     }
 
-    function tgPopup(msg){
-      try { tg?.showPopup?.({ message: String(msg) }); } catch(e) {}
-    }
-
-    // --- language detect (ru/uk/en) ---
     let LANG = "ru";
     let forcedLang = null;
     let tgUserId = null;
 
-    // --- allow forcing lang via query (?lang=ru|uk|en) to avoid Telegram language_code mismatch
     try {
       const qs = new URLSearchParams(window.location.search || "");
       const forced = String(qs.get("lang") || qs.get("locale") || "").toLowerCase();
@@ -479,9 +473,11 @@ body{
         LANG = forcedLang;
       }
     } catch (e) {}
+    
     if (tg) {
       try { tg.ready(); } catch(e) {}
       try { tg.expand(); } catch(e) {}
+      try { if (tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch(e) {}
 
       const u = tg.initDataUnsafe?.user;
       if (u) {
@@ -514,8 +510,8 @@ body{
         pay_card: "💳 Карта",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Крипта",
-pay_hint_basic_crypto_off: "Крипта доступна только для Pro/Max (минималка $10).",
-btn_pay: "Оплатить",
+        pay_hint_basic_crypto_off: "Крипта доступна только для Pro/Max (минималка $10).",
+        btn_pay: "Оплатить",
         btn_buy: "Купить",
         tokens_title: "Пакеты токенов",
         tokens_sub: "Токены списываются за тяжёлые функции (видео/изображения/дорогие запросы).",
@@ -523,8 +519,6 @@ btn_pay: "Оплатить",
         choose: "выбрать",
         gift_prefix: "+",
         gift_suffix: " токенов",
-        stars_line: "или ",
-        stars_suffix: "⭐ через Stars",
       },
       uk: {
         title: "Преміум",
@@ -538,8 +532,8 @@ btn_pay: "Оплатить",
         pay_card: "💳 Картка",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Крипта",
-pay_hint_basic_crypto_off: "Крипта лише для Pro/Max (мінімум $10).",
-btn_pay: "Оплатити",
+        pay_hint_basic_crypto_off: "Крипта лише для Pro/Max (мінімум $10).",
+        btn_pay: "Оплатити",
         btn_buy: "Купити",
         tokens_title: "Пакети токенів",
         tokens_sub: "Токени списуються за важкі функції (відео/зображення/дорогі запити).",
@@ -547,8 +541,6 @@ btn_pay: "Оплатити",
         choose: "обрати",
         gift_prefix: "+",
         gift_suffix: " токенів",
-        stars_line: "або ",
-        stars_suffix: "⭐ через Stars",
       },
       en: {
         title: "Premium",
@@ -562,8 +554,8 @@ btn_pay: "Оплатити",
         pay_card: "💳 Card",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Crypto",
-pay_hint_basic_crypto_off: "Crypto is Pro/Max only (min $10).",
-btn_pay: "Pay",
+        pay_hint_basic_crypto_off: "Crypto is Pro/Max only (min $10).",
+        btn_pay: "Pay",
         btn_buy: "Buy",
         tokens_title: "Token packs",
         tokens_sub: "Tokens are used for heavy features (video/images/expensive requests).",
@@ -571,14 +563,11 @@ btn_pay: "Pay",
         choose: "select",
         gift_prefix: "+",
         gift_suffix: " tokens",
-        stars_line: "or ",
-        stars_suffix: "⭐ via Stars",
       }
     };
 
     const t = I18N[LANG] || I18N.ru;
 
-    // apply static texts
     document.querySelector(".title").textContent = t.title;
     document.querySelector(".subtitle").textContent = t.subtitle;
     document.querySelector('.tab[data-tab="sub"]').textContent = t.tab_sub;
@@ -586,7 +575,6 @@ btn_pay: "Pay",
     document.querySelector(".tokenTitle").textContent = t.tokens_title;
     document.querySelector("#screen-tok .subtitle").textContent = t.tokens_sub;
 
-    // periods (month/quarter/year)
     const PERIODS = {
       month:   { months: 1,  discount: 1.00 },
       quarter: { months: 3,  discount: 0.90 },
@@ -594,30 +582,17 @@ btn_pay: "Pay",
     };
     let selectedPeriod = "month";
 
-    // Stars base per MONTH (edit these to your economics)
-    const STARS_BASE = {
-      basic: 199,
-      pro:   449,
-      max:   999,
-    };
-
-    // Bonus tokens base per MONTH (real numbers, Apple-style)
-    // Explain: tokens are used for heavy features (images/video/expensive requests)
-    const BONUS_TOKENS_BASE = {
-      basic: 60,
-      pro:   180,
-      max:   450,
-    };
-
+    const STARS_BASE = { basic: 199, pro: 449, max: 999 };
+    const BONUS_TOKENS_BASE = { basic: 60, pro: 180, max: 450 };
     const CURRENCY = "UAH";
     function money(n){ return `${n}₴`; }
 
-    // --- crypto UX: show approximate USD (not exact rate)
-    const FX_USD = 40; // ~UAH per $ (approx for UI only)
+    const FX_USD = 40; 
     const USD_MIN = 10;
     function calcUsdApprox(uah){
       try { return Math.max(USD_MIN, Math.round(Number(uah || 0) / FX_USD)); } catch(e){ return USD_MIN; }
     }
+    
     function primaryAmountForPlan(plan){
       const priceUah = calcPriceUah(plan);
       const stars = calcStars(plan.id);
@@ -626,7 +601,7 @@ btn_pay: "Pay",
       if (payMethodSub === "crypto") return `~$${usd}`;
       return money(priceUah);
     }
-    // --- Stars ---
+
     async function payByStars(planId, starsAmount, title, description) {
       if (!tg || typeof tg.openInvoice !== "function") {
         tgPopup("openInvoice недоступен. Открой WebApp внутри Telegram.");
@@ -671,14 +646,18 @@ btn_pay: "Pay",
       }
     }
 
-    // --- Monobank (card) ---
-    async function payByMono(kind, amountUah, title, description) {
+    // --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ МОНОБАНКА ---
+    async function payByMono(kind, amountUah, title, description, isAuto = true) {
       if (!tg) {
         alert("DEV MODE: tg is missing");
         return false;
       }
-      if (!tgUserId) {
-        tgPopup("Не удалось определить user id Telegram");
+      
+      const qs = new URLSearchParams(window.location.search || "");
+      const tgIdFallback = Number(qs.get("tg_id")) || Number(tgUserId) || null;
+      
+      if (!tgIdFallback) {
+        tgPopup("Не удалось определить ID пользователя. Перезапустите бота.");
         return false;
       }
 
@@ -687,11 +666,12 @@ btn_pay: "Pay",
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            tg_id: Number(tgUserId),
+            tg_id: tgIdFallback,
             kind: String(kind || "unknown"),
             amount_uah: Number(amountUah || 0),
             title: title || "DiaryBot Premium",
             description: description || "Оплата Premium",
+            is_auto: Boolean(isAuto) 
           }),
         });
 
@@ -709,8 +689,11 @@ btn_pay: "Pay",
           return false;
         }
 
-        if (typeof tg.openLink === "function") tg.openLink(url);
-        else window.open(url, "_blank");
+        if (typeof tg.openLink === "function") {
+             tg.openLink(url);
+        } else {
+             window.open(url, "_blank");
+        }
 
         return true;
       } catch (e) {
@@ -719,17 +702,6 @@ btn_pay: "Pay",
       }
     }
 
-    // --- Bot bridge (for crypto now / later) ---
-    function sendToBot(payload) {
-      const data = JSON.stringify(payload);
-      if (tg) tg.sendData(data);
-      else {
-        console.log("WebApp payload:", payload);
-        alert("DEV MODE:\n" + data);
-      }
-    }
-
-    // Plans (Apple-style bullets + real bonus tokens)
     const PLANS = [
       {
         id: "basic",
@@ -810,7 +782,8 @@ btn_pay: "Pay",
         ])),
       },
     ];
-const TOKEN_PACKS = [
+    
+    const TOKEN_PACKS = [
       { id: "t100", name: {ru:"100 токенов", uk:"100 токенів", en:"100 tokens"}, price_uah: 199, note: {ru:"Точечно", uk:"Точково", en:"Occasional"} },
       { id: "t300", name: {ru:"300 токенов", uk:"300 токенів", en:"300 tokens"}, price_uah: 499, note: {ru:"Оптимально", uk:"Оптимально", en:"Best value"} },
       { id: "t800", name: {ru:"800 токенов", uk:"800 токенів", en:"800 tokens"}, price_uah: 1099, note:{ru:"Активно", uk:"Активно", en:"Heavy use"} },
@@ -820,10 +793,9 @@ const TOKEN_PACKS = [
     let selectedPlanId = "basic";
     let selectedTokenPackId = "t300";
 
-    let payMethodSub = "card";   // card | stars | crypto
-    let payMethodTok = "card";   // card | crypto
+    let payMethodSub = "card";   
+    let payMethodTok = "card";   
 
-    // --- render helpers ---
     function calcPriceUah(plan){
       const per = PERIODS[selectedPeriod];
       return Math.round(plan.price_uah * per.months * per.discount);
@@ -843,15 +815,13 @@ const TOKEN_PACKS = [
       for (const plan of PLANS) {
         const card = document.createElement("div");
         card.className = "card" + (plan.id === selectedPlanId ? " selected" : "") + " vf-pop " +
-  (plan.id==="basic" ? "vf-delay-1" : (plan.id==="pro" ? "vf-delay-2" : "vf-delay-3"));
+          (plan.id==="basic" ? "vf-delay-1" : (plan.id==="pro" ? "vf-delay-2" : "vf-delay-3"));
 
         card.dataset.plan = plan.id;
 
         const price = calcPriceUah(plan);
         const stars = calcStars(plan.id);
         const bonus = calcBonusTokens(plan.id);
-
-        const starsLine = "";
 
         const giftLine = `<div class="giftText">${t.gift_prefix}${bonus}${t.gift_suffix}</div>`;
 
@@ -871,7 +841,6 @@ const TOKEN_PACKS = [
           </div>
 
           <div class="smallLine"><strong>${plan.under_price || ""}</strong></div>
-          ${starsLine}
 
           <div class="gift">
             <div class="giftTop">
@@ -890,7 +859,6 @@ const TOKEN_PACKS = [
         card.addEventListener("click", () => {
           haptic("light");
           selectedPlanId = plan.id;
-          // if crypto chosen but basic -> force card
           if (selectedPlanId === "basic" && payMethodSub === "crypto") payMethodSub = "card";
           updatePayTabs();
           renderPlans();
@@ -926,15 +894,13 @@ const TOKEN_PACKS = [
           selectedTokenPackId = pack.id;
           renderTokenPacks();
           updateButtons();
-        
-  try { document.getElementById("payBtn")?.classList.add("vf-glow"); } catch(e) {}
-});
+          try { document.getElementById("payBtn")?.classList.add("vf-glow"); } catch(e) {}
+        });
 
         tokenPacksEl.appendChild(item);
       }
     }
 
-    // top tabs
     const tabs = document.querySelectorAll(".tab");
     const screenSub = document.getElementById("screen-sub");
     const screenTok = document.getElementById("screen-tok");
@@ -957,11 +923,9 @@ const TOKEN_PACKS = [
       });
     });
 
-    // period tabs
     const periodTabsSub = document.getElementById("periodTabsSub");
     if (periodTabsSub) {
       const btns = periodTabsSub.querySelectorAll(".payTab");
-      // set labels by language
       btns.forEach(b => {
         const p = b.dataset.period;
         if (p === "month") b.textContent = t.period_m;
@@ -980,102 +944,99 @@ const TOKEN_PACKS = [
       });
     }
 
-    // pay tabs
+    const payTabsSub = document.getElementById("payTabsSub");
+    const payTabsTok = document.getElementById("payTabsTok");
+    function setActive(container, method){
+      container?.querySelectorAll(".payTab")
+        .forEach(b => b.classList.toggle("active", b.dataset.method === method));
+    }
 
-const payTabsSub = document.getElementById("payTabsSub");
-const payTabsTok = document.getElementById("payTabsTok");
-function setActive(container, method){
-  container?.querySelectorAll(".payTab")
-    .forEach(b => b.classList.toggle("active", b.dataset.method === method));
-}
+    function updatePayTabs(){
+      const starsBtn  = payTabsSub?.querySelector('[data-method="stars"]');
+      const cryptoBtn = payTabsSub?.querySelector('[data-method="crypto"]');
+      const cardBtn   = payTabsSub?.querySelector('[data-method="card"]');
 
-function updatePayTabs(){
-  const starsBtn  = payTabsSub?.querySelector('[data-method="stars"]');
-  const cryptoBtn = payTabsSub?.querySelector('[data-method="crypto"]');
-  const cardBtn   = payTabsSub?.querySelector('[data-method="card"]');
+      const tokCard   = payTabsTok?.querySelector('[data-method="card"]');
+      const tokCrypto = payTabsTok?.querySelector('[data-method="crypto"]');
 
-  const tokCard   = payTabsTok?.querySelector('[data-method="card"]');
-  const tokCrypto = payTabsTok?.querySelector('[data-method="crypto"]');
+      const starsAllowed  = Boolean(tg && typeof tg.openInvoice === "function" && calcStars(selectedPlanId) > 0);
+      const cryptoAllowed = (selectedPlanId === "pro" || selectedPlanId === "max");
 
-  const starsAllowed  = Boolean(tg && typeof tg.openInvoice === "function" && calcStars(selectedPlanId) > 0);
-  const cryptoAllowed = (selectedPlanId === "pro" || selectedPlanId === "max");
+      if (cardBtn)  cardBtn.textContent  = t.pay_card;
 
-  if (cardBtn)  cardBtn.textContent  = t.pay_card;
+      if (starsBtn) {
+        starsBtn.disabled = !starsAllowed;
+        starsBtn.textContent = t.pay_stars;
+      }
 
-  if (starsBtn) {
-    starsBtn.disabled = !starsAllowed;
-    starsBtn.textContent = t.pay_stars;
-  }
+      if (cryptoBtn) {
+        const planObj = PLANS.find(x => x.id === selectedPlanId);
+        const priceUah = planObj ? calcPriceUah(planObj) : 0;
+        const usd = calcUsdApprox(priceUah);
+        cryptoBtn.textContent = t.pay_crypto + (cryptoAllowed ? ` (~$${usd})` : " (Pro/Max)");
+      }
 
-  if (cryptoBtn) {
-    const planObj = PLANS.find(x => x.id === selectedPlanId);
-  const priceUah = planObj ? calcPriceUah(planObj) : 0;
-  const usd = calcUsdApprox(priceUah);
-  cryptoBtn.textContent = t.pay_crypto + (cryptoAllowed ? ` (~$${usd})` : " (Pro/Max)");}
+      if (tokCard)   tokCard.textContent = t.pay_card;
+      if (tokCrypto) tokCrypto.textContent = t.pay_crypto + " (soon)";
 
-  if (tokCard)   tokCard.textContent = t.pay_card;
-  if (tokCrypto) tokCrypto.textContent = t.pay_crypto + " (soon)";
+      if (!starsAllowed && payMethodSub === "stars")  payMethodSub = "card";
+      if (!cryptoAllowed && payMethodSub === "crypto") payMethodSub = "card";
 
-  if (!starsAllowed && payMethodSub === "stars")  payMethodSub = "card";
-  if (!cryptoAllowed && payMethodSub === "crypto") payMethodSub = "card";
+      if (payTabsSub) setActive(payTabsSub, payMethodSub);
+      if (payTabsTok) setActive(payTabsTok, payMethodTok);
+    }
 
-  if (payTabsSub) setActive(payTabsSub, payMethodSub);
-  if (payTabsTok) setActive(payTabsTok, payMethodTok);
-}
+    payTabsSub?.addEventListener("click", (e) => {
+      const b = e.target.closest(".payTab");
+      if (!b || b.disabled) return;
+      haptic("light");
+      const method = b.dataset.method || "card";
+      if (method === "crypto") {
+        const cryptoAllowed = (selectedPlanId === "pro" || selectedPlanId === "max");
+        if (!cryptoAllowed) { tgPopup(t.pay_hint_basic_crypto_off); return; }
+      }
+      payMethodSub = method;
+      updatePayTabs();
+      renderPlans();
+      updateButtons();
+    });
 
-payTabsSub?.addEventListener("click", (e) => {
-  const b = e.target.closest(".payTab");
-  if (!b || b.disabled) return;
-  haptic("light");
-  const method = b.dataset.method || "card";
-  if (method === "crypto") {
-    const cryptoAllowed = (selectedPlanId === "pro" || selectedPlanId === "max");
-    if (!cryptoAllowed) { tgPopup(t.pay_hint_basic_crypto_off); return; }
-  }
-  payMethodSub = method;
-  updatePayTabs();
-  renderPlans();
-  updateButtons();
-});
+    payTabsTok?.addEventListener("click", (e) => {
+      const b = e.target.closest(".payTab");
+      if (!b || b.disabled) return;
+      payMethodTok = b.dataset.method || "card";
+      updatePayTabs();
+      updateButtons();
+    });
 
-payTabsTok?.addEventListener("click", (e) => {
-  const b = e.target.closest(".payTab");
-  if (!b || b.disabled) return;
-  payMethodTok = b.dataset.method || "card";
-  updatePayTabs();
-  updateButtons();
-});
+    const payHintTok = document.getElementById("payHintTok");
 
-const payHint = document.getElementById("payHint");
-const payHintTok = document.getElementById("payHintTok");
+    function updateButtons(){
+      updatePayTabs();
+      if (payHintTok) payHintTok.textContent = "";
 
-function updateButtons(){
-  updatePayTabs();
-  if (payHintTok) payHintTok.textContent = "";
+      const payBtn = document.getElementById("payBtn");
+      const buyBtn = document.getElementById("buyTokensBtn");
 
-  const payBtn = document.getElementById("payBtn");
-  const buyBtn = document.getElementById("buyTokensBtn");
+      if (payBtn) {
+        const plan = PLANS.find(x => x.id === selectedPlanId);
+        const priceUah = calcPriceUah(plan);
+        const stars = calcStars(selectedPlanId);
+        const usd = calcUsdApprox(priceUah);
 
-  if (payBtn) {
-    const plan = PLANS.find(x => x.id === selectedPlanId);
-    const priceUah = calcPriceUah(plan);
-    const stars = calcStars(selectedPlanId);
+        payBtn.textContent = (payMethodSub === "stars")
+          ? `${t.btn_pay} ${stars}⭐`
+          : (payMethodSub === "crypto")
+            ? `${t.btn_pay} ~$${usd}`
+            : `${t.btn_pay} ${money(priceUah)}`;
+      }
 
-    const usd = calcUsdApprox(priceUah);
+      if (buyBtn) {
+        const pack = TOKEN_PACKS.find(x => x.id === selectedTokenPackId);
+        buyBtn.textContent = `${t.btn_buy} ${money(pack.price_uah)}`;
+      }
+    }
 
-    payBtn.textContent = (payMethodSub === "stars")
-      ? `${t.btn_pay} ${stars}⭐`
-      : (payMethodSub === "crypto")
-        ? `${t.btn_pay} ~$${usd}`
-        : `${t.btn_pay} ${money(priceUah)}`;}
-
-  if (buyBtn) {
-    const pack = TOKEN_PACKS.find(x => x.id === selectedTokenPackId);
-    buyBtn.textContent = `${t.btn_buy} ${money(pack.price_uah)}`;
-  }
-}
-
-    // HARD rebind buttons (no matter what old listeners exist)
     function hardRebind(id, handler){
       const old = document.getElementById(id);
       if (!old) return null;
@@ -1085,6 +1046,7 @@ function updateButtons(){
       return fresh;
     }
 
+    // ИСПРАВЛЕННЫЕ ОБРАБОТЧИКИ КНОПОК
     hardRebind("payBtn", async () => {
       haptic("medium");
       const plan = PLANS.find(x => x.id === selectedPlanId);
@@ -1097,23 +1059,19 @@ function updateButtons(){
           tgPopup(t.pay_hint_basic_crypto_off);
           return;
         }
-        // send to bot (backend will implement later)
-                
-                /* VF_CRYPTO_OPEN_NOW_V1 */
-                try{
-                  const tg = window.Telegram && window.Telegram.WebApp;
-                  const qs = new URLSearchParams(window.location.search || "");
-                  const tg_id = qs.get("tg_id") || String(tgUserId || "");
-                  if (!tg_id) { tgPopup("tg_id не найден"); return; }
-                  const url = `/payments/now/create?tg_id=${encodeURIComponent(tg_id)}&plan=${encodeURIComponent(selectedPlanId)}&period=${encodeURIComponent(selectedPeriod)}&v=${Date.now()}`;
-                  if (tg && typeof tg.openLink === "function") tg.openLink(url);
-                  else window.location.href = url;
-                }catch(e){
-                  window.location.href = "/payments/now/create?plan=" + encodeURIComponent(selectedPlanId) + "&period=" + encodeURIComponent(selectedPeriod) + "&v=" + Date.now();
-                }
-
-                return;
-}
+        try{
+          const tg = window.Telegram && window.Telegram.WebApp;
+          const qs = new URLSearchParams(window.location.search || "");
+          const tg_id = qs.get("tg_id") || String(tgUserId || "");
+          if (!tg_id) { tgPopup("tg_id не найден"); return; }
+          const url = `/payments/now/create?tg_id=${encodeURIComponent(tg_id)}&plan=${encodeURIComponent(selectedPlanId)}&period=${encodeURIComponent(selectedPeriod)}&v=${Date.now()}`;
+          if (tg && typeof tg.openLink === "function") tg.openLink(url);
+          else window.location.href = url;
+        }catch(e){
+          window.location.href = "/payments/now/create?plan=" + encodeURIComponent(selectedPlanId) + "&period=" + encodeURIComponent(selectedPeriod) + "&v=" + Date.now();
+        }
+        return;
+      }
 
       if (payMethodSub === "stars") {
         if (!stars || stars <= 0) { tgPopup("Stars amount is not configured"); return; }
@@ -1126,14 +1084,15 @@ function updateButtons(){
         return;
       }
 
-      // card
+      // Вызываем Монобанк с флагом isAuto = true
       await payByMono(
         `sub:${selectedPlanId}:${selectedPeriod}`,
         Number(priceUah),
         "DiaryBot Premium",
-        `${plan.name} • ${selectedPeriod} • бонус +${bonus} токенов`
+        `${plan.name} • ${selectedPeriod} • бонус +${bonus} токенов`,
+        true 
       );
-    });
+    }); // <--- ВОТ ТУТ БЫЛА ПРОПУЩЕНА СКОБКА
 
     hardRebind("buyTokensBtn", async () => {
       const pack = TOKEN_PACKS.find(x => x.id === selectedTokenPackId);
@@ -1141,17 +1100,19 @@ function updateButtons(){
         tgPopup("Крипта для токенов добавим позже");
         return;
       }
+      
+      // Для токенов передаем isAuto = false
       await payByMono(
         `tokens:${pack.id}`,
         Number(pack.price_uah),
         "DiaryBot Tokens",
-        `Пакет: ${pack.name[LANG] || pack.name.ru}`
+        `Пакет: ${pack.name[LANG] || pack.name.ru}`,
+        false
       );
     });
 
-    // init
     renderPlans();
-    // VF_SWIPE_SELECT_V2: auto-select plan by centered card while swiping
+    
     (function(){
       const carousel = document.getElementById("plans");
       if (!carousel) return;
@@ -1178,7 +1139,6 @@ function updateButtons(){
         const planId = best?.dataset?.plan;
         if (planId && planId !== selectedPlanId) {
           selectedPlanId = planId;
-          // if basic + crypto chosen -> fallback
           if (selectedPlanId === "basic" && payMethodSub === "crypto") payMethodSub = "card";
           renderPlans();
           updatePayTabs();

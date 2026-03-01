@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 
 from aiogram import F, Router, Bot
 from aiogram.dispatcher.event.bases import SkipHandler
@@ -505,18 +505,20 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
         if prov_low == "mono":
             mono_token = str(os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN") or os.getenv("MONO_API_TOKEN") or "")
             invoice_id = getattr(pay, "external_id", None)
-            amount_cents = getattr(pay, "amount_cents", None)
+            amount_raw = getattr(pay, "amount_cents", None)
             
             refund_success = False
+            mono_err_text = ""
+            
             if mono_token and invoice_id:
                 try:
-                    payload_data: dict[str, Any] = {"invoiceId": str(invoice_id)}
+                    payload_data: Dict[str, Any] = {"invoiceId": str(invoice_id)}
                     
-                    # Безопасное приведение типа для Ruff/Pyright
-                    if amount_cents is not None:
+                    # Надежная и безопасная конвертация суммы для Ruff
+                    if amount_raw is not None:
                         try:
-                            payload_data["extRef"] = str(invoice_id)
-                            payload_data["amount"] = int(amount_cents)
+                            # Сначала float, чтобы сожрать Decimal, потом int
+                            payload_data["amount"] = int(float(str(amount_raw)))
                         except (ValueError, TypeError):
                             pass
 
@@ -529,8 +531,10 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                         )
                         if resp.status_code == 200:
                             refund_success = True
-                except Exception:
-                    pass
+                        else:
+                            mono_err_text = resp.text
+                except Exception as e:
+                    mono_err_text = str(e)
 
             if refund_success:
                 await approve_refund(session, payment_id=payment_id, admin_note=f"auto_mono_refund:{reason_text}")
@@ -545,9 +549,9 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                 await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
                 await bot.send_message(
                     tg_id,
-                    _t(lang, "⚠️ Заявка создана, но автоматический возврат не прошел. Админ проверит вручную.",
-                             "⚠️ Заявку створено, але автоматичне повернення не пройшло. Адмін перевірить вручну.",
-                             "⚠️ Request created, but auto-refund failed. Admin will check manually.")
+                    _t(lang, f"⚠️ Заявка создана, но автоматический возврат не прошел (Банк: {mono_err_text[:100]}). Админ проверит вручную.",
+                             f"⚠️ Заявку створено, але автоматичне повернення не пройшло (Банк: {mono_err_text[:100]}). Адмін перевірить вручну.",
+                             f"⚠️ Request created, but auto-refund failed (Bank: {mono_err_text[:100]}). Admin will check manually.")
                 )
             return
 
