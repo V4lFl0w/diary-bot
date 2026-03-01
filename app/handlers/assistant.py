@@ -347,7 +347,7 @@ def _media_inline_kb() -> InlineKeyboardMarkup:
 
 def _open_premium_inline_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text="💎 Открыть Premium", callback_data="open_premium")
+    kb.button(text={"ru": "💎 Открыть Premium", "uk": "💎 Відкрити Premium", "en": "💎 Open Premium"}.get(locals().get("lang", locals().get("l", "ru")), "💎 Открыть Premium"), callback_data="open_premium")
     kb.adjust(1)
     return kb.as_markup()
 

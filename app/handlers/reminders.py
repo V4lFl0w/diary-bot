@@ -426,6 +426,10 @@ def _is_list_alias(text: Optional[str]) -> bool:
     return ("покажи" in t or "список" in t or "list" in t or "show" in t) and ("напомин" in t or "remind" in t or "нагадуван" in t or "нагадай" in t)
 
 def _should_parse(text: Optional[str]) -> bool:
+    if not text: return False
+    t = text.lower().strip()
+    if t in ["⏰ напоминания", "напоминания", "⏰ нагадування", "нагадування", "⏰ reminders", "reminders"]:
+        return False
     return _has_trigger(text) or _looks_like_reminder(text) or _is_list_alias(text)
 
 
@@ -703,7 +707,7 @@ async def reminders_list(
     await m.answer("\n".join(lines), parse_mode=None, reply_markup=kb.as_markup())
 
 
-@router.message(F.text.func(is_reminders_btn))
+@router.message(F.text.func(lambda t: t and any(x in t.lower() for x in ['напоминания', 'нагадування', 'reminders'])))
 async def reminders_menu(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     await remind_help(m, session, lang=lang)
 

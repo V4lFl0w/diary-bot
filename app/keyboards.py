@@ -537,7 +537,7 @@ def _norm_btn(s: str) -> str:
 
 # root
 ROOT_JOURNAL_TXT = {_norm_btn(x) for x in ("📓 журнал", "журнал", "📓 journal", "journal")}
-ROOT_REMINDERS_TXT = {_norm_btn(x) for x in ("⏰ напоминания", "напоминания", "⏰ reminders", "reminders")}
+ROOT_REMINDERS_TXT = {_norm_btn(x) for x in ("⏰ напоминания", "напоминания", "⏰ reminders", "reminders", "⏰ нагадування", "нагадування")}
 ROOT_CALORIES_TXT = {
     _norm_btn(x)
     for x in (
