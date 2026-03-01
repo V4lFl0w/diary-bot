@@ -385,14 +385,22 @@ def _pay_kb(lang: str, tg_id: int, is_premium: bool = False) -> InlineKeyboardMa
     ]
 
     if is_premium:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=_t_cancel_label(lang),
-                    callback_data=CB_SUB_CANCEL,
-                )
-            ]
-        )
+        rows.append([
+            InlineKeyboardButton(
+                text=_t_cancel_label(lang),
+                web_app=WebAppInfo(url=_webapp_url(tg_id, lang)),
+            )
+        ])
+        rows.append([
+            InlineKeyboardButton(
+                text={
+                    "ru": "💸 Возврат средств",
+                    "uk": "💸 Повернення коштів",
+                    "en": "💸 Refund",
+                }.get(lang, "💸 Возврат средств"),
+                callback_data="refund:open",
+            )
+        ])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -857,7 +865,7 @@ async def sub_cancel_ask(
         await cb_reply(
             c,
             {
-                "ru": "Точно отменяем автопродление? Премиум останется активным до конца оплаченного периода.",
+                "ru": "Автопродления нет 🙅‍♂️\nПодписка просто завершится в срок. Чтобы продлить её, нажми «💎 Премиум».",
                 "uk": "Точно вимикаємо автопродовження? Преміум буде активним до кінця оплаченого періоду.",
                 "en": "Confirm cancel auto-renew? Premium will stay active until the end of the paid period.",
             }.get(lang_code, "Точно отменяем автопродление?"),
