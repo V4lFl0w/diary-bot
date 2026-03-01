@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Any
 
-from aiogram import F, Router
+from aiogram import F, Router, Bot
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
@@ -14,7 +14,6 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
-from aiogram import Bot
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,9 +72,8 @@ def _admin_ids() -> list[int]:
     return out
 
 
-async def _edit_cb_message(bot: Optional[Bot], cb: CallbackQuery, text: str, *, reply_markup=None) -> None:
+async def _edit_cb_message(bot: Optional[Bot], cb: CallbackQuery, text: str, *, reply_markup: Optional[InlineKeyboardMarkup] = None) -> None:
     if bot is None:
-        # типо-безопасно: просто отвечаем, без редактирования
         try:
             await cb.answer("Не могу обновить сообщение. Открой меню заново.")
         except Exception:
@@ -186,7 +184,7 @@ async def _list_recent_paid(session: AsyncSession, tg_id: int, limit: int = 5) -
 def _kb_pick(payments: list[Payment], lang: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     for p in payments:
-        label = f"#{p.id} • {p.provider.value} • {p.amount}{p.currency}"
+        label = f"#{p.id} • {getattr(p.provider, 'value', str(p.provider))} • {p.amount}{p.currency}"
         if p.paid_at:
             label += f" • {p.paid_at.date().isoformat()}"
         rows.append([InlineKeyboardButton(text=label, callback_data=f"{CB_PICK}{p.id}")])
@@ -243,16 +241,16 @@ def _kb_reason(payment_id: int, lang: str) -> InlineKeyboardMarkup:
 
 async def _deny_payload(session: AsyncSession, pay: Payment, *, reason: str, code: str) -> None:
     raw = getattr(pay, "payload", None)
-    payload: dict = {}
+    payload: dict[str, Any] = {}
     if isinstance(raw, dict):
         payload = raw
     elif isinstance(raw, str) and raw.strip():
         try:
-            payload = json.loads(raw)
-            if not isinstance(payload, dict):
-                payload = {}
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                payload = parsed
         except Exception:
-            payload = {}
+            pass
     payload["refund_status"] = "denied"
     payload["refund_denied_code"] = code
     payload["refund_denied_reason"] = (reason or "")[:500]
@@ -263,8 +261,8 @@ async def _deny_payload(session: AsyncSession, pay: Payment, *, reason: str, cod
 
 def _prov_low(pay: Payment) -> str:
     prov = getattr(pay, "provider", None)
-    prov = prov.value if hasattr(prov, "value") else str(prov or "")
-    return (prov or "").lower()
+    prov_val = prov.value if hasattr(prov, "value") else str(prov or "")
+    return (prov_val or "").lower()
 
 
 # -------- entry point (кнопка/команда) --------
@@ -309,12 +307,16 @@ async def refund_open_cb(c: CallbackQuery, session: AsyncSession, state: FSMCont
     await c.answer()
     await state.clear()
 
+    bot = c.bot
+    if not bot:
+        return
+
     tg_id = c.from_user.id
     lang = await _get_lang(session, tg_id)
 
     pays = await _list_recent_paid(session, tg_id, limit=5)
     if not pays:
-        await c.bot.send_message(
+        await bot.send_message(
             tg_id,
             _t(
                 lang,
@@ -325,7 +327,7 @@ async def refund_open_cb(c: CallbackQuery, session: AsyncSession, state: FSMCont
         )
         return
 
-    await c.bot.send_message(
+    await bot.send_message(
         tg_id,
         _t(lang, "Выбери платеж:", "Обери платіж:", "Pick a payment:"),
         reply_markup=_kb_pick(pays, lang),
@@ -347,6 +349,10 @@ async def refund_close(c: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith(CB_PICK))
 async def refund_pick(c: CallbackQuery, session: AsyncSession) -> None:
     await c.answer()
+    bot = c.bot
+    if not bot:
+        return
+
     tg_id = c.from_user.id
     lang = await _get_lang(session, tg_id)
 
@@ -356,14 +362,14 @@ async def refund_pick(c: CallbackQuery, session: AsyncSession) -> None:
     pay = (await session.execute(select(Payment).where(Payment.id == payment_id))).scalar_one_or_none()
 
     if not u or not pay or int(getattr(pay, "user_id", 0) or 0) != int(u.id):
-        await c.bot.send_message(
+        await bot.send_message(
             tg_id,
             _t(lang, "Платёж не найден.", "Платіж не знайдено.", "Payment not found."),
         )
         return
 
     await _edit_cb_message(
-        c.bot,
+        bot,
         c,
         _t(
             lang,
@@ -378,19 +384,23 @@ async def refund_pick(c: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith(CB_REASON))
 async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
     await c.answer()
+    bot = c.bot
+    if not bot:
+        return
+
     tg_id = c.from_user.id
     lang = await _get_lang(session, tg_id)
 
     parts = (c.data or "").split(":")
     # refund:reason:<id>:<kind>
     if len(parts) < 4:
-        await c.bot.send_message(tg_id, _t(lang, "Ошибка данных.", "Помилка даних.", "Bad data."))
+        await bot.send_message(tg_id, _t(lang, "Ошибка данных.", "Помилка даних.", "Bad data."))
         return
 
     try:
         payment_id = int(parts[2])
     except Exception:
-        await c.bot.send_message(
+        await bot.send_message(
             tg_id,
             _t(lang, "Ошибка ID платежа.", "Помилка ID платежу.", "Bad payment id."),
         )
@@ -405,15 +415,16 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
 
     u = (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
     pay = (await session.execute(select(Payment).where(Payment.id == payment_id))).scalar_one_or_none()
+    
     if not u or not pay or int(getattr(pay, "user_id", 0) or 0) != int(u.id):
-        await c.bot.send_message(
+        await bot.send_message(
             tg_id,
             _t(lang, "Платёж не найден.", "Платіж не знайдено.", "Payment not found."),
         )
         return
 
     if pay.status == PaymentStatus.REFUNDED:
-        await c.bot.send_message(
+        await bot.send_message(
             tg_id,
             _t(
                 lang,
@@ -425,9 +436,9 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
         return
 
     paid_at = getattr(pay, "paid_at", None)
-    if not paid_at:
+    if paid_at is None:
         res = await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
-        await c.bot.send_message(tg_id, res.msg)
+        await bot.send_message(tg_id, res.msg)
         return
 
     now = _now_utc()
@@ -449,7 +460,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
             target_tg_id=tg_id,
             extra={"reason": reason_text, "code": "too_late"},
         )
-        await c.bot.send_message(
+        await bot.send_message(
             tg_id,
             _t(
                 lang,
@@ -467,9 +478,8 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
             charge_id = getattr(pay, "external_id", None) or ""
             if charge_id:
                 try:
-                    await c.bot.refund_star_payment(user_id=tg_id, telegram_payment_charge_id=charge_id)
+                    await bot.refund_star_payment(user_id=tg_id, telegram_payment_charge_id=str(charge_id))
                 except Exception:
-                    # даже если TG refund упал — мы не падаем, но всё равно пометим и закроем доступ
                     pass
             r = await approve_refund(session, payment_id=payment_id, admin_note=f"auto_ok:{reason_text}")
             if getattr(r, "ok", False):
@@ -480,7 +490,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                     payment_id=payment_id,
                     extra={"reason": reason_text},
                 )
-            await c.bot.send_message(
+            await bot.send_message(
                 tg_id,
                 _t(
                     lang,
@@ -493,38 +503,47 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
 
         # 💳 Mono — РЕАЛЬНЫЙ ВОЗВРАТ ЧЕРЕЗ API
         if prov_low == "mono":
-            mono_token = os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN") or os.getenv("MONO_API_TOKEN")
+            mono_token = str(os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN") or os.getenv("MONO_API_TOKEN") or "")
             invoice_id = getattr(pay, "external_id", None)
+            amount_cents = getattr(pay, "amount_cents", None)
             
             refund_success = False
             if mono_token and invoice_id:
                 try:
+                    payload_data: dict[str, Any] = {"invoiceId": str(invoice_id)}
+                    
+                    # Безопасное приведение типа для Ruff/Pyright
+                    if amount_cents is not None:
+                        try:
+                            payload_data["extRef"] = str(invoice_id)
+                            payload_data["amount"] = int(amount_cents)
+                        except (ValueError, TypeError):
+                            pass
+
                     import httpx
                     async with httpx.AsyncClient(timeout=10.0) as client:
-                        r = await client.post(
+                        resp = await client.post(
                             "https://api.monobank.ua/api/merchant/invoice/cancel",
-                            headers={"X-Token": str(mono_token)},
-                            json={"invoiceId": str(invoice_id)}
+                            headers={"X-Token": mono_token},
+                            json=payload_data
                         )
-                        if r.status_code == 200:
+                        if resp.status_code == 200:
                             refund_success = True
-                except Exception as e:
-                    pass # Упало по сети, обработаем ниже
+                except Exception:
+                    pass
 
             if refund_success:
-                # Деньги реально ушли, одобряем в базе
                 await approve_refund(session, payment_id=payment_id, admin_note=f"auto_mono_refund:{reason_text}")
                 await log_admin_action(session, admin_tg_id=c.from_user.id, action="refund_approve_ui", payment_id=payment_id)
-                await c.bot.send_message(
+                await bot.send_message(
                     tg_id,
                     _t(lang, "✅ Возврат успешно проведен. Деньги скоро вернутся на карту.", 
                              "✅ Повернення успішно проведено. Гроші скоро повернуться на картку.", 
                              "✅ Refund processed. Money will return to your card soon.")
                 )
             else:
-                # Если в базе нет external_id или Монобанк лег — создаем ручную заявку
                 await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
-                await c.bot.send_message(
+                await bot.send_message(
                     tg_id,
                     _t(lang, "⚠️ Заявка создана, но автоматический возврат не прошел. Админ проверит вручную.",
                              "⚠️ Заявку створено, але автоматичне повернення не пройшло. Адмін перевірить вручну.",
@@ -543,7 +562,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                 target_tg_id=tg_id,
                 extra={"provider": "crypto", "reason": reason_text},
             )
-            await c.bot.send_message(
+            await bot.send_message(
                 tg_id,
                 _t(
                     lang,
@@ -562,7 +581,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
 
     # серый кейс → заявка + пинг админу
     res = await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
-    await c.bot.send_message(
+    await bot.send_message(
         tg_id,
         _t(
             lang,
@@ -577,7 +596,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
         txt = f"🧾 Refund request\nuser_tg={tg_id}\npayment_id={payment_id}\nreason={reason_text}\nage_days={age.days}\nprovider={prov_low}"
         for aid in admins:
             try:
-                await c.bot.send_message(aid, txt)
+                await bot.send_message(aid, txt)
             except Exception:
                 pass
 
@@ -585,13 +604,17 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("refund:back:pick:"))
 async def refund_back_to_pick(c: CallbackQuery, session: AsyncSession) -> None:
     await c.answer()
+    bot = c.bot
+    if not bot:
+        return
+
     tg_id = c.from_user.id
     lang = await _get_lang(session, tg_id)
 
     pays = await _list_recent_paid(session, tg_id, limit=5)
     if not pays:
         await _edit_cb_message(
-            c.bot,
+            bot,
             c,
             _t(
                 lang,
@@ -604,7 +627,7 @@ async def refund_back_to_pick(c: CallbackQuery, session: AsyncSession) -> None:
         return
 
     await _edit_cb_message(
-        c.bot,
+        bot,
         c,
         _t(
             lang,
@@ -658,20 +681,20 @@ async def refund_crypto_address_capture(m: Message, session: AsyncSession) -> No
     pays = list((await session.execute(q)).scalars().all())
 
     target: Optional[Payment] = None
-    target_payload: dict = {}
+    target_payload: dict[str, Any] = {}
 
     for p in pays:
         raw = getattr(p, "payload", None)
-        payload: dict = {}
+        payload: dict[str, Any] = {}
         if isinstance(raw, dict):
             payload = raw
         elif isinstance(raw, str) and raw.strip():
             try:
-                payload = json.loads(raw)
-                if not isinstance(payload, dict):
-                    payload = {}
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    payload = parsed
             except Exception:
-                payload = {}
+                pass
         # Ищем активную заявку, где ещё нет адреса
         if payload.get("refund_status") == "requested" and not payload.get("refund_address"):
             target = p
@@ -707,12 +730,13 @@ async def refund_crypto_address_capture(m: Message, session: AsyncSession) -> No
     )
 
     admins = _admin_ids()
-    if admins:
+    bot = m.bot
+    if admins and bot:
         txt = (
             f"🪙 Crypto refund address received\nuser_tg={tg_id}\npayment_id={target.id}\naddress={text}\nnetwork=TRC20"
         )
         for aid in admins:
             try:
-                await m.bot.send_message(aid, txt)
+                await bot.send_message(aid, txt)
             except Exception:
                 pass
