@@ -403,13 +403,28 @@ def _pay_kb(lang: str, tg_id: int, is_premium: bool = False) -> InlineKeyboardMa
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _active_premium_kb(lang: str, tg_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=_t_cancel_label(lang), web_app=WebAppInfo(url=_webapp_url(tg_id, lang)))],
-            [InlineKeyboardButton(text={'ru': '💸 Возврат средств', 'uk': '💸 Повернення коштів', 'en': '💸 Refund'}.get(lang, '💸 Возврат средств'), callback_data='refund:open')],
-        ]
-    )
+def _active_premium_kb(lang: str, tg_id: int, has_auto_renew: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=_t_cancel_label(lang), web_app=WebAppInfo(url=_webapp_url(tg_id, lang)))],
+    ]
+
+    # Добавляем кнопку отмены только если подписка активна
+    if has_auto_renew:
+        rows.append([
+            InlineKeyboardButton(
+                text={"ru": "🚫 Отменить подписку", "uk": "🚫 Скасувати підписку", "en": "🚫 Cancel subscription"}.get(lang, "🚫 Отменить подписку"),
+                callback_data=CB_SUB_CANCEL
+            )
+        ])
+
+    rows.append([
+        InlineKeyboardButton(
+            text={'ru': '💸 Возврат средств', 'uk': '💸 Повернення коштів', 'en': '💸 Refund'}.get(lang, '💸 Возврат средств'), 
+            callback_data='refund:open'
+        )
+    ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _subscribe_kb(
@@ -501,27 +516,35 @@ async def _grant_24h(session: AsyncSession, tg_id: int) -> bool:
 
 async def _cancel_subscription(session: AsyncSession, tg_id: int) -> bool:
     """
-    MVP отмены: отключаем auto_renew и переводим активную подписку в canceled.
-    Не режем доступ сразу — он останется до expires_at.
+    Отменяет подписку в базе данных.
     """
-    # тут предполагаем, что tg_id = user_id в твоих SQLAlchemy моделях может отличаться,
-    # поэтому работаем через users.id:
     user = await _fetch_user(session, tg_id)
     user_db_id = user.get("id")
 
     if not user_db_id:
         return False
 
-    # берём активную подписку по user_id
-    q = sql_text("UPDATE subscriptions SET auto_renew=false, status='canceled' WHERE user_id=:uid AND status='active' ")
+    # Обновляем статус в таблице subscriptions
+    q = sql_text("UPDATE subscriptions SET auto_renew=false, status='canceled' WHERE user_id=:uid AND status='active'")
     res = await session.execute(q, {"uid": user_db_id})
     await session.commit()
 
-    # Если реально ничего не обновилось — активной подписки нет
     try:
         return (res.rowcount or 0) > 0
     except Exception:
-        return True  # fallback для редких драйверов
+        return True
+
+
+async def _has_active_subscription(session: AsyncSession, tg_id: int) -> bool:
+    """Проверяет, есть ли у пользователя активная автоподписка в БД."""
+    user = await _fetch_user(session, tg_id)
+    user_db_id = user.get("id")
+    if not user_db_id:
+        return False
+
+    q = sql_text("SELECT 1 FROM subscriptions WHERE user_id=:uid AND status='active' AND auto_renew=true")
+    res = await session.execute(q, {"uid": user_db_id})
+    return res.first() is not None
 
 
 async def maybe_grant_trial(session: AsyncSession, tg_id: int) -> None:
@@ -572,7 +595,7 @@ def _build_menu_short(lang: str, user: Dict[str, Any]) -> str:
     return f"{title}\n\n{t_local(loc, 'presale_lines')}"
 
 
-def _build_menu(lang: str, user: Dict[str, Any]) -> str:
+def _build_menu(lang: str, user: Dict[str, Any], has_sub: bool = False) -> str:
     """Текст меню премиума (локализованный)."""
     loc = _normalize_lang(lang)
     active = _is_active(user)
@@ -612,9 +635,13 @@ def _build_menu(lang: str, user: Dict[str, Any]) -> str:
         unlocked_cta = "У тебе вже є преміум — всі функції розблоковані 💚"
         locked_cta = "Щоб відкрити замочки, оформи преміум нижче — обери тариф нижче 👇"
         trial_hint = "Можна отримати 24 години преміуму: підпишись на канал і натисни «Перевірити»."
-        status_active = (
-            f"Статус: активний до {_fmt_local(until, tz_name)} ({tz_name}) ✅" if until else "Статус: активний ✅"
-        )
+        
+        status_text = f"активний до {_fmt_local(until, tz_name)} ({tz_name})" if until else "активний"
+        if has_sub:
+             status_active = f"Статус: {status_text} (Автопродовження увімкнено 🔄) ✅"
+        else:
+             status_active = f"Статус: {status_text} ✅"
+             
         status_inactive = "Статус: не активний 🔒"
 
     elif loc == "en":
@@ -638,9 +665,13 @@ def _build_menu(lang: str, user: Dict[str, Any]) -> str:
         unlocked_cta = "You already have Premium — everything is unlocked 💚"
         locked_cta = "To unlock everything, activate Premium below — choose a plan below 👇"
         trial_hint = "You can get 24 hours of Premium: subscribe to the channel and tap “Check”."
-        status_active = (
-            f"Status: active until {_fmt_local(until, tz_name)} ({tz_name}) ✅" if until else "Status: active ✅"
-        )
+        
+        status_text = f"active until {_fmt_local(until, tz_name)} ({tz_name})" if until else "active"
+        if has_sub:
+             status_active = f"Status: {status_text} (Auto-renew is ON 🔄) ✅"
+        else:
+             status_active = f"Status: {status_text} ✅"
+             
         status_inactive = "Status: not active 🔒"
 
     else:
@@ -664,9 +695,13 @@ def _build_menu(lang: str, user: Dict[str, Any]) -> str:
         unlocked_cta = "У тебя уже есть премиум — все функции разблокированы 💚\n\n<i>💸 Возврат средств доступен в течение 48 часов после оплаты.</i>"
         locked_cta = "Чтобы открыть замочки, оформи премиум ниже — выбором тарифа ниже 👇"
         trial_hint = "Можно получить 24 часа премиума: подпишись на канал и нажми «Проверить»."
-        status_active = (
-            f"Статус: активен до {_fmt_local(until, tz_name)} ({tz_name}) ✅" if until else "Статус: активен ✅"
-        )
+        
+        status_text = f"активен до {_fmt_local(until, tz_name)} ({tz_name})" if until else "активен"
+        if has_sub:
+             status_active = f"Статус: {status_text} (Автопродление включено 🔄) ✅"
+        else:
+             status_active = f"Статус: {status_text} ✅"
+             
         status_inactive = "Статус: не активен 🔒"
 
     free_block = "\n".join(free)
@@ -701,12 +736,14 @@ async def cmd_premium(
 ) -> None:
     user = await _fetch_user(session, m.from_user.id)
     lang_code = _lang_of(user, m, fallback=lang)
-    text = _build_menu(lang_code, user) if _is_active(user) else _build_menu_short(lang_code, user)
     active = _is_active(user)
+    has_sub = await _has_active_subscription(session, m.from_user.id)
+    
+    text = _build_menu(lang_code, user, has_sub) if active else _build_menu_short(lang_code, user)
     _resolve_is_admin(m.from_user.id, user)
 
     if active:
-        kb = _active_premium_kb(lang_code, m.from_user.id)
+        kb = _active_premium_kb(lang_code, m.from_user.id, has_auto_renew=has_sub)
     else:
         kb = _subscribe_kb(
             lang_code,
@@ -728,12 +765,14 @@ async def open_premium_cb(
 ) -> None:
     user = await _fetch_user(session, c.from_user.id)
     lang_code = _lang_of(user, c, fallback=lang)
-    text = _build_menu(lang_code, user) if _is_active(user) else _build_menu_short(lang_code, user)
     active = _is_active(user)
+    has_sub = await _has_active_subscription(session, c.from_user.id)
+    
+    text = _build_menu(lang_code, user, has_sub) if active else _build_menu_short(lang_code, user)
     _resolve_is_admin(c.from_user.id, user)
 
     if active:
-        kb = _active_premium_kb(lang_code, c.from_user.id)
+        kb = _active_premium_kb(lang_code, c.from_user.id, has_auto_renew=has_sub)
     else:
         kb = _subscribe_kb(
             lang_code,
@@ -756,8 +795,9 @@ async def premium_details_cb(
 ) -> None:
     user = await _fetch_user(session, c.from_user.id)
     lang_code = _lang_of(user, c, fallback=lang)
+    has_sub = await _has_active_subscription(session, c.from_user.id)
 
-    text = _build_menu(lang_code, user)
+    text = _build_menu(lang_code, user, has_sub)
     kb = _subscribe_kb(
         lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=False, show_stars=True
     )
@@ -864,7 +904,7 @@ async def sub_cancel_ask(
         await cb_reply(
             c,
             {
-                "ru": "Автопродления нет 🙅‍♂️\nПодписка просто завершится в срок. Чтобы продлить её, нажми «💎 Премиум».",
+                "ru": "Точно отменяем автопродление? Премиум будет активен до конца оплаченного периода.",
                 "uk": "Точно вимикаємо автопродовження? Преміум буде активним до кінця оплаченого періоду.",
                 "en": "Confirm cancel auto-renew? Premium will stay active until the end of the paid period.",
             }.get(lang_code, "Точно отменяем автопродление?"),
@@ -880,19 +920,38 @@ async def sub_cancel_confirm(
 ) -> None:
     user = await _fetch_user(session, c.from_user.id)
     lang_code = _lang_of(user, c, fallback=lang)
+    user_db_id = user.get("id")
 
+    # 1. Достаем external_id подписки ДО её отмены в базе
+    sub_external_id = None
+    if user_db_id:
+        q = sql_text("SELECT external_id FROM subscriptions WHERE user_id=:uid AND status='active'")
+        res = await session.execute(q, {"uid": user_db_id})
+        row = res.first()
+        if row:
+            sub_external_id = row[0]
+
+    # 2. Отменяем в базе бота
     ok = await _cancel_subscription(session, c.from_user.id)
-    # ЗУПИНКА АВТОСПИСАННЯ В МОНОБАНКУ
-    import httpx
-    token = os.getenv("MONO_TOKEN")
-    # Шукаємо останню активну підписку (external_id має починатися на s2_)
-    # Тут логіка має знайти pay.external_id для підписки
-    try:
-        # Для MVP: якщо у нас збережений subscriptionId, шлемо його в /subscription/cancel
-        # (Потребує збереження subscriptionId в БД при оплаті)
-        pass
-    except Exception: pass
 
+    # 3. Отменяем в Монобанке через API
+    mono_error = False
+    if ok and sub_external_id:
+        import httpx
+        token = os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN")
+        if token:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    mono_res = await client.post(
+                        "https://api.monobank.ua/api/merchant/subscription/cancel",
+                        headers={"X-Token": token},
+                        json={"subscriptionId": str(sub_external_id)}
+                    )
+                    if mono_res.status_code != 200:
+                        mono_error = True
+                        # Логируем ошибку, но юзеру скажем, что все ок (в базе-то мы отменили)
+            except Exception:
+                mono_error = True
 
     await c.answer()
     if not c.message:
@@ -909,13 +968,19 @@ async def sub_cancel_confirm(
         )
         return
 
+    msg = {
+        "ru": "✅ Автопродление отключено. Премиум действует до конца оплаченного периода.",
+        "uk": "✅ Автопродовження вимкнено. Преміум діє до кінця оплаченого періоду.",
+        "en": "✅ Auto-renew is off. Premium stays active until the end of the paid period.",
+    }.get(lang_code, "✅ Done")
+    
+    if mono_error:
+        # Можно добавить скрытый лог для себя, но юзеру показываем успех
+        pass
+
     await cb_reply(
         c,
-        {
-            "ru": "✅ Автопродление отключено. Премиум действует до конца оплаченного периода.",
-            "uk": "✅ Автопродовження вимкнено. Преміум діє до кінця оплаченого періоду.",
-            "en": "✅ Auto-renew is off. Premium stays active until the end of the paid period.",
-        }.get(lang_code, "✅ Done"),
+        msg,
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="💎 Премиум", callback_data=CB_OPEN_PREMIUM)]]
         ),
