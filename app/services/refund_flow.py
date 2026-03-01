@@ -116,6 +116,25 @@ async def approve_refund(
     # 2) payment.paid_at/ refunded_at (best-effort)
     pay.refunded_at = _now_utc()
     pay.refund_status = "approved"
+
+    # === АВТОВОЗВРАТ ЧЕРЕЗ API МОНОБАНКА ===
+    if pay.external_id and not str(pay.external_id).startswith("star"):
+        import os
+        import httpx
+        token = os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN") or os.getenv("MONO_API_TOKEN")
+        if token:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(
+                        "https://api.monobank.ua/api/merchant/invoice/cancel",
+                        headers={"X-Token": token},
+                        json={"invoiceId": str(pay.external_id)}
+                    )
+                    resp.raise_for_status()
+            except Exception as e:
+                # Блокируем возврат в базе, если Монобанк ответил ошибкой (например, денег уже нет)
+                return RefundResult(False, f"❌ Ошибка API Монобанка при возврате: {e}")
+
     pay.refund_admin_note = (admin_note or "").strip()[:500] if admin_note else None
 
     # payload fallback (TEXT -> JSON string)

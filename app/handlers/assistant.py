@@ -97,13 +97,13 @@ def _upgrade_to_pro_inline_kb(lang: str = "ru") -> InlineKeyboardMarkup:
 def _assistant_tools_kb(lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(
-        InlineKeyboardButton(text=_tr(lang, "🌐 Web", "🌐 Web", "🌐 Web"), callback_data="assistant:web"),
-        InlineKeyboardButton(text=_tr(lang, "🎬 Кадр/фото", "🎬 Кадр/фото", "🎬 Frame/Photo"), callback_data="assistant:media"),
+        InlineKeyboardButton(text=_tr(lang, "🌐 Искать в Web", "🌐 Шукати в Web", "🌐 Search Web"), callback_data="assistant:web"),
+        InlineKeyboardButton(text=_tr(lang, "🎬 Найти по кадру", "🎬 Знайти за кадром", "🎬 Find by frame"), callback_data="assistant:media"),
         width=2,
     )
     kb.row(
-        InlineKeyboardButton(text=_tr(lang, "❓ Спросить", "❓ Запитати", "❓ Ask"), callback_data="assistant:ask"),
-        InlineKeyboardButton(text=_tr(lang, "📚 База знаний", "📚 База знань", "📚 Knowledge base"), callback_data="assistant:kb"),
+        InlineKeyboardButton(text=_tr(lang, "💬 Спросить ИИ", "💬 Запитати ШІ", "💬 Ask AI"), callback_data="assistant:ask"),
+        InlineKeyboardButton(text=_tr(lang, "📚 Искать в базе", "📚 Шукати в базі", "📚 Search in KB"), callback_data="assistant:kb"),
         width=2,
     )
     kb.row(

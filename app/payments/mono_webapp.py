@@ -226,6 +226,8 @@ async def mono_webhook(
         
         if hasattr(user, "assistant_plan"):
             user.assistant_plan = plan_id
+        if hasattr(user, "plan"):
+            user.plan = plan_id
 
         # Бонусные токены
         bonus = {"basic": 60, "pro": 180, "max": 450}.get(plan_id, 0)

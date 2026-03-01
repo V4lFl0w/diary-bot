@@ -409,9 +409,9 @@ def get_premium_menu_kb(lang: str, is_premium: bool = False, tg_id: int | None =
                         lang,
                         "btn_premium_cancel",
                         {
-                            "ru": "❌ Отменить подписку",
-                            "uk": "❌ Скасувати підписку",
-                            "en": "❌ Cancel subscription",
+                            "ru": "🔄 Продлить подписку",
+                            "uk": "🔄 Продовжити підписку",
+                            "en": "🔄 Renew subscription",
                         },
                     )
                 )
