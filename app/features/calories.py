@@ -818,25 +818,29 @@ async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None
 
     # Считаем результат локального поиска
     if grams_info:
-        kcal = p = f = c = 0.0
-        for g, meta in grams_info:
-            factor = g / 100.0
-            kcal += meta["kcal"] * factor
-            p += meta["p"] * factor
-            f += meta["f"] * factor
-            c += meta["c"] * factor
+        # 🔥 ФИКС: Если текст похож на список (есть запятые) или он длиннее 4 слов, 
+        # локальная база идёт лесом. Заставляем код передать запрос умной нейросети (OpenAI).
+        is_complex = "," in text or len(text.split()) > 4
+        
+        if not is_complex:
+            kcal = p = f = c = 0.0
+            for g, meta in grams_info:
+                factor = g / 100.0
+                kcal += meta["kcal"] * factor
+                p += meta["p"] * factor
+                f += meta["f"] * factor
+                c += meta["c"] * factor
 
-        has_explicit_grams = bool(re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low))
-        confidence = 0.95 if has_explicit_grams else 0.70
+            has_explicit_grams = bool(re.search(r"\d+\s*(г|гр|g|мл|ml|л|l)\b", low))
+            confidence = 0.95 if has_explicit_grams else 0.70
 
-        return {
-            "kcal": round(kcal),
-            "p": round(p, 1),
-            "f": round(f, 1),
-            "c": round(c, 1),
-            "confidence": confidence,
-            # Можно попытаться угадать название из найденного, но оставим пустым, форматтер разберется
-        }
+            return {
+                "kcal": round(kcal),
+                "p": round(p, 1),
+                "f": round(f, 1),
+                "c": round(c, 1),
+                "confidence": confidence,
+            }
 
     # ---------------------------------------------------------
     # 3. OPENAI "SMART TRACK" (Если локально не нашли)
