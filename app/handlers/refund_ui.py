@@ -443,14 +443,10 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
 
     now = _now_utc()
     age = now - _as_utc(paid_at)
-    auto_ok = age <= timedelta(hours=AUTO_OK_HOURS) and _looks_auto_ok(reason_text)
-    auto_deny = age >= timedelta(days=AUTO_DENY_DAYS)
 
-    prov_low = _prov_low(pay)
-
-    # слишком поздно
-    if auto_deny:
-        await _deny_payload(session, pay, reason=reason_text, code="too_late")
+    # ЖЕСТКИЙ СТОП: Если прошло больше 48 часов — никаких возвратов вообще
+    if age > timedelta(hours=AUTO_OK_HOURS):
+        await _deny_payload(session, pay, reason=reason_text, code="too_late_48h")
 
         await log_admin_action(
             session,
@@ -458,18 +454,22 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
             action="refund_deny_ui",
             payment_id=payment_id,
             target_tg_id=tg_id,
-            extra={"reason": reason_text, "code": "too_late"},
+            extra={"reason": reason_text, "code": "too_late_48h"},
         )
         await bot.send_message(
             tg_id,
             _t(
                 lang,
-                f"❌ Возврат недоступен: прошло больше {AUTO_DENY_DAYS} дней с момента оплаты.",
-                f"❌ Повернення недоступне: минуло більше {AUTO_DENY_DAYS} днів з моменту оплати.",
-                f"❌ Refund is not available: more than {AUTO_DENY_DAYS} days have passed since payment.",
+                "ℹ️ Возврат средств возможен только в течение 48 часов с момента оплаты. К сожалению, этот период уже прошел, поэтому возврат недоступен.",
+                "ℹ️ Повернення коштів можливе лише протягом 48 годин з моменту оплати. На жаль, цей період уже минув, тому повернення недоступне.",
+                "ℹ️ Refunds are only available within the first 48 hours after payment. Unfortunately, this period has passed.",
             ),
         )
         return
+
+    # Если мы здесь, значит прошло МЕНЬШЕ 48 часов.
+    auto_ok = _looks_auto_ok(reason_text)
+    prov_low = _prov_low(pay)
 
     # авто-ок (48 часов) — делаем по провайдеру
     if auto_ok:
@@ -514,10 +514,8 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                 try:
                     payload_data: Dict[str, Any] = {"invoiceId": str(invoice_id)}
                     
-                    # Надежная и безопасная конвертация суммы для Ruff
                     if amount_raw is not None:
                         try:
-                            # Сначала float, чтобы сожрать Decimal, потом int
                             payload_data["amount"] = int(float(str(amount_raw)))
                         except (ValueError, TypeError):
                             pass
@@ -532,9 +530,14 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                         if resp.status_code == 200:
                             refund_success = True
                         else:
-                            mono_err_text = resp.text
+                            # Точно покажет ответ банка без потери данных
+                            mono_err_text = f"API {resp.status_code}: {resp.text}"
                 except Exception as e:
-                    mono_err_text = str(e)
+                    # repr(e) покажет тип ошибки (например, TimeoutError), даже если текст пустой
+                    mono_err_text = f"Code Exception: {repr(e)}"
+            else:
+                # Если вдруг потерялся токен или ID прямо в момент нажатия
+                mono_err_text = f"Missing Data: token={bool(mono_token)}, inv_id={invoice_id}"
 
             if refund_success:
                 await approve_refund(session, payment_id=payment_id, admin_note=f"auto_mono_refund:{reason_text}")

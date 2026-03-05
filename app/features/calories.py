@@ -869,10 +869,12 @@ async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None
 
     prompt = (
         f"Act as a professional nutritionist. Analyze this food text in {lang_name}: '{text}'. "
-        "Calculate approximate total calories (kcal), proteins (p), fats (f), and carbohydrates (c). "
-        "If the portion size is not specified, assume a standard average serving size for an adult. "
-        "Return ONLY a valid JSON object with keys: kcal (number), p (number), f (number), c (number), "
-        "title (string, short summary of the food in the target language), and confidence (number 0.0-1.0). "
+        "CRITICAL RULES: "
+        "1) If the user lists MULTIPLE items (e.g., '1 apple, 2 eggs, 50g cheese'), you MUST calculate the nutrition for EACH item and return the SUM TOTAL for the entire list. "
+        "2) If the exact weight is not specified, assume standard average serving sizes (e.g., 1 slice of cheese = 20g, 1 egg = 50g, 1 piece of meat/cutlet = 100g, 1 piece of sushi = 30g). "
+        "3) DO NOT hallucinate extreme values. A single piece of food rarely exceeds 300-500 kcal. "
+        "Return ONLY a valid JSON object with keys: kcal (number, TOTAL sum), p (number, TOTAL protein), f (number, TOTAL fat), c (number, TOTAL carbs), "
+        "title (string, a short comma-separated list of the recognized items in the target language), and confidence (number 0.0-1.0). "
         f"Ensure all text fields are in {lang_name}."
     )
 
