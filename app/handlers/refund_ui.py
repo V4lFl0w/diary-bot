@@ -556,6 +556,16 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                              f"⚠️ Заявку створено, але автоматичне повернення не пройшло (Банк: {mono_err_text[:100]}). Адмін перевірить вручну.",
                              f"⚠️ Request created, but auto-refund failed (Bank: {mono_err_text[:100]}). Admin will check manually.")
                 )
+                
+                # 🔥 ФИКС: Пингуем админа, если автовозврат отвалился!
+                admins = _admin_ids()
+                if admins:
+                    txt = f"🧾 Refund FAILED in Mono API\nuser_tg={tg_id}\npayment_id={payment_id}\nreason={reason_text}\nerror={mono_err_text[:100]}"
+                    for aid in admins:
+                        try:
+                            await bot.send_message(aid, txt)
+                        except Exception:
+                            pass
             return
 
         # 🪙 Crypto — заявка + просим адрес

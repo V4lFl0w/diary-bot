@@ -872,11 +872,11 @@ async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None
         lang_name = "English"
 
     prompt = (
-        f"Act as a professional nutritionist. Analyze this food text in {lang_name}: '{text}'. "
+        f"Act as a professional nutritionist and precise calorie calculator. Analyze this food text in {lang_name}: '{text}'. "
         "CRITICAL RULES: "
-        "1) If the user lists MULTIPLE items (e.g., '1 apple, 2 eggs, 50g cheese'), you MUST calculate the nutrition for EACH item and return the SUM TOTAL for the entire list. "
-        "2) If the exact weight is not specified, assume standard average serving sizes (e.g., 1 slice of cheese = 20g, 1 egg = 50g, 1 piece of meat/cutlet = 100g, 1 piece of sushi = 30g). "
-        "3) DO NOT hallucinate extreme values. A single piece of food rarely exceeds 300-500 kcal. "
+        "1) If the user lists MULTIPLE items, you MUST calculate the nutrition for EACH item and return the SUM TOTAL. "
+        "2) If the exact weight is not specified, assume REALISTIC restaurant/home serving sizes (e.g., standard shawarma is 350-400g (~600-800 kcal), 1 slice of pizza is ~200-250 kcal, 1 burger is 400-600 kcal). "
+        "3) NEVER artificially lower the calories. Use highly accurate USDA or standard nutritional database values. Fast food and street food are very calorie-dense—reflect this accurately. "
         "Return ONLY a valid JSON object with keys: kcal (number, TOTAL sum), p (number, TOTAL protein), f (number, TOTAL fat), c (number, TOTAL carbs), "
         "title (string, a short comma-separated list of the recognized items in the target language), and confidence (number 0.0-1.0). "
         f"Ensure all text fields are in {lang_name}."
