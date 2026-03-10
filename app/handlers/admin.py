@@ -29,14 +29,13 @@ from app.services.subscriptions import (
     get_current_subscription,
     sync_user_premium_flags,
     utcnow,
-)  # если нет — скажи, я под твой проект путь подстрою
+)  
 
-# Если модель аналитики существует — используем её (ORM)
 from app.utils.aiogram_guards import cb_reply
 
 try:
     from app.models.event import AnalyticsEvent
-except Exception:  # pragma: no cover
+except Exception: 
     AnalyticsEvent = None  # type: ignore
 
 router = Router(name="admin")
@@ -216,8 +215,7 @@ TXT: Dict[str, Dict[str, str]] = {
 }
 
 
-# -------------------- i18n --------------------
-
+# -------------------- i18n & formatters --------------------
 
 def _normalize_lang(code: str | None) -> str:
     s = (code or "ru").strip().lower()
@@ -235,9 +233,20 @@ def _tr(lang: str | None, key: str) -> str:
     block = TXT.get(key, {})
     return block.get(lang2) or block.get("ru") or key
 
+def _is_really_premium(prem_until_dt: datetime | None, now_dt: datetime) -> bool:
+    """Жесткая проверка: если время вышло, премиума нет, даже если флаг застрял."""
+    if not prem_until_dt:
+        return False
+    if getattr(prem_until_dt, "tzinfo", None) is None:
+        prem_until_dt = prem_until_dt.replace(tzinfo=timezone.utc)
+    return prem_until_dt > now_dt
 
-# -------------------- admin menu helper (ReplyKeyboard) --------------------
+def _format_dt(dt: datetime | None, fmt: str = "%d.%m.%Y") -> str:
+    if not dt:
+        return "-"
+    return dt.strftime(fmt)
 
+# -------------------- admin menu helper --------------------
 
 def is_admin_btn(text: str) -> bool:
     t = (text or "").strip().lower()
@@ -249,9 +258,6 @@ def is_admin_btn(text: str) -> bool:
         "админ",
         "адмін",
     }
-
-
-# -------------------- admin check (единый) --------------------
 
 
 def _is_admin_by_settings(tg_id: int) -> bool:
@@ -273,13 +279,10 @@ def _is_admin_by_env(tg_id: int) -> bool:
 
 
 def is_admin(tg_id: int, user: User | None = None) -> bool:
-    # 1) флаг в базе
     if user is not None and bool(getattr(user, "is_admin", False)):
         return True
-    # 2) settings.bot_admin_tg_id
     if _is_admin_by_settings(tg_id):
         return True
-    # 3) ENV список
     if _is_admin_by_env(tg_id):
         return True
     return False
@@ -287,9 +290,6 @@ def is_admin(tg_id: int, user: User | None = None) -> bool:
 
 def is_admin_tg(tg_id: int) -> bool:
     return is_admin(tg_id)
-
-
-# -------------------- db helpers --------------------
 
 
 async def _get_user(session: AsyncSession, tg_id: int) -> User | None:
@@ -307,9 +307,6 @@ def _user_lang(user: User | None, tg_lang: Optional[str]) -> str:
         or "ru"
     )
     return _normalize_lang(str(raw))
-
-
-# -------------------- UI --------------------
 
 
 def _admin_kb(lang: str) -> InlineKeyboardMarkup:
@@ -336,9 +333,6 @@ def _admin_kb(lang: str) -> InlineKeyboardMarkup:
     )
 
 
-# -------------------- FSM --------------------
-
-
 class AdminStates(StatesGroup):
     wait_give_id = State()
     wait_reset_id = State()
@@ -347,16 +341,12 @@ class AdminStates(StatesGroup):
     wait_unban_id = State()
 
 
-# -------------------- analytics policy --------------------
-
-# Системные/тестовые события скрываем из аналитики
 SYSTEM_EVENTS = {
     "test_event",
     "user_start",
     "user_new",
 }
 
-# Value-события (то, что реально важно смотреть в топе)
 VALUE_EVENTS = {
     "journal_add",
     "assistant_question",
@@ -379,11 +369,7 @@ def _take_top(rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3
     return out
 
 
-# -------------------- premium ops --------------------
-
-
-CB_GIVE_TIER = "give_tier:"  # admin:give_tier:<user_id>:<tier>
-
+CB_GIVE_TIER = "give_tier:"  
 
 def _kb_give_tier(lang: str, user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -402,19 +388,18 @@ def _apply_premium(user: User, hours: int = 24) -> None:
 
     if hasattr(user, "is_premium"):
         try:
-            user.is_premium = True  # type: ignore[attr-defined]
+            user.is_premium = True  
         except Exception:
             pass
 
     if hasattr(user, "premium_until"):
         try:
-            user.premium_until = until  # type: ignore[attr-defined]
+            user.premium_until = until  
         except Exception:
             pass
 
 
 def _reset_premium(user: User) -> None:
-    # ВАЖНО: никаких hasattr/getattr — они могут триггерить lazy-load (MissingGreenlet)
     try:
         setattr(user, "is_premium", False)
     except Exception:
@@ -425,7 +410,6 @@ def _reset_premium(user: User) -> None:
     except Exception:
         pass
 
-    # чтобы plan не давал доступ без активного премиума
     try:
         setattr(user, "premium_plan", "basic")
     except Exception:
@@ -433,7 +417,7 @@ def _reset_premium(user: User) -> None:
 
     if hasattr(user, "premium_until"):
         try:
-            user.premium_until = None  # type: ignore[attr-defined]
+            user.premium_until = None  
         except Exception:
             pass
 
@@ -443,16 +427,10 @@ def _ban_supported(user: User) -> bool:
 
 
 def _set_ban(user: User, banned: bool) -> bool:
-    """
-    Поддерживаем 2 схемы:
-    - is_banned: bool
-    - banned_until: datetime | None (ставим далеко в будущее / None)
-    """
     ok = False
-
     if hasattr(user, "is_banned"):
         try:
-            user.is_banned = bool(banned)  # type: ignore[attr-defined]
+            user.is_banned = bool(banned)  
             ok = True
         except Exception:
             pass
@@ -460,13 +438,12 @@ def _set_ban(user: User, banned: bool) -> bool:
     if hasattr(user, "banned_until"):
         try:
             if banned:
-                user.banned_until = datetime.now(timezone.utc) + timedelta(days=3650)  # type: ignore[attr-defined]
+                user.banned_until = datetime.now(timezone.utc) + timedelta(days=3650)  
             else:
-                user.banned_until = None  # type: ignore[attr-defined]
+                user.banned_until = None  
             ok = True
         except Exception:
             pass
-
     return ok
 
 
@@ -487,9 +464,6 @@ def _is_banned(user: User) -> bool:
             except Exception:
                 return False
     return False
-
-
-# -------------------- entrypoints --------------------
 
 
 async def _show_admin_panel(m: Message, session: AsyncSession, state: FSMContext) -> None:
@@ -514,9 +488,6 @@ async def cmd_admin(m: Message, session: AsyncSession, state: FSMContext) -> Non
 @router.message(F.text.func(is_admin_btn))
 async def admin_btn_open(m: Message, session: AsyncSession, state: FSMContext) -> None:
     await _show_admin_panel(m, session, state)
-
-
-# -------------------- callbacks --------------------
 
 
 @router.callback_query(F.data.startswith("admin:"))
@@ -573,7 +544,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             await cb_reply(c, _tr(lang, "ask_id_reset"))
         return
 
-    # --- analytics (7d dashboard) ---
+    # --- analytics ---
     if action == "analytics_7d":
         since = datetime.now(timezone.utc) - timedelta(days=7)
 
@@ -621,7 +592,6 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 )
             ).scalar_one()
 
-        # фильтр системных
         rows = [(str(e), int(cnt)) for (e, cnt) in raw_rows if not _is_system_event(str(e))]
 
         if not rows:
@@ -633,18 +603,17 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
         if not top_value:
             top_value = rows[:3]
 
-        # остаток (коротко)
         rest = [(e, cnt) for (e, cnt) in rows if (e, cnt) not in top_value][:10]
 
         lines = [
-            _tr(lang, "analytics_title"),
-            f"• active_users_7d: {int(active_users or 0)}",
+            f"<b>{_tr(lang, 'analytics_title')}</b>",
+            f"👥 Активных пользователей: <b>{int(active_users or 0)}</b>",
             "",
-            "🏆 Top-3:",
+            "🏆 <b>Топ-3:</b>",
             *[f"• {event}: {cnt}" for event, cnt in top_value],
         ]
         if rest:
-            lines += ["", "🧾 Остальное:"]
+            lines += ["", "🧾 <b>Остальное:</b>"]
             lines += [f"• {event}: {cnt}" for event, cnt in rest]
 
         # --- Trial (7d) ---
@@ -672,17 +641,17 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
 
                 lines += [
                     "",
-                    "🎁 Trial (7d):",
+                    "🎁 <b>Trial (7d):</b>",
                     f"• trial_click: {mp.get('trial_click', 0)}",
                     f"• trial_granted: {mp.get('trial_granted', 0)}",
                     f"• trial_denied: {mp.get('trial_denied', 0)}",
                 ]
         except Exception:
-            # тут rollback не обязателен, но пусть будет мягко
             try:
                 await session.rollback()
             except Exception:
                 pass
+
         # --- LLM usage (7d) ---
         try:
             since_llm = datetime.utcnow() - timedelta(days=7)
@@ -698,7 +667,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
 
             lines += [
                 "",
-                "🧠 LLM usage (7d):",
+                "🧠 <b>LLM usage (7d):</b>",
                 f"• requests: {int(n or 0)}",
                 f"• tokens: {int(total or 0)} (in {int(inp or 0)} / out {int(out or 0)})",
                 f"• cost: ${float(cost or 0) / 1_000_000:.4f}",
@@ -719,13 +688,12 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             )
             top = (await session.execute(q2)).all()
             if top:
-                lines += ["", "Топ LLM (feature:model):"]
+                lines += ["", "<b>Топ LLM (feature:model):</b>"]
                 for feature, model, req, tok, cost in top:
                     lines.append(
                         f"• {feature}:{model} — {int(req)} req | {int(tok)} tok | ${float(cost or 0) / 1_000_000:.4f}"
                     )
         except Exception:
-            # не ломаем админку из-за аналитики
             try:
                 await session.rollback()
             except Exception:
@@ -733,7 +701,10 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             lines += ["", "🧠 LLM usage (7d): (нет данных)"]
 
         if c.message:
-            await cb_reply(c, "\n".join(lines))
+            try:
+                await c.message.edit_text("\n".join(lines), parse_mode="HTML")
+            except TelegramBadRequest:
+                pass
         return
 
     # --- users all (latest) ---
@@ -763,7 +734,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             return
 
         now = datetime.now(timezone.utc)
-        lines = ["👥 Users (ALL): (latest 60)"]
+        lines = ["👥 <b>Users (ALL - latest 60):</b>\n"]
         for (
             tg_id,
             uid,
@@ -775,27 +746,24 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             prem_until,
             prem_plan,
         ) in rows:
-            prem_by_time = False
-            try:
-                if prem_until is not None:
-                    pu = prem_until
-                    if getattr(pu, "tzinfo", None) is None:
-                        pu = pu.replace(tzinfo=timezone.utc)
-                    prem_by_time = pu > now
-            except Exception:
-                prem_by_time = False
-
-            prem_flag = "💎" if prem_by_time else ""
-            uname = (username or "").strip().lstrip("@")
-            link = f"https://t.me/{uname}" if uname else f"tg://user?id={tg_id}"
-            loc2 = loc or langx or "-"
-            lines.append(
-                f"• {prem_flag} tg_id={tg_id} | user_id={uid} | @{uname or '-'} | plan={prem_plan} | "
-                f"is_premium_flag={bool(is_prem)} | premium_until={prem_until} | last_seen={last_seen_at} | {loc2} | {link}"
-            )
+            
+            real_prem = _is_really_premium(prem_until, now)
+            
+            icon = "💎" if real_prem else "👤"
+            plan_str = str(prem_plan).upper() if real_prem and prem_plan else "FREE"
+            date_str = _format_dt(prem_until)
+            seen_str = _format_dt(last_seen_at, "%d.%m %H:%M")
+            uname = f"@{username}" if username else "NoUser"
+            
+            link = f"<a href='tg://user?id={tg_id}'>{tg_id}</a>"
+            
+            lines.append(f"{icon} {link} | {uname} | <b>{plan_str}</b> | До: {date_str} | Был: {seen_str}")
 
         if c.message:
-            await cb_reply(c, "\n".join(lines))
+            try:
+                await c.message.edit_text("\n".join(lines), parse_mode="HTML")
+            except TelegramBadRequest:
+                pass
         return
 
     # --- users active 7d ---
@@ -807,18 +775,22 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                 await session.execute(
                     sql_text(
                         "SELECT u.tg_id, u.id, u.username, u.locale, u.lang, "
-                        "MAX(e.ts) as last_ts, COUNT(*) as cnt "
+                        "MAX(e.ts) as last_ts, COUNT(*) as cnt, u.is_premium, u.premium_until, u.premium_plan "
                         "FROM analytics_events e "
                         "JOIN users u ON u.id = e.user_id "
                         "WHERE e.ts >= :since AND e.user_id IS NOT NULL "
                         "GROUP BY u.tg_id, u.id, u.username, u.locale, u.lang, u.last_seen_at, u.is_premium, u.premium_until, u.premium_plan "
                         "ORDER BY last_ts DESC "
-                        "LIMIT 30"
+                        "LIMIT 40"
                     ),
                     {"since": since.isoformat()},
                 )
             ).all()
-            rows = [tuple(r) for r in rows]
+            
+            parsed_rows = []
+            for r in rows:
+                parsed_rows.append((r[0], r[1], r[2], r[3], r[4], None, r[7], r[8], r[9], r[5], r[6]))
+            rows = parsed_rows
         else:
             rows = (
                 await session.execute(
@@ -850,71 +822,35 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                         User.premium_plan,
                     )
                     .order_by(func.max(AnalyticsEvent.ts).desc())
-                    .limit(30)
+                    .limit(40)
                 )
             ).all()
-
             rows = [tuple(r) for r in rows]
+
         if not rows:
             if c.message:
                 await cb_reply(c, _tr(lang, "users_empty"))
             return
 
-        lines = ["👥 Active users (7d):"]
         now = datetime.now(timezone.utc)
-
-        # rows может быть из ORM или raw SQL — расклад одинаковый после наших правок
-        for row in rows:
-            # поддержим оба формата: tuple или RowMapping
-            if isinstance(row, (tuple, list)):
-                (
-                    tg_id,
-                    uid,
-                    username,
-                    loc,
-                    langx,
-                    last_seen_at,
-                    is_prem,
-                    prem_until,
-                    prem_plan,
-                    last_ts,
-                    cnt,
-                ) = row
-            else:
-                tg_id = row[0]
-                uid = row[1]
-                username = row[2]
-                loc = row[3]
-                langx = row[4]
-                last_seen_at = row[5]
-                is_prem = row[6]
-                prem_until = row[7]
-                prem_plan = row[8]
-                last_ts = row[9]
-                cnt = row[10]
-
-            prem_by_time = False
-            try:
-                if prem_until is not None:
-                    pu = prem_until
-                    if getattr(pu, "tzinfo", None) is None:
-                        pu = pu.replace(tzinfo=timezone.utc)
-                    prem_by_time = pu > now
-            except Exception:
-                prem_by_time = False
-
-            prem_flag = "💎" if prem_by_time else ""
-            uname = (username or "").strip().lstrip("@")
-            link = f"https://t.me/{uname}" if uname else f"tg://user?id={tg_id}"
-            loc2 = loc or langx or "-"
-
-            lines.append(
-                f"• {prem_flag} tg_id={tg_id} | user_id={uid} | @{uname or '-'} | plan={prem_plan} | "
-                f"is_premium_flag={bool(is_prem)} | premium_until={prem_until} | {loc2} | events={cnt} | last_ts={last_ts} | {link}"
-            )
+        lines = ["👥 <b>Active users (7d):</b>\n"]
+        
+        for (tg_id, uid, username, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_ts, cnt) in rows:
+            real_prem = _is_really_premium(prem_until, now)
+            
+            icon = "💎" if real_prem else "👤"
+            plan_str = str(prem_plan).upper() if real_prem and prem_plan else "FREE"
+            date_str = _format_dt(prem_until)
+            uname = f"@{username}" if username else "NoUser"
+            link = f"<a href='tg://user?id={tg_id}'>{tg_id}</a>"
+            
+            lines.append(f"{icon} {link} | {uname} | <b>{plan_str}</b> | До: {date_str} | Событий: {cnt}")
 
         if c.message:
-            await cb_reply(c, "\n".join(lines))
+            try:
+                await c.message.edit_text("\n".join(lines), parse_mode="HTML")
+            except TelegramBadRequest:
+                pass
         return
 
     # --- find user card ---
@@ -997,20 +933,19 @@ async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContex
     existing_sub = await get_current_subscription(session, user.id, now=now)
 
     if existing_sub:
-        # продлеваем/реактивируем
         existing_sub.status = "active"
         base_from = existing_sub.expires_at or now
         if base_from < now:
             base_from = now
         existing_sub.expires_at = base_from + timedelta(days=1)  # 24h
         existing_sub.auto_renew = False
-        existing_sub.plan = tier  # 'basic' или 'pro'
+        existing_sub.plan = tier  
         existing_sub.source = "admin"
         session.add(existing_sub)
     else:
         sub = Subscription(
             user_id=user.id,
-            plan=tier,  # 'basic' или 'pro'
+            plan=tier,  
             status="active",
             started_at=now,
             expires_at=now + timedelta(days=1),
@@ -1020,12 +955,9 @@ async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContex
         session.add(sub)
         await session.flush()
 
-    # синхронизируем user.is_premium/premium_until/premium_plan из подписки
     await sync_user_premium_flags(session, user, now=now)
-
     await session.commit()
 
-    # audit (best-effort)
     try:
         await log_admin_action(
             session,
@@ -1043,7 +975,6 @@ async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContex
 
 @router.message(AdminStates.wait_reset_id)
 async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> None:
-    # safety: если в сессии до этого был exception во flush/commit — чистим состояние
     try:
         await session.rollback()
     except Exception:
@@ -1068,24 +999,20 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
         await state.clear()
         return
 
-    # IMPORTANT: не трогаем user.is_premium/user.premium_until напрямую (избегаем lazy-load / expired attr)
     await session.execute(
         update(User).where(User.id == user.id).values(is_premium=False, premium_until=None, premium_plan="basic")
     )
 
-    # опционально: если есть таблица subscriptions — деактивируем активные (чтобы не пере-синкнуло обратно)
     try:
         await session.execute(
             sql_text("UPDATE subscriptions SET status='expired' WHERE user_id = :uid AND status = 'active'"),
             {"uid": int(user.id)},
         )
     except Exception:
-        # если таблицы/поля нет — не ломаем reset
         try:
             await session.rollback()
         except Exception:
             pass
-        # и повторяем только user update
         await session.execute(
             update(User).where(User.id == user.id).values(is_premium=False, premium_until=None, premium_plan="basic")
         )
@@ -1124,41 +1051,34 @@ async def on_find_id(m: Message, session: AsyncSession, state: FSMContext) -> No
         await state.clear()
         return
 
-    link = f"tg://user?id={tg_id}"
     now = datetime.now(timezone.utc)
+    
+    # Жесткая проверка реального статуса
+    real_prem = _is_really_premium(getattr(u, 'premium_until', None), now)
+    
+    plan_val = getattr(u, 'premium_plan', getattr(u, 'plan', 'basic'))
+    plan_str = str(plan_val).upper() if real_prem else "FREE"
+    
+    date_str = _format_dt(getattr(u, "premium_until", None), "%d.%m.%Y %H:%M")
+    seen_str = _format_dt(getattr(u, "last_seen_at", None), "%d.%m.%Y %H:%M")
+    
+    uname = getattr(u, 'username', None)
+    uname_str = f"@{uname}" if uname else "Нет"
+    
+    link = f"<a href='tg://user?id={tg_id}'>{tg_id}</a>"
 
-    # премиум считаем безопасно (без вызова свойств, которые могут дернуть lazy-load)
-    prem_until = getattr(u, "premium_until", None)
-    prem_until_ok = False
-    if prem_until is not None:
-        try:
-            if getattr(prem_until, "tzinfo", None) is None:
-                prem_until = prem_until.replace(tzinfo=timezone.utc)
-            prem_until_ok = prem_until > now
-        except Exception:
-            prem_until_ok = False
-
-    is_prem = bool(getattr(u, "is_premium", False)) or prem_until_ok
-
-    text = "\n".join(
-        [
-            _tr(lang, "user_card_title"),
-            f"• tg_id: {tg_id}",
-            f"• link: {link}",
-            f"• user_id: {getattr(u, 'id', '-')}",
-            f"• username: @{getattr(u, 'username', '')}" if getattr(u, "username", None) else "• username: -",
-            f"• locale: {getattr(u, 'locale', '-')}",
-            f"• tz: {getattr(u, 'tz', '-')}",
-            f"• last_seen_at: {getattr(u, 'last_seen_at', None)}",
-            f"• is_admin: {bool(getattr(u, 'is_admin', False))}",
-            f"• premium_plan: {getattr(u, 'premium_plan', 'basic') or 'basic'}",
-            f"• is_premium: {is_prem}",
-            f"• premium_until: {getattr(u, 'premium_until', None)}",
-            f"• banned: {_is_banned(u)}",
-        ]
+    text = (
+        f"👤 <b>Карточка пользователя</b>\n\n"
+        f"<b>ID:</b> {link}\n"
+        f"<b>Username:</b> {uname_str}\n"
+        f"<b>Статус:</b> {'💎 Premium' if real_prem else '👤 Free'} (<b>{plan_str}</b>)\n"
+        f"<b>Премиум до:</b> {date_str}\n"
+        f"<b>Локаль:</b> {getattr(u, 'locale', '-')}\n"
+        f"<b>Был в сети:</b> {seen_str}\n"
+        f"<b>Бан:</b> {'⛔️ Да' if _is_banned(u) else '✅ Нет'}"
     )
 
-    await m.answer(text)
+    await m.answer(text, parse_mode="HTML")
     await state.clear()
 
 

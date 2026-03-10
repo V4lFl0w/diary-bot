@@ -483,6 +483,15 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                     pass
             r = await approve_refund(session, payment_id=payment_id, admin_note=f"auto_ok:{reason_text}")
             if getattr(r, "ok", False):
+                # 🔥 ОТМЕНА ПРЕМИУМА
+                u.is_premium = False
+                u.premium_until = None
+                if hasattr(u, "plan"):
+                    u.plan = "basic"
+                if hasattr(u, "assistant_plan"):
+                    u.assistant_plan = "basic"
+                await session.commit()
+
                 await log_admin_action(
                     session,
                     admin_tg_id=c.from_user.id,
@@ -494,9 +503,9 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                 tg_id,
                 _t(
                     lang,
-                    "✅ Возврат одобрен.\n" + _refund_info("stars", lang),
-                    "✅ Повернення схвалено.\n" + _refund_info("stars", lang),
-                    "✅ Refund approved.\n" + _refund_info("stars", lang),
+                    "✅ Возврат одобрен. Ваша Premium-подписка отменена.\n" + _refund_info("stars", lang),
+                    "✅ Повернення схвалено. Ваша Premium-підписка скасована.\n" + _refund_info("stars", lang),
+                    "✅ Refund approved. Your Premium subscription has been canceled.\n" + _refund_info("stars", lang),
                 ),
             )
             return
@@ -541,12 +550,22 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
 
             if refund_success:
                 await approve_refund(session, payment_id=payment_id, admin_note=f"auto_mono_refund:{reason_text}")
+                
+                # 🔥 ОТМЕНА ПРЕМИУМА
+                u.is_premium = False
+                u.premium_until = None
+                if hasattr(u, "plan"):
+                    u.plan = "basic"
+                if hasattr(u, "assistant_plan"):
+                    u.assistant_plan = "basic"
+                await session.commit()
+
                 await log_admin_action(session, admin_tg_id=c.from_user.id, action="refund_approve_ui", payment_id=payment_id)
                 await bot.send_message(
                     tg_id,
-                    _t(lang, "✅ Возврат успешно проведен. Деньги скоро вернутся на карту.", 
-                             "✅ Повернення успішно проведено. Гроші скоро повернуться на картку.", 
-                             "✅ Refund processed. Money will return to your card soon.")
+                    _t(lang, "✅ Возврат успешно проведен. Деньги скоро вернутся на карту.\nВаша Premium-подписка отменена.", 
+                             "✅ Повернення успішно проведено. Гроші скоро повернуться на картку.\nВаша Premium-підписка скасована.", 
+                             "✅ Refund processed. Money will return to your card soon.\nYour Premium subscription has been canceled.")
                 )
             else:
                 await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
@@ -557,7 +576,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                              f"⚠️ Request created, but auto-refund failed (Bank: {mono_err_text[:100]}). Admin will check manually.")
                 )
                 
-                # 🔥 ФИКС: Пингуем админа, если автовозврат отвалился!
+                # Пингуем админа, если автовозврат отвалился!
                 admins = _admin_ids()
                 if admins:
                     txt = f"🧾 Refund FAILED in Mono API\nuser_tg={tg_id}\npayment_id={payment_id}\nreason={reason_text}\nerror={mono_err_text[:100]}"
@@ -596,7 +615,7 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
             )
             return
 
-    # серый кейс → заявка + пинг админу
+    # серый кейс → заявка + пинг админу (для тех кто выбрал причину "другое", но в пределах 48 часов)
     res = await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
     await bot.send_message(
         tg_id,
