@@ -38,7 +38,6 @@
       color:var(--text);
       -webkit-font-smoothing: antialiased;
       
-      /* АНТИ-ПРЫЖОК: Жестко фиксируем окно */
       height: var(--tg-viewport-stable-height, 100vh);
       min-height: 100vh;
       width: 100vw;
@@ -46,7 +45,6 @@
       padding: 0;
     }
 
-    /* Оборачиваем весь контент в контейнер для внутреннего скролла */
     .app-container {
       height: 100%;
       width: 100%;
@@ -73,14 +71,11 @@
       box-shadow: 0 0 0 4px rgba(45,212,191,.18);
     }
 
-    .tabs{
-      display:flex;gap:6px;
-      background: rgba(255,255,255,.05);
-      border:1px solid var(--stroke);
-      border-radius:999px;
-      padding:6px;
-      margin: 14px 0 14px;
+    /* 🔥 СКРЫВАЕМ ВЕРХНИЕ ВКЛАДКИ (Подписка / Токены) */
+    .tabs {
+      display: none !important;
     }
+    
     .tab{
       flex:1;border:0;background:transparent;
       color: var(--muted);
@@ -151,12 +146,9 @@
     .smallLine{color:var(--muted);font-size:13px;margin-top:-6px;line-height:1.35;}
     .smallLine strong{color:rgba(255,255,255,.90);font-weight:900}
 
-    .gift{
-      background: rgba(255,255,255,.03);
-      border: 1px solid rgba(255,255,255,.06);
-      padding:12px;
-      border-radius:12px;
-      margin:12px 0 6px;
+    /* 🔥 СКРЫВАЕМ ПЛАШКУ С ПОДАРКОМ (БОНУСОМ) */
+    .gift {
+      display: none !important;
     }
     .giftTop{
       display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
@@ -394,7 +386,7 @@
     <div class="topbar">
       <div>
         <h1 class="title">Премиум</h1>
-        <p class="subtitle">Выбери подписку (Бейсик/Про/Макс) или токены для тяжёлых задач.</p>
+        <p class="subtitle" id="mainSubtitle">Выбери подписку (Бейсик/Про/Макс)</p>
       </div>
       <div class="pill" id="userPill">
         <span class="dot"></span>
@@ -497,16 +489,17 @@
       }
     }
 
+    // 🔥 ИСПРАВЛЕНЫ ТЕКСТЫ (убраны упоминания токенов)
     const I18N = {
       ru: {
         title: "Премиум",
-        subtitle: "Выбери подписку (Бейсик/Про/Макс) или токены для тяжёлых задач.",
+        subtitle: "Выбери подписку (Бейсик/Про/Макс)",
         tab_sub: "Подписка",
         tab_tok: "Токены",
         period_m: "Месяц",
         period_q: "Квартал −10%",
         period_y: "Год −25%",
-        bonus_for_heavy: "Бонус-токены на тяжёлые функции",
+        bonus_for_heavy: "Доступ ко всем функциям",
         pay_card: "💳 Карта",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Крипта",
@@ -517,18 +510,18 @@
         tokens_sub: "Токены списываются за тяжёлые функции (видео/изображения/дорогие запросы).",
         chosen: "выбрано",
         choose: "выбрать",
-        gift_prefix: "+",
-        gift_suffix: " токенов",
+        gift_prefix: "",
+        gift_suffix: "",
       },
       uk: {
         title: "Преміум",
-        subtitle: "Обери підписку (Бейсик/Про/Макс) або токени для важких задач.",
+        subtitle: "Обери підписку (Бейсик/Про/Макс)",
         tab_sub: "Підписка",
         tab_tok: "Токени",
         period_m: "Місяць",
         period_q: "Квартал −10%",
         period_y: "Рік −25%",
-        bonus_for_heavy: "Бонус-токени на важкі функції",
+        bonus_for_heavy: "Доступ до всіх функцій",
         pay_card: "💳 Картка",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Крипта",
@@ -539,18 +532,18 @@
         tokens_sub: "Токени списуються за важкі функції (відео/зображення/дорогі запити).",
         chosen: "обрано",
         choose: "обрати",
-        gift_prefix: "+",
-        gift_suffix: " токенів",
+        gift_prefix: "",
+        gift_suffix: "",
       },
       en: {
         title: "Premium",
-        subtitle: "Choose a plan (Basic/Pro/Max) or tokens for heavy tasks.",
+        subtitle: "Choose a plan (Basic/Pro/Max)",
         tab_sub: "Subscription",
         tab_tok: "Tokens",
         period_m: "Month",
         period_q: "Quarter −10%",
         period_y: "Year −25%",
-        bonus_for_heavy: "Bonus tokens for heavy features",
+        bonus_for_heavy: "Access to all features",
         pay_card: "💳 Card",
         pay_stars: "⭐ Stars",
         pay_crypto: "🪙 Crypto",
@@ -561,15 +554,15 @@
         tokens_sub: "Tokens are used for heavy features (video/images/expensive requests).",
         chosen: "selected",
         choose: "select",
-        gift_prefix: "+",
-        gift_suffix: " tokens",
+        gift_prefix: "",
+        gift_suffix: "",
       }
     };
 
     const t = I18N[LANG] || I18N.ru;
 
     document.querySelector(".title").textContent = t.title;
-    document.querySelector(".subtitle").textContent = t.subtitle;
+    document.getElementById("mainSubtitle").textContent = t.subtitle;
     document.querySelector('.tab[data-tab="sub"]').textContent = t.tab_sub;
     document.querySelector('.tab[data-tab="tok"]').textContent = t.tab_tok;
     document.querySelector(".tokenTitle").textContent = t.tokens_title;
@@ -583,7 +576,6 @@
     let selectedPeriod = "month";
 
     const STARS_BASE = { basic: 199, pro: 449, max: 999 };
-    const BONUS_TOKENS_BASE = { basic: 60, pro: 180, max: 450 };
     const CURRENCY = "UAH";
     function money(n){ return `${n}₴`; }
 
@@ -646,7 +638,6 @@
       }
     }
 
-    // --- ИСПРАВЛЕННАЯ ФУНКЦИЯ ДЛЯ МОНОБАНКА ---
     async function payByMono(kind, amountUah, title, description, isAuto = true) {
       if (!tg) {
         alert("DEV MODE: tg is missing");
@@ -702,6 +693,7 @@
       }
     }
 
+    // 🔥 ИСПРАВЛЕННЫЕ БУЛЛИТЫ (без токенов)
     const PLANS = [
       {
         id: "basic",
@@ -718,15 +710,15 @@
         bullets: (LANG==="en" ? [
           "Everything needed for daily use",
           "Stable performance & clear limits",
-          "Bonus tokens for heavy features",
+          "Access to advanced features",
         ] : (LANG==="uk" ? [
           "Усе потрібне для щоденного користування",
           "Стабільна робота та зрозумілі ліміти",
-          "Бонус-токени на важкі функції",
+          "Доступ до розширених функцій",
         ] : [
           "Дневник + заметки без лишнего шума",
           "Напоминания и режим дня (быстро)",
-          "Бонус-токены на фото/видео/документы",
+          "Доступ ко всем сложным функциям",
         ])),
       },
       {
@@ -743,11 +735,11 @@
                                     "Больше действий, меньше ограничений")),
         bullets: (LANG==="en" ? [
           "Comfortable usage without pauses",
-          "Extra bonus tokens for heavy tasks",
+          "High priority in processing tasks",
           "Best value for daily intensity",
         ] : (LANG==="uk" ? [
           "Комфортний режим без пауз",
-          "Більше бонус-токенів на важкі задачі",
+          "Високий пріоритет обробки задач",
           "Найкраще співвідношення ціна/користь",
         ] : [
           "Выше лимиты и скорость, меньше ожидания",
@@ -769,15 +761,15 @@
                                     "Максимальный комфорт и вместимость")),
         bullets: (LANG==="en" ? [
           "Maximum limits and smooth usage",
-          "Maximum bonus tokens included",
+          "Fastest response time",
           "For creators, teams and power users",
         ] : (LANG==="uk" ? [
           "Максимальні ліміти та плавна робота",
-          "Максимум бонус-токенів у комплекті",
+          "Найшвидший час відгуку системи",
           "Для креаторів і «power users»",
         ] : [
           "Максимальные лимиты без пауз",
-          "Максимум бонус-токенов на тяжёлые функции",
+          "Самое быстрое время ответа",
           "Для тех, кто пользуется активно каждый день",
         ])),
       },
@@ -804,10 +796,6 @@
       const per = PERIODS[selectedPeriod];
       return Math.round((STARS_BASE[planId] || 0) * per.months * per.discount);
     }
-    function calcBonusTokens(planId){
-      const per = PERIODS[selectedPeriod];
-      return Math.round((BONUS_TOKENS_BASE[planId] || 0) * per.months * per.discount);
-    }
 
     const plansEl = document.getElementById("plans");
     function renderPlans() {
@@ -821,9 +809,6 @@
 
         const price = calcPriceUah(plan);
         const stars = calcStars(plan.id);
-        const bonus = calcBonusTokens(plan.id);
-
-        const giftLine = `<div class="giftText">${t.gift_prefix}${bonus}${t.gift_suffix}</div>`;
 
         card.innerHTML = `
           ${plan.tag ? `<div class="badge">${plan.tag}</div>` : ""}
@@ -841,13 +826,6 @@
           </div>
 
           <div class="smallLine"><strong>${plan.under_price || ""}</strong></div>
-
-          <div class="gift">
-            <div class="giftTop">
-              ${giftLine}
-              <span class="giftMeta">${t.bonus_for_heavy}</span>
-            </div>
-          </div>
 
           <ul class="list">
             ${plan.bullets.map(x => `
@@ -1046,13 +1024,11 @@
       return fresh;
     }
 
-    // ИСПРАВЛЕННЫЕ ОБРАБОТЧИКИ КНОПОК
     hardRebind("payBtn", async () => {
       haptic("medium");
       const plan = PLANS.find(x => x.id === selectedPlanId);
       const priceUah = calcPriceUah(plan);
       const stars = calcStars(selectedPlanId);
-      const bonus = calcBonusTokens(selectedPlanId);
 
       if (payMethodSub === "crypto") {
         if (selectedPlanId === "basic") {
@@ -1079,20 +1055,19 @@
           selectedPlanId,
           stars,
           "Premium",
-          `Premium (${selectedPlanId}, ${selectedPeriod}) • бонус +${bonus} токенов`
+          `Premium (${selectedPlanId}, ${selectedPeriod}) через Stars`
         );
         return;
       }
 
-      // Вызываем Монобанк с флагом isAuto = true
       await payByMono(
         `sub:${selectedPlanId}:${selectedPeriod}`,
         Number(priceUah),
         "DiaryBot Premium",
-        `${plan.name} • ${selectedPeriod} • бонус +${bonus} токенов`,
+        `${plan.name} • ${selectedPeriod}`,
         false 
       );
-    }); // <--- ВОТ ТУТ БЫЛА ПРОПУЩЕНА СКОБКА
+    }); 
 
     hardRebind("buyTokensBtn", async () => {
       const pack = TOKEN_PACKS.find(x => x.id === selectedTokenPackId);
@@ -1101,7 +1076,6 @@
         return;
       }
       
-      // Для токенов передаем isAuto = false
       await payByMono(
         `tokens:${pack.id}`,
         Number(pack.price_uah),

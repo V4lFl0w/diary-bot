@@ -4,7 +4,6 @@
 - выдача 24 часов за подписку на канал
 - сброс премиума админом
 
-
 Важно:
 - поддерживает callback_data="open_premium" (нужно для features_v2)
 - даёт кнопки:
@@ -84,7 +83,6 @@ CB_SUB_CANCEL = "sub:cancel"
 CB_SUB_CANCEL_CONFIRM = "sub:cancel:confirm"
 CB_TRIAL_START = "premium:trial:start"
 
-
 CB_PREMIUM_DETAILS = "premium:details"
 
 
@@ -114,9 +112,9 @@ def _webapp_url(tg_id: int, lang: str) -> str:
 
 TEXTS: Dict[str, Dict[str, str]] = {
     "presale_lines": {
-        "ru": "🔋 Больше мощности каждый день\n— быстрее и без пауз\n— токены на тяжёлые функции\n— Pro/Max для активного режима\n— Доступ к расширенным функциям\n— Удобное взаимодействие",
-        "uk": "🔋 Більше потужності щодня\n— швидше і без пауз\n— токени на важкі функції\n— Pro/Max для активного режиму\n— Доступ до розширених функцій\n— Зручна взаємодія",
-        "en": "🔋 More power every day\n— faster, no pauses\n— tokens for heavy features\n— Pro/Max for active mode\n— Access to advanced features\n— Smooth interaction",
+        "ru": "🔋 Больше мощности каждый день\n— быстрее и без пауз\n— доступ ко всем сложным функциям\n— Pro/Max для активного режима\n— Удобное взаимодействие",
+        "uk": "🔋 Більше потужності щодня\n— швидше і без пауз\n— доступ до всіх складних функцій\n— Pro/Max для активного режиму\n— Зручна взаємодія",
+        "en": "🔋 More power every day\n— faster, no pauses\n— access to all advanced features\n— Pro/Max for active mode\n— Smooth interaction",
     },
     "sub_given": {
         "ru": "Поздравляю! Подписка подтверждена — премиум активирован на 24 часа ✅",
@@ -133,14 +131,13 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "uk": "Безкоштовний день уже використано. Щоб і надалі користуватися преміумом, потрібно оформити платну підписку — обрати тариф нижче 💳✨",
         "en": "Your free trial has already been used. To keep using Premium, please purchase a plan — choose one below 💳✨",
     },
-    # Чётко обозначаем, что это именно оплата картой (Stars — отдельная кнопка)
     "btn_pay": {"ru": "🚀 Выбрать тариф", "uk": "🚀 Обрати тариф", "en": "🚀 Choose plan"},
     "btn_open": {"ru": "🚀 Выбрать тариф", "uk": "🚀 Обрати тариф", "en": "🚀 Choose plan"},
     "btn_more": {"ru": "ℹ️ Подробнее", "uk": "ℹ️ Детальніше", "en": "ℹ️ Details"},
     "presale": {
-        "ru": "🔥 Предпродажа: зафиксируй цену + забери бонус-токены",
-        "uk": "🔥 Передпродаж: зафіксуй ціну та бонуси",
-        "en": "🔥 Pre-sale: lock price + bonuses",
+        "ru": "🔥 Предпродажа: зафиксируй цену",
+        "uk": "🔥 Передпродаж: зафіксуй ціну",
+        "en": "🔥 Pre-sale: lock price",
     },
     "short_b1": {
         "ru": "⚡️ Без пауз: больше лимиты и скорость",
@@ -153,9 +150,9 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "en": "🎬 Heavy: images/video/docs",
     },
     "short_cta": {
-        "ru": "Жми «🚀 Выбрать тариф» — и забирай бонусы.",
-        "uk": "Тицяй «🚀 Обрати тариф» — і забирай бонуси.",
-        "en": "Tap “🚀 Choose plan” to claim bonuses.",
+        "ru": "Жми «🚀 Выбрать тариф» — и открой все возможности.",
+        "uk": "Тицяй «🚀 Обрати тариф» — і відкрий всі можливості.",
+        "en": "Tap “🚀 Choose plan” to unlock all features.",
     },
     "btn_sub": {"ru": "Подписаться", "uk": "Підписатися", "en": "Subscribe"},
     "btn_check": {"ru": "Проверить", "uk": "Перевірити", "en": "Check"},
@@ -408,7 +405,6 @@ def _active_premium_kb(lang: str, tg_id: int, has_auto_renew: bool = False) -> I
         [InlineKeyboardButton(text=_t_cancel_label(lang), web_app=WebAppInfo(url=_webapp_url(tg_id, lang)))],
     ]
 
-    # Добавляем кнопку отмены только если подписка активна
     if has_auto_renew:
         rows.append([
             InlineKeyboardButton(
@@ -756,7 +752,6 @@ async def cmd_premium(
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
-# ✅ КРИТИЧНО ДЛЯ V2: обработчик апсейл-кнопки
 @router.callback_query(F.data == CB_OPEN_PREMIUM)
 async def open_premium_cb(
     c: CallbackQuery,
@@ -975,7 +970,6 @@ async def sub_cancel_confirm(
     }.get(lang_code, "✅ Done")
     
     if mono_error:
-        # Можно добавить скрытый лог для себя, но юзеру показываем успех
         pass
 
     await cb_reply(
