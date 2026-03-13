@@ -594,21 +594,27 @@
       return money(priceUah);
     }
 
+    // 🔥 Замени старую функцию payByStars на эту:
     async function payByStars(planId, starsAmount, title, description) {
       if (!tg || typeof tg.openInvoice !== "function") {
-        tgPopup("openInvoice недоступен. Открой WebApp внутри Telegram.");
+        tgPopup("Оплата Stars доступна только внутри Telegram.");
         return false;
       }
+      
+      const btn = document.getElementById("payBtn");
+      if (btn) btn.disabled = true; // Защита от двойного клика
+
       try {
-        const payload = `stars:buy:webapp:${planId}:${selectedPeriod}:${Date.now()}`;
         const resp = await fetch("/api/stars/invoice", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             stars: Number(starsAmount || 0),
-            payload,
+            tg_id: Number(tgUserId), // Передаем ID юзера
+            plan_id: planId,         // Передаем тариф (pro)
+            period: selectedPeriod,  // Передаем период (month)
             title: title || "Premium",
-            description: description || `Premium (${planId}, ${selectedPeriod}) через Stars`,
+            description: description || `Подписка ${planId} (${selectedPeriod})`,
           }),
         });
 
@@ -616,24 +622,39 @@
         try { out = await resp.json(); } catch (e) {}
 
         if (!resp.ok) {
-          tgPopup("Stars API error: " + (out?.detail || resp.status));
+          tgPopup("Ошибка сервера: " + (out?.detail || resp.status));
+          if (btn) btn.disabled = false;
           return false;
         }
 
         const link = out?.invoice_link;
         if (!link) {
-          tgPopup("invoice_link не получен");
+          tgPopup("Не удалось сгенерировать ссылку на оплату.");
+          if (btn) btn.disabled = false;
           return false;
         }
 
+        // Вызываем окно оплаты Telegram
         tg.openInvoice(link, (status) => {
           console.log("Stars invoice status:", status);
-          tgPopup("Статус оплаты: " + status);
+          if (status === 'paid') {
+             tgPopup("Оплата успешно завершена! ✅ Закройте это окно, чтобы бот обновил профиль.");
+             // Закрываем окно через пару секунд
+             setTimeout(() => tg.close(), 2000);
+          } else if (status === 'failed') {
+             tgPopup("Ошибка при оплате ❌");
+          } else if (status === 'cancelled') {
+             console.log("Оплата отменена пользователем");
+          } else {
+             tgPopup("Статус оплаты: " + status);
+          }
+          if (btn) btn.disabled = false;
         });
 
         return true;
       } catch (e) {
-        tgPopup("Stars error: " + String(e));
+        tgPopup("Ошибка соединения: " + String(e));
+        if (btn) btn.disabled = false;
         return false;
       }
     }

@@ -473,41 +473,72 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
 
     # авто-ок (48 часов) — делаем по провайдеру
     if auto_ok:
-        # ⭐ Stars — пытаемся вернуть stars + закрываем доступ
+        # ⭐ Stars — пытаемся вернуть stars + закрываем доступ (ОБНОВЛЕНО!)
         if prov_low == "stars":
             charge_id = getattr(pay, "external_id", None) or ""
+            refund_success = False
+            stars_err = ""
+            
             if charge_id:
                 try:
-                    await bot.refund_star_payment(user_id=tg_id, telegram_payment_charge_id=str(charge_id))
-                except Exception:
-                    pass
-            r = await approve_refund(session, payment_id=payment_id, admin_note=f"auto_ok:{reason_text}")
-            if getattr(r, "ok", False):
-                # 🔥 ОТМЕНА ПРЕМИУМА
-                u.is_premium = False
-                u.premium_until = None
-                if hasattr(u, "plan"):
-                    u.plan = "basic"
-                if hasattr(u, "assistant_plan"):
-                    u.assistant_plan = "basic"
-                await session.commit()
+                    # refund_star_payment возвращает True в случае успеха
+                    res_stars = await bot.refund_star_payment(user_id=tg_id, telegram_payment_charge_id=str(charge_id))
+                    if res_stars:
+                        refund_success = True
+                except Exception as e:
+                    stars_err = repr(e)
+            else:
+                stars_err = "No charge_id"
 
-                await log_admin_action(
-                    session,
-                    admin_tg_id=c.from_user.id,
-                    action="refund_approve_ui",
-                    payment_id=payment_id,
-                    extra={"reason": reason_text},
+            if refund_success:
+                r = await approve_refund(session, payment_id=payment_id, admin_note=f"auto_ok:{reason_text}")
+                if getattr(r, "ok", False):
+                    # 🔥 ОТМЕНА ПРЕМИУМА
+                    u.is_premium = False
+                    u.premium_until = None
+                    if hasattr(u, "premium_plan"):
+                        u.premium_plan = "free"
+                    if hasattr(u, "plan"):
+                        u.plan = "basic"
+                    if hasattr(u, "assistant_plan"):
+                        u.assistant_plan = "basic"
+                    await session.commit()
+
+                    await log_admin_action(
+                        session,
+                        admin_tg_id=c.from_user.id,
+                        action="refund_approve_ui",
+                        payment_id=payment_id,
+                        extra={"reason": reason_text},
+                    )
+                await bot.send_message(
+                    tg_id,
+                    _t(
+                        lang,
+                        "✅ Возврат одобрен. Ваша Premium-подписка отменена.\n" + _refund_info("stars", lang),
+                        "✅ Повернення схвалено. Ваша Premium-підписка скасована.\n" + _refund_info("stars", lang),
+                        "✅ Refund approved. Your Premium subscription has been canceled.\n" + _refund_info("stars", lang),
+                    ),
                 )
-            await bot.send_message(
-                tg_id,
-                _t(
-                    lang,
-                    "✅ Возврат одобрен. Ваша Premium-подписка отменена.\n" + _refund_info("stars", lang),
-                    "✅ Повернення схвалено. Ваша Premium-підписка скасована.\n" + _refund_info("stars", lang),
-                    "✅ Refund approved. Your Premium subscription has been canceled.\n" + _refund_info("stars", lang),
-                ),
-            )
+            else:
+                # Fallback: автоматический возврат провалился -> ручная заявка
+                await request_refund(session, tg_id=tg_id, payment_id=payment_id, reason=reason_text)
+                await bot.send_message(
+                    tg_id,
+                    _t(lang, 
+                       f"⚠️ Заявка создана, но автоматический возврат не прошел (Ошибка: {stars_err[:100]}). Админ проверит вручную.",
+                       f"⚠️ Заявку створено, але автоматичне повернення не пройшло (Помилка: {stars_err[:100]}). Адмін перевірить вручну.",
+                       f"⚠️ Request created, but auto-refund failed (Error: {stars_err[:100]}). Admin will check manually.")
+                )
+                
+                admins = _admin_ids()
+                if admins:
+                    txt = f"🧾 Refund FAILED in Stars API\nuser_tg={tg_id}\npayment_id={payment_id}\nreason={reason_text}\nerror={stars_err[:100]}"
+                    for aid in admins:
+                        try:
+                            await bot.send_message(aid, txt)
+                        except Exception:
+                            pass
             return
 
         # 💳 Mono — РЕАЛЬНЫЙ ВОЗВРАТ ЧЕРЕЗ API
@@ -539,13 +570,10 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                         if resp.status_code == 200:
                             refund_success = True
                         else:
-                            # Точно покажет ответ банка без потери данных
                             mono_err_text = f"API {resp.status_code}: {resp.text}"
                 except Exception as e:
-                    # repr(e) покажет тип ошибки (например, TimeoutError), даже если текст пустой
                     mono_err_text = f"Code Exception: {repr(e)}"
             else:
-                # Если вдруг потерялся токен или ID прямо в момент нажатия
                 mono_err_text = f"Missing Data: token={bool(mono_token)}, inv_id={invoice_id}"
 
             if refund_success:
@@ -554,6 +582,8 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                 # 🔥 ОТМЕНА ПРЕМИУМА
                 u.is_premium = False
                 u.premium_until = None
+                if hasattr(u, "premium_plan"):
+                    u.premium_plan = "free"
                 if hasattr(u, "plan"):
                     u.plan = "basic"
                 if hasattr(u, "assistant_plan"):
@@ -576,7 +606,6 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                              f"⚠️ Request created, but auto-refund failed (Bank: {mono_err_text[:100]}). Admin will check manually.")
                 )
                 
-                # Пингуем админа, если автовозврат отвалился!
                 admins = _admin_ids()
                 if admins:
                     txt = f"🧾 Refund FAILED in Mono API\nuser_tg={tg_id}\npayment_id={payment_id}\nreason={reason_text}\nerror={mono_err_text[:100]}"

@@ -255,8 +255,13 @@ async def buy_stars_package(c: CallbackQuery, session: AsyncSession) -> None:
 @router.pre_checkout_query()
 async def process_pre_checkout(q: PreCheckoutQuery) -> None:
     payload = q.invoice_payload or ""
-    ok = payload.startswith("premium_stars:")
-    await q.answer(ok=ok)
+    
+    # Если пейлоад правильный - пропускаем
+    if payload.startswith("premium_stars:") or payload.startswith("stars:buy:"):
+        await q.answer(ok=True)
+    else:
+        # Если пейлоад кривой - ОБЯЗАТЕЛЬНО передаем error_message
+        await q.answer(ok=False, error_message="Неверный формат запроса. Попробуйте еще раз.")
 
 
 @router.message(F.successful_payment)
