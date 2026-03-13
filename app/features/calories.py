@@ -16,9 +16,6 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from PIL import Image, ImageDraw, ImageFont
-import tempfile
-import speech_recognition as sr
-from pydub import AudioSegment
 
 from app.services.quota_units import cache_key, cache_get_json, cache_set_json, enforce_and_add_units
 
@@ -670,47 +667,47 @@ def render_result_card(photo_bytes: bytes, text: str) -> bytes:
 
 
 async def _transcribe_voice_free(message: types.Message, lang_code: str = "ru") -> str:
-    """Бесплатный перевод голоса в текст через Google Web Speech API"""
+    """Надежный перевод голоса через OpenAI Whisper"""
     if not message.voice:
         return ""
     
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return ""
+
+    # Импортируем tempfile только здесь, чтобы не засорять глобальную область
+    import tempfile 
+    
     ogg_path = ""
-    wav_path = ""
     try:
         f = await message.bot.get_file(message.voice.file_id)
-
-        # 🔥 Вот эти две строчки снимут красную подсветку:
         if not f.file_path:
             return ""
-        
-        # Создаем временные файлы
+            
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as ogg_file:
             ogg_path = ogg_file.name
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as wav_file:
-            wav_path = wav_file.name
 
-        # Скачиваем голосовуху
+        # Скачиваем оригинальный ogg от Телеграма
         await message.bot.download_file(f.file_path, destination=ogg_path)
         
-        # Конвертируем ogg в wav
-        audio = AudioSegment.from_ogg(ogg_path)
-        audio.export(wav_path, format="wav")
-        
-        # Распознаем
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio_data = recognizer.record(source)
-            rec_lang = "uk-UA" if lang_code == "uk" else "en-US" if lang_code == "en" else "ru-RU"
-            text = recognizer.recognize_google(audio_data, language=rec_lang)
-            
-        # Удаляем временные файлы
+        # Отправляем прямо в Whisper, он сам ест .ogg
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            with open(ogg_path, "rb") as audio_file:
+                r = await client.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    files={"file": ("voice.ogg", audio_file, "audio/ogg")},
+                    data={"model": "whisper-1"}
+                )
+                r.raise_for_status()
+                text = r.json().get("text", "")
+                
         os.remove(ogg_path)
-        os.remove(wav_path)
         return text
     except Exception as e:
-        logging.error(f"Free STT Error: {e}")
-        if os.path.exists(ogg_path): os.remove(ogg_path)
-        if os.path.exists(wav_path): os.remove(wav_path)
+        logging.error(f"Whisper STT Error: {e}")
+        if os.path.exists(ogg_path): 
+            os.remove(ogg_path)
         return ""
 
 
@@ -1072,11 +1069,29 @@ async def analyze_photo(
             r.raise_for_status()
             j = r.json()
 
+        # 🔥 НОВОЕ: СПИСЫВАЕМ ТОКЕНЫ В ПРОФИЛЬ
+        if session is not None and user is not None:
+            try:
+                from app.services.llm_usage import log_llm_usage
+                from app.services.assistant import _assistant_plan
+                await log_llm_usage(
+                    session,
+                    user_id=user.id,
+                    feature="vision", 
+                    model=model,
+                    plan=_assistant_plan(user),
+                    resp=r, 
+                    meta={"lang": lang_code, "source": "calories_photo"},
+                )
+                await session.commit()
+            except Exception as e:
+                logging.error(f"Failed to log tokens for calories: {e}")
+
         txt = j.get("output_text")
         if not txt:
-            out = j.get("output") or []
+            out_chunks = j.get("output") or []
             chunks = []
-            for item in out:
+            for item in out_chunks:
                 if item.get("type") == "message":
                     for part in item.get("content") or []:
                         if part.get("type") in ("output_text", "text"):

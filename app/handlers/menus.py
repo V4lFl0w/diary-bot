@@ -202,33 +202,30 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
 
     await _log(session, user, tg_lang, "open_profile_menu", "menu")
 
-    # --- 1. ОПРЕДЕЛЯЕМ ТАРИФ ---
     is_prem = _is_premium_user(user)
     plan = _assistant_plan(user)
-    
-    # Подстраховка: если у юзера премиум, но тариф в БД кривой, ставим PRO
     if is_prem and plan not in ["pro", "max", "pro_max"]:
         plan = "pro"
 
-    # Красивое название тарифа
     plan_name = "Базовый" if plan in ["free", "basic"] and not is_prem else plan.upper()
 
-    # --- 2. СЧИТАЕМ ЛИМИТЫ ЗА 24 ЧАСА ---
-    # Ассистент (текст)
+    # --- Считаем лимиты и переводим в штуки (запросы) ---
     ast_used = await _usage_tokens_last_24h(session, user.id, "assistant")
     ast_limit = _quota_limits_tokens(plan, "assistant")
+    ast_left_requests = max(0, (ast_limit - ast_used) // 500)
+    ast_total_requests = ast_limit // 500
     
-    # Vision (фото)
     vis_used = await _usage_tokens_last_24h(session, user.id, "vision")
     vis_limit = _quota_limits_tokens(plan, "vision")
+    vis_left_requests = max(0, (vis_limit - vis_used) // 800)
+    vis_total_requests = vis_limit // 800
 
-    # Web-поиск (лимит делит общую квоту ассистента, но нам надо показать расход)
     web_used = await _usage_tokens_last_24h(session, user.id, "assistant_web")
+    web_limit = _quota_limits_tokens(plan, "assistant_web")
+    web_left_requests = max(0, (web_limit - web_used) // 1000)
+    web_total_requests = web_limit // 1000
 
-    # --- 3. ФОРМИРУЕМ ТЕКСТ ПРОФИЛЯ ---
     status_icon = "💎" if is_prem else "🆓"
-    
-    # Дата окончания премиума
     pu = getattr(user, "premium_until", None)
     until_text = ""
     if pu and is_prem:
@@ -244,16 +241,16 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
         f"<b>Доступно на 24 часа:</b>",
         "",
         f"💬 <b>Текстовые ИИ-запросы</b> (Журнал, Кино):",
-        f"└ {max(0, ast_limit - ast_used):,} / {ast_limit:,} токенов"
+        f"└ ~{ast_left_requests:,} из {ast_total_requests:,} шт."
     ]
 
-    # Блок: Фото (Калории, Поиск по кадру)
     if is_prem or vis_limit > 0:
-        display_vis = vis_limit if vis_limit > 0 else 120000
+        display_total = vis_total_requests if vis_total_requests > 0 else 150
+        display_left = vis_left_requests if vis_total_requests > 0 else (150 - (vis_used // 800))
         lines.extend([
             "",
             f"📸 <b>Разбор фото</b> (Калории, Кадры):",
-            f"└ {max(0, display_vis - vis_used):,} / {display_vis:,} токенов"
+            f"└ ~{display_left:,} из {display_total:,} шт."
         ])
     else:
         lines.extend([
@@ -262,18 +259,19 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
             f"└ 🔒 <i>Только в Premium</i>"
         ])
 
-    # Блок: Web-поиск (доступен только в Pro)
-    if plan in ["pro", "max", "pro_max"]:
+    if is_prem or plan in ["pro", "max", "pro_max"]:
+        display_total = web_total_requests if web_total_requests > 0 else 220
+        display_left = web_left_requests if web_total_requests > 0 else (220 - (web_used // 1000))
         lines.extend([
             "",
             f"🌐 <b>Web-поиск и Парсинг</b>:",
-            f"└ {max(0, ast_limit - web_used):,} / {ast_limit:,} токенов"
+            f"└ ~{display_left:,} из {display_total:,} шт."
         ])
     else:
         lines.extend([
             "",
             f"🌐 <b>Web-поиск и Парсинг</b>:",
-            f"└ 🔒 <i>Только в PRO-тарифе</i>"
+            f"└ 🔒 <i>Только в Premium</i>"
         ])
 
     lines.extend([
@@ -281,7 +279,7 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
         f"<i>🔄 Лимиты обновляются автоматически каждые 24 часа.</i>"
     ])
 
-    await m.answer("\n".join(lines), parse_mode="HTML")
+    await m.answer("\n".join(lines).replace(",", " "), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "menu:home")

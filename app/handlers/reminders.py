@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from time import monotonic
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
+import httpx
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -303,16 +304,18 @@ async def _load_user(session: AsyncSession, tg_id: int) -> Optional[User]:
     return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
 # ---------------------------------------------------------------------
-# VOICE STT (FREE GOOGLE)
+# VOICE STT (OpenAI)
 # ---------------------------------------------------------------------
 
 async def _transcribe_voice_free(message: Message, lang_code: str = "ru") -> str:
-    """Бесплатный перевод голоса в текст через Google Web Speech API"""
+    """Надежный перевод голоса через OpenAI Whisper"""
     if not message.voice:
         return ""
     
-    ogg_path = ""
-    wav_path = ""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return ""
+
     try:
         f = await message.bot.get_file(message.voice.file_id)
         if not f.file_path:
@@ -320,27 +323,25 @@ async def _transcribe_voice_free(message: Message, lang_code: str = "ru") -> str
             
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as ogg_file:
             ogg_path = ogg_file.name
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as wav_file:
-            wav_path = wav_file.name
 
         await message.bot.download_file(f.file_path, destination=ogg_path)
         
-        audio = AudioSegment.from_ogg(ogg_path)
-        audio.export(wav_path, format="wav")
-        
-        recognizer = sr.Recognizer()
-        with sr.AudioFile(wav_path) as source:
-            audio_data = recognizer.record(source)
-            rec_lang = "uk-UA" if lang_code == "uk" else "en-US" if lang_code == "en" else "ru-RU"
-            text = recognizer.recognize_google(audio_data, language=rec_lang)
-            
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            with open(ogg_path, "rb") as audio_file:
+                r = await client.post(
+                    "https://api.openai.com/v1/audio/transcriptions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    files={"file": ("voice.ogg", audio_file, "audio/ogg")},
+                    data={"model": "whisper-1"}
+                )
+                r.raise_for_status()
+                text = r.json().get("text", "")
+                
         os.remove(ogg_path)
-        os.remove(wav_path)
         return text
     except Exception as e:
-        logging.error(f"Free STT Error: {e}")
+        logging.error(f"Whisper STT Error: {e}")
         if os.path.exists(ogg_path): os.remove(ogg_path)
-        if os.path.exists(wav_path): os.remove(wav_path)
         return ""
 
 

@@ -5,6 +5,8 @@ import contextlib
 import importlib
 import inspect
 import logging
+import warnings
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="pydub")
 
 import os
 import subprocess
