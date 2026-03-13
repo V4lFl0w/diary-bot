@@ -23,12 +23,13 @@ from app.keyboards import (
     is_root_proactive_btn,
     is_root_settings_btn,
     is_about_btn,
-    is_root_profile_btn, # <--- Добавь это
+    is_root_profile_btn,
 )
 from app.models.user import User
 from app.services.analytics_helpers import log_ui
 from app.services.assistant import run_assistant
-from app.services.assistant import _usage_tokens_last_24h, _quota_limits_tokens, _assistant_plan
+# 🔥 Импортируем НОВЫЕ функции лимитов (штуки)
+from app.services.assistant import _usage_last_24h, _quota_limits, _assistant_plan
 
 router = Router(name="menus")
 
@@ -204,26 +205,24 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
 
     is_prem = _is_premium_user(user)
     plan = _assistant_plan(user)
-    if is_prem and plan not in ["pro", "max", "pro_max"]:
-        plan = "pro"
-
-    plan_name = "Базовый" if plan in ["free", "basic"] and not is_prem else plan.upper()
-
-    # --- Считаем лимиты и переводим в штуки (запросы) ---
-    ast_used = await _usage_tokens_last_24h(session, user.id, "assistant")
-    ast_limit = _quota_limits_tokens(plan, "assistant")
-    ast_left_requests = max(0, (ast_limit - ast_used) // 500)
-    ast_total_requests = ast_limit // 500
     
-    vis_used = await _usage_tokens_last_24h(session, user.id, "vision")
-    vis_limit = _quota_limits_tokens(plan, "vision")
-    vis_left_requests = max(0, (vis_limit - vis_used) // 800)
-    vis_total_requests = vis_limit // 800
+    # 🔥 Названия тарифов
+    plan_name = "Базовый" if plan in ["free", "basic"] and not is_prem else plan.upper()
+    if is_prem and plan in ["free", "basic"]:
+        plan_name = "PREMIUM" 
 
-    web_used = await _usage_tokens_last_24h(session, user.id, "assistant_web")
-    web_limit = _quota_limits_tokens(plan, "assistant_web")
-    web_left_requests = max(0, (web_limit - web_used) // 1000)
-    web_total_requests = web_limit // 1000
+    # 🔥 СЧИТАЕМ ЛИМИТЫ (Токены больше не делим, они уже в штуках)
+    ast_used = await _usage_last_24h(session, user.id, "assistant")
+    ast_total = _quota_limits(plan, "assistant")
+    ast_left = max(0, ast_total - ast_used) if ast_total > 0 else 0
+    
+    vis_used = await _usage_last_24h(session, user.id, "vision")
+    vis_total = _quota_limits(plan, "vision")
+    vis_left = max(0, vis_total - vis_used) if vis_total > 0 else 0
+
+    web_used = await _usage_last_24h(session, user.id, "assistant_web")
+    web_total = _quota_limits(plan, "assistant_web")
+    web_left = max(0, web_total - web_used) if web_total > 0 else 0
 
     status_icon = "💎" if is_prem else "🆓"
     pu = getattr(user, "premium_until", None)
@@ -240,17 +239,15 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
         "",
         f"<b>Доступно на 24 часа:</b>",
         "",
-        f"💬 <b>Текстовые ИИ-запросы</b> (Журнал, Кино):",
-        f"└ ~{ast_left_requests:,} из {ast_total_requests:,} шт."
+        f"💬 <b>Текстовые ИИ-запросы</b>:",
+        f"└ ~{ast_left} из {ast_total} шт."
     ]
 
-    if is_prem or vis_limit > 0:
-        display_total = vis_total_requests if vis_total_requests > 0 else 150
-        display_left = vis_left_requests if vis_total_requests > 0 else (150 - (vis_used // 800))
+    if is_prem or vis_total > 0:
         lines.extend([
             "",
             f"📸 <b>Разбор фото</b> (Калории, Кадры):",
-            f"└ ~{display_left:,} из {display_total:,} шт."
+            f"└ ~{vis_left} из {vis_total} шт."
         ])
     else:
         lines.extend([
@@ -259,19 +256,17 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
             f"└ 🔒 <i>Только в Premium</i>"
         ])
 
-    if is_prem or plan in ["pro", "max", "pro_max"]:
-        display_total = web_total_requests if web_total_requests > 0 else 220
-        display_left = web_left_requests if web_total_requests > 0 else (220 - (web_used // 1000))
+    if is_prem or web_total > 0:
         lines.extend([
             "",
             f"🌐 <b>Web-поиск и Парсинг</b>:",
-            f"└ ~{display_left:,} из {display_total:,} шт."
+            f"└ ~{web_left} из {web_total} шт."
         ])
     else:
         lines.extend([
             "",
             f"🌐 <b>Web-поиск и Парсинг</b>:",
-            f"└ 🔒 <i>Только в Premium</i>"
+            f"└ 🔒 <i>Только в PRO-тарифе</i>"
         ])
 
     lines.extend([
@@ -366,3 +361,5 @@ async def media_mode_text_router(message: Message, session: AsyncSession, state:
     if reply:
         clean = reply.replace("\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", "")
         await message.answer(clean, reply_markup=_media_inline_kb(lang), parse_mode=None)
+
+__all__ = ["router"]

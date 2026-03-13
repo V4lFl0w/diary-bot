@@ -3,10 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import cast, Optional
 import os
-import tempfile
-import speech_recognition as sr
-from pydub import AudioSegment
 import httpx
+import tempfile
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -22,7 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.assistant import _usage_tokens_last_24h, _quota_limits_tokens, _assistant_plan
+from app.services.assistant import _usage_last_24h, _quota_limits, _assistant_plan
 
 from app.keyboards import (
     get_main_kb,
@@ -410,10 +408,10 @@ async def journal_save_voice(
         )
         return
 
-    # Подменяем голос на текст и отправляем в обычный текстовый обработчик журнала
-    m.text = text
-    await m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
-    await journal_save(m, state, session, lang)
+    # 🔥 ФИКС ЗАМОРОЖЕННОГО СООБЩЕНИЯ
+    new_m = m.model_copy(update={"text": text})
+    await new_m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
+    await journal_save(new_m, state, session, lang)
 
 
 @router.message(JournalFSM.waiting_text, F.text)
@@ -556,11 +554,13 @@ async def journal_stats(
 
     parts: list[str] = []
     plan = _assistant_plan(user)
-    limit_ast = _quota_limits_tokens(plan, "assistant")
-    used_ast = await _usage_tokens_last_24h(session, user.id, "assistant")
+    
+    # 🔥 ИСПОЛЬЗУЕМ НОВЫЕ ФУНКЦИИ В ШТУКАХ
+    limit_ast = _quota_limits(plan, "assistant")
+    used_ast = await _usage_last_24h(session, user.id, "assistant")
 
-    limit_vis = _quota_limits_tokens(plan, "vision")
-    used_vis = await _usage_tokens_last_24h(session, user.id, "vision")
+    limit_vis = _quota_limits(plan, "vision")
+    used_vis = await _usage_last_24h(session, user.id, "vision")
 
     # Считаем остаток
     left_ast = max(0, limit_ast - used_ast)
@@ -572,20 +572,20 @@ async def journal_stats(
         loc,
         f"📒 <b>Дневник</b>\n• Записей всего: {total}\n\n"
         f"🤖 <b>Нейросети (доступно на сегодня):</b>\n"
-        f"• Текстовые запросы: ~{left_ast // 500} шт. (остаток {left_ast} токенов)\n"
-        f"• Анализ фото: {left_vis // 800} шт.\n\n"
+        f"• Текстовые запросы: ~{left_ast} шт.\n"
+        f"• Анализ фото: {left_vis} шт.\n\n"
         f"👑 Твой тариф: {plan.upper()}",
 
         f"📒 <b>Щоденник</b>\n• Записів всього: {total}\n\n"
         f"🤖 <b>Нейромережі (доступно на сьогодні):</b>\n"
-        f"• Текстові запити: ~{left_ast // 500} шт. (залишок {left_ast} токенів)\n"
-        f"• Аналіз фото: {left_vis // 800} шт.\n\n"
+        f"• Текстові запити: ~{left_ast} шт.\n"
+        f"• Аналіз фото: {left_vis} шт.\n\n"
         f"👑 Твій тариф: {plan.upper()}",
 
         f"📒 <b>Journal</b>\n• Total entries: {total}\n\n"
         f"🤖 <b>AI limits (available today):</b>\n"
-        f"• Text queries: ~{left_ast // 500} (left {left_ast} tokens)\n"
-        f"• Photo analysis: {left_vis // 800} left\n\n"
+        f"• Text queries: ~{left_ast} left\n"
+        f"• Photo analysis: {left_vis} left\n\n"
         f"👑 Your plan: {plan.upper()}",
     )
     parts.append(stats_text)

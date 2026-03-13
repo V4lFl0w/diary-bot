@@ -509,10 +509,10 @@ async def remind_parse_voice(m: Message, session: AsyncSession, lang: Optional[s
         
     await wait_msg.delete()
     
-    # Подменяем текст сообщения и пускаем в основную логику напоминаний
-    m.text = text
-    await m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
-    await remind_parse(m, session, lang)
+    # Подменяем текст сообщения и пускаем в основную логику
+    new_m = m.model_copy(update={"text": text})
+    await new_m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
+    await remind_parse(new_m, session, lang)
 
 
 @router.message(F.text.func(_should_parse))
@@ -806,9 +806,9 @@ async def reminders_pending_voice(m: Message, session: AsyncSession, lang: Optio
         return
 
     # Подменяем текст и пускаем в текстовый обработчик
-    m.text = text
-    await m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
-    await reminders_pending_input(m, session, lang)
+    new_m = m.model_copy(update={"text": text})
+    await new_m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
+    await reminders_pending_input(new_m, session, lang)
 
 
 @router.message(F.text & F.from_user.id.func(lambda uid: uid in _pending))

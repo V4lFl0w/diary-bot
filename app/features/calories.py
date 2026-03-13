@@ -1000,6 +1000,7 @@ async def analyze_photo(
     if not img:
         return None
 
+    # Официальная модель Vision
     model = os.getenv("OPENAI_VISION_MODEL", "gpt-4.1-mini")
     b64 = base64.b64encode(img).decode("ascii")
     data_url = f"data:image/jpeg;base64,{b64}"
@@ -1026,20 +1027,27 @@ async def analyze_photo(
 
     namespace = "openai_calories_vision"
     key = None
-    add_units = 1
+    
     if session is not None and user is not None:
         key = cache_key({"img": b64[:256], "lang": lang_code, "model": model})
         cached = await cache_get_json(session, namespace, key)
+        # Если есть в кэше — отдаем бесплатно, токены не списываем
         if isinstance(cached, dict):
             return cached
         
-        # 🔥 ФИКС: Жесткая проверка лимитов перед отправкой в OpenAI
+        # 🔥 Проверка новых лимитов (из assistant.py) ДО отправки запроса
         try:
-            can_use = await enforce_and_add_units(session, user, namespace, add_units)
-            if can_use is False:
+            from app.services.assistant import _usage_last_24h, _quota_limits, _assistant_plan
+            plan = _assistant_plan(user)
+            vis_used = await _usage_last_24h(session, user.id, "vision")
+            vis_limit = _quota_limits(plan, "vision")
+            
+            if vis_limit > 0 and vis_used >= vis_limit:
+                return {"error": "limit_reached"}
+            elif vis_limit == 0 and plan not in ["pro", "max", "pro_max"]:
                 return {"error": "limit_reached"}
         except Exception as e:
-            # Если твоя система квот кидает ошибку (exception)
+            logging.error(f"Quota check error in calories: {e}")
             return {"error": "limit_reached"}
 
     payload = {
@@ -1069,23 +1077,29 @@ async def analyze_photo(
             r.raise_for_status()
             j = r.json()
 
-        # 🔥 НОВОЕ: СПИСЫВАЕМ ТОКЕНЫ В ПРОФИЛЬ
+        # 🔥 ПРЯМОЕ СПИСАНИЕ ТОКЕНОВ В БД (1 фото = 800 токенов)
         if session is not None and user is not None:
             try:
-                from app.services.llm_usage import log_llm_usage
+                from sqlalchemy import text as sql_text
+                from datetime import datetime, timezone
                 from app.services.assistant import _assistant_plan
-                await log_llm_usage(
-                    session,
-                    user_id=user.id,
-                    feature="vision", 
-                    model=model,
-                    plan=_assistant_plan(user),
-                    resp=r, 
-                    meta={"lang": lang_code, "source": "calories_photo"},
-                )
+                
+                plan_str = _assistant_plan(user)
+                query = sql_text("""
+                    INSERT INTO llm_usage 
+                    (user_id, feature, model, plan, input_tokens, output_tokens, total_tokens, cost_usd_micros, meta, created_at)
+                    VALUES 
+                    (:u, 'vision', :m, :p, 0, 0, 800, 0, '{}'::json, :ts)
+                """)
+                await session.execute(query, {
+                    "u": user.id,
+                    "m": model,
+                    "p": plan_str,
+                    "ts": datetime.utcnow()
+                })
                 await session.commit()
             except Exception as e:
-                logging.error(f"Failed to log tokens for calories: {e}")
+                logging.error(f"FATAL Token Write Error in Calories: {e}")
 
         txt = j.get("output_text")
         if not txt:
@@ -1107,7 +1121,7 @@ async def analyze_photo(
             return None
         data = json.loads(m.group(0))
 
-        out = {
+        out_data = {
             "title": (data.get("title") or "") if isinstance(data.get("title"), str) else "",
             "ingredients": data.get("ingredients") if isinstance(data.get("ingredients"), (list, str)) else [],
             "portion": (data.get("portion") or "") if isinstance(data.get("portion"), str) else "",
@@ -1118,10 +1132,15 @@ async def analyze_photo(
             "c": float(data.get("c", 0) or 0),
             "confidence": float(data.get("confidence", 0) or 0),
         }
+        
+        # Сохраняем успешный результат в кэш на 7 дней
         if session is not None and user is not None and key:
-            await cache_set_json(session, namespace, key, out, ttl_sec=7 * 24 * 60 * 60)
-        return out
-    except Exception:
+            await cache_set_json(session, namespace, key, out_data, ttl_sec=7 * 24 * 60 * 60)
+            
+        return out_data
+        
+    except Exception as e:
+        logging.error(f"Analyze Photo Error: {e}")
         return None
 
 
