@@ -16,6 +16,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from PIL import Image, ImageDraw, ImageFont
+import tempfile
+import speech_recognition as sr
+from pydub import AudioSegment
 
 from app.services.quota_units import cache_key, cache_get_json, cache_set_json, enforce_and_add_units
 
@@ -666,6 +669,51 @@ def render_result_card(photo_bytes: bytes, text: str) -> bytes:
 # -------------------- analyze text --------------------
 
 
+async def _transcribe_voice_free(message: types.Message, lang_code: str = "ru") -> str:
+    """Бесплатный перевод голоса в текст через Google Web Speech API"""
+    if not message.voice:
+        return ""
+    
+    ogg_path = ""
+    wav_path = ""
+    try:
+        f = await message.bot.get_file(message.voice.file_id)
+
+        # 🔥 Вот эти две строчки снимут красную подсветку:
+        if not f.file_path:
+            return ""
+        
+        # Создаем временные файлы
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as ogg_file:
+            ogg_path = ogg_file.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as wav_file:
+            wav_path = wav_file.name
+
+        # Скачиваем голосовуху
+        await message.bot.download_file(f.file_path, destination=ogg_path)
+        
+        # Конвертируем ogg в wav
+        audio = AudioSegment.from_ogg(ogg_path)
+        audio.export(wav_path, format="wav")
+        
+        # Распознаем
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+            rec_lang = "uk-UA" if lang_code == "uk" else "en-US" if lang_code == "en" else "ru-RU"
+            text = recognizer.recognize_google(audio_data, language=rec_lang)
+            
+        # Удаляем временные файлы
+        os.remove(ogg_path)
+        os.remove(wav_path)
+        return text
+    except Exception as e:
+        logging.error(f"Free STT Error: {e}")
+        if os.path.exists(ogg_path): os.remove(ogg_path)
+        if os.path.exists(wav_path): os.remove(wav_path)
+        return ""
+
+
 async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None) -> Dict[str, Any]:
     """
     1) Ninjas API (если есть ключ).
@@ -987,7 +1035,15 @@ async def analyze_photo(
         cached = await cache_get_json(session, namespace, key)
         if isinstance(cached, dict):
             return cached
-        await enforce_and_add_units(session, user, namespace, add_units)
+        
+        # 🔥 ФИКС: Жесткая проверка лимитов перед отправкой в OpenAI
+        try:
+            can_use = await enforce_and_add_units(session, user, namespace, add_units)
+            if can_use is False:
+                return {"error": "limit_reached"}
+        except Exception as e:
+            # Если твоя система квот кидает ошибку (exception)
+            return {"error": "limit_reached"}
 
     payload = {
         "model": model,
@@ -1359,6 +1415,31 @@ async def cal_text_in_mode(
     await message.answer(out)
 
 
+@router.message(CaloriesFSM.waiting_input, F.voice)
+async def cal_voice_in_mode(
+    message: types.Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None
+) -> None:
+    tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
+    user = await _get_user(session, message.from_user.id)
+    lang_code = _user_lang(user, lang, tg_lang)
+
+    wait_msg = await message.answer("🎧 Слушаю...")
+    text = await _transcribe_voice_free(message, lang_code)
+    await wait_msg.delete()
+    
+    if not text:
+        await message.answer("Не удалось разобрать голос. Попробуй еще раз или напиши текстом.")
+        return
+
+    res = await analyze_text(text, lang_code=lang_code, session=session, user=user)
+    if _kcal_is_invalid(res):
+        await message.answer(f"🗣 Услышал: «{text}»\nНе смог нормально посчитать. Уточни продукты.")
+        return
+        
+    out = _format_cal_total(lang_code, res)
+    await message.answer(f"🗣 <i>«{text}»</i>\n\n{out}", parse_mode="HTML")
+
+
 @router.message(CaloriesFSM.waiting_portion, F.text)
 async def cal_portion_in_mode(
     message: types.Message,
@@ -1452,6 +1533,11 @@ async def cal_photo_in_input_mode(
     res = await analyze_photo(message, lang_code=lang_code, session=session, user=user)
     await wait_msg.delete()
 
+    if res and res.get("error") == "limit_reached":
+        await message.answer("❌ Лимит на фото исчерпан. Пополни токены или оформи подписку 💎.")
+        # Если это было в waiting_photo, добавь: await state.set_state(CaloriesFSM.waiting_input)
+        return
+
     if not res:
         err_msg = _tr(lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food.")
         await message.answer(err_msg)
@@ -1505,6 +1591,11 @@ async def cal_photo_waiting(
     wait_msg = await message.answer("⏳ ...")
     res = await analyze_photo(message, lang_code=lang_code, session=session, user=user)
     await wait_msg.delete()
+
+    if res and res.get("error") == "limit_reached":
+        await message.answer("❌ Лимит на фото исчерпан. Пополни токены или оформи подписку 💎.")
+        # Если это было в waiting_photo, добавь: await state.set_state(CaloriesFSM.waiting_input)
+        return
 
     if not res:
         err_msg = _tr(lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food.")
@@ -1594,6 +1685,11 @@ async def cal_photo_caption_trigger(
     res = await analyze_photo(message, lang_code=lang_code, session=session, user=user)
     await wait_msg.delete()
 
+    if res and res.get("error") == "limit_reached":
+        await message.answer("❌ Лимит на фото исчерпан. Пополни токены или оформи подписку 💎.")
+        # Если это было в waiting_photo, добавь: await state.set_state(CaloriesFSM.waiting_input)
+        return
+
     if not res:
         err_msg = _tr(lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food.")
         await message.answer(err_msg)
@@ -1662,6 +1758,49 @@ async def cal_portion_recalc(
         )
     else:
         await message.answer(total_line)
+
+    await state.set_state(CaloriesFSM.waiting_input)
+
+
+@router.message(CaloriesFSM.waiting_portion, F.voice)
+async def cal_portion_voice_recalc(
+    message: types.Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+) -> None:
+    tg_lang = getattr(getattr(message, "from_user", None), "language_code", None)
+    user = await _get_user(session, message.from_user.id)
+    lang_code = _user_lang(user, lang, tg_lang)
+
+    wait_msg = await message.answer("🎧 Расшифровываю...")
+    text = await _transcribe_voice_free(message, lang_code)
+    await wait_msg.delete()
+
+    if not text:
+        await message.answer("Не удалось разобрать голос. Попробуй еще раз.")
+        return
+
+    data = await state.get_data()
+    last_photo_id = data.get("cal_last_photo_file_id")
+
+    res = await analyze_text(text, lang_code=lang_code)
+
+    if _kcal_is_invalid(res):
+        await message.answer(_tr(lang_code, "Не смог пересчитать. Укажи граммы или количество точнее.", "Не зміг перерахувати. Вкажи грами або кількість точніше.", "Couldn't recalculate. Be more specific with grams or quantities."))
+        return
+
+    total_line = _format_cal_total(lang_code, res)
+
+    if last_photo_id:
+        await message.answer_photo(
+            last_photo_id,
+            caption=f"🗣 <i>«{text}»</i>\n\n{total_line}",
+            parse_mode="HTML",
+            reply_markup=_cal_result_inline_kb(lang_code),
+        )
+    else:
+        await message.answer(f"🗣 <i>«{text}»</i>\n\n{total_line}", parse_mode="HTML")
 
     await state.set_state(CaloriesFSM.waiting_input)
 

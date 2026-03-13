@@ -88,10 +88,11 @@ def get_main_kb(
        🔥 Калории     | 📊 Статистика
     3) Мозг и фокус:
        🤖 Помощник    | 🧘 Медиа (медитация/музыка)
-    4) Деньги и настройки:
-       💎 Премиум     | ⚙️ Настройки
-    5) (опционально) Админ
-    6) 🧩 Баг-репорт
+    4) Аккаунт:
+       👤 Мой профиль | 💎 Премиум
+    5) Система:
+       ⚙️ Настройки  | 🧩 Баг-репорт
+    6) (опционально) Админ
     """
     # Журнал / Напоминания
     row_main = [
@@ -168,8 +169,15 @@ def get_main_kb(
         ),
     ]
 
-    # Премиум / Настройки
-    row_money = [
+    # Профиль / Премиум
+    row_account = [
+        KeyboardButton(
+            text=_t(
+                lang,
+                "btn_profile_root",
+                {"ru": "👤 Мой профиль", "uk": "👤 Мій профіль", "en": "👤 My Profile"},
+            )
+        ),
         KeyboardButton(
             text=_t(
                 lang,
@@ -177,11 +185,26 @@ def get_main_kb(
                 {"ru": "💎 Премиум", "uk": "💎 Преміум", "en": "💎 Premium"},
             )
         ),
+    ]
+
+    # Настройки / Баг-репорт
+    row_system = [
         KeyboardButton(
             text=_t(
                 lang,
                 "menu_settings_root",
                 {"ru": "⚙️ Настройки", "uk": "⚙️ Налаштування", "en": "⚙️ Settings"},
+            )
+        ),
+        KeyboardButton(
+            text=_t(
+                lang,
+                "btn_report_bug",
+                {
+                    "ru": "🧩 Баг-репорт",
+                    "uk": "🧩 Баг-репорт",
+                    "en": "🧩 Report a bug",
+                },
             )
         ),
     ]
@@ -197,33 +220,17 @@ def get_main_kb(
         ),
     ]
 
-    # Баг-репорт
-    bug_row = [
-        KeyboardButton(
-            text=_t(
-                lang,
-                "btn_report_bug",
-                {
-                    "ru": "🧩 Баг-репорт",
-                    "uk": "🧩 Баг-репорт",
-                    "en": "🧩 Report a bug",
-                },
-            )
-        ),
-    ]
-
     rows = [
         row_main,
         row_tools,
         row_proactive,
         row_brain,
-        row_money,
+        row_account,
+        row_system,
     ]
 
     if is_admin:
         rows.append(admin_row)
-
-    rows.append(bug_row)
 
     return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=rows)
 
@@ -494,7 +501,7 @@ def get_settings_menu_kb(lang: str) -> ReplyKeyboardMarkup:
                 }
             )
         )
-    ] # <--- СПИСОК ЗАКРЫВАЕТСЯ ЗДЕСЬ КВАДРАТНОЙ СКОБКОЙ
+    ]
 
     row_back = [
         KeyboardButton(
@@ -562,6 +569,25 @@ ROOT_ASSISTANT_TXT = {
     )
 }
 ROOT_MEDIA_TXT = {_norm_btn(x) for x in ("🧘 медиа", "медиа", "🧘 медіа", "медіа", "🧘 media", "media")}
+
+ROOT_PROFILE_TXT = {
+    _norm_btn(x)
+    for x in (
+        "👤 мой профиль",
+        "мой профиль",
+        "👤 профиль",
+        "профиль",
+        "👤 мій профіль",
+        "мій профіль",
+        "👤 профіль",
+        "профіль",
+        "👤 my profile",
+        "my profile",
+        "👤 profile",
+        "profile",
+    )
+}
+
 ROOT_PREMIUM_TXT = {_norm_btn(x) for x in ("💎 премиум", "премиум", "💎 преміум", "преміум", "💎 premium", "premium")}
 ROOT_SETTINGS_TXT = {
     _norm_btn(x)
@@ -798,6 +824,10 @@ def is_root_media_btn(text: str) -> bool:
     return _norm_btn(text) in ROOT_MEDIA_TXT
 
 
+def is_root_profile_btn(text: str) -> bool:
+    return _norm_btn(text) in ROOT_PROFILE_TXT
+
+
 def is_root_premium_btn(text: str) -> bool:
     return _norm_btn(text) in ROOT_PREMIUM_TXT
 
@@ -1023,6 +1053,7 @@ __all__ = [
     "is_root_stats_btn",
     "is_root_assistant_btn",
     "is_root_media_btn",
+    "is_root_profile_btn", # <--- НОВАЯ КНОПКА
     "is_root_premium_btn",
     "is_root_settings_btn",
     "is_root_proactive_btn",

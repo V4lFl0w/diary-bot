@@ -23,10 +23,12 @@ from app.keyboards import (
     is_root_proactive_btn,
     is_root_settings_btn,
     is_about_btn,
+    is_root_profile_btn, # <--- Добавь это
 )
 from app.models.user import User
 from app.services.analytics_helpers import log_ui
 from app.services.assistant import run_assistant
+from app.services.assistant import _usage_tokens_last_24h, _quota_limits_tokens, _assistant_plan
 
 router = Router(name="menus")
 
@@ -186,6 +188,59 @@ async def open_premium_menu(m: Message, session: AsyncSession, state: FSMContext
     btn_txt = {"ru": "💎 Премиум", "uk": "💎 Преміум", "en": "💎 Premium"}.get(lang, "💎 Премиум")
     await m.answer(btn_txt, reply_markup=ReplyKeyboardRemove())
     await m.answer(btn_txt, reply_markup=get_premium_menu_kb(lang, is_premium=is_premium, tg_id=m.from_user.id))
+
+
+@router.message(F.text.func(is_root_profile_btn))
+async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext) -> None:
+    if not m.from_user:
+        return
+    await state.clear()
+
+    user = await _get_user(session, m.from_user.id)
+    tg_lang = getattr(m.from_user, "language_code", None)
+    lang = _user_lang(user, tg_lang)
+
+    await _log(session, user, tg_lang, "open_profile_menu", "menu")
+
+    # --- Считаем лимиты ---
+    plan = _assistant_plan(user)
+    
+    # Ассистент (текст)
+    ast_used = await _usage_tokens_last_24h(session, user.id, "assistant")
+    ast_limit = _quota_limits_tokens(plan, "assistant")
+    
+    # Vision (фото)
+    vis_used = await _usage_tokens_last_24h(session, user.id, "vision")
+    vis_limit = _quota_limits_tokens(plan, "vision")
+
+    # --- Формируем текст профиля ---
+    status_icon = "💎" if _is_premium_user(user) else "🆓"
+    status_text = "Premium" if _is_premium_user(user) else "Базовый"
+    
+    # Если есть дата окончания премиума
+    pu = getattr(user, "premium_until", None)
+    until_text = ""
+    if pu and _is_premium_user(user):
+        until_text = f" (до {pu.strftime('%d.%m.%Y')})"
+
+    text = (
+        f"👤 <b>Твой профиль</b>\n"
+        f"ID: <code>{m.from_user.id}</code>\n"
+        f"Тариф: {status_icon} <b>{status_text}</b>{until_text}\n\n"
+        f"<b>Доступно на 24 часа:</b>\n"
+        f"🤖 ИИ-Ассистент: {max(0, ast_limit - ast_used):,} / {ast_limit:,} токенов\n"
+    )
+
+    if vis_limit > 0:
+        text += f"📸 Разбор фото: {max(0, vis_limit - vis_used):,} / {vis_limit:,} токенов\n"
+    else:
+        text += f"📸 Разбор фото: 🔒 <i>(Только в Premium)</i>\n"
+
+    # Если есть какие-то другие лимиты (например калории), можешь добавить их сюда
+    
+    text += "\n<i>Лимиты обновляются автоматически каждые 24 часа.</i>"
+
+    await m.answer(text, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "menu:home")

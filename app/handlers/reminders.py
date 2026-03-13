@@ -9,6 +9,11 @@
 from __future__ import annotations
 
 import re
+import os
+import tempfile
+import logging
+import speech_recognition as sr
+from pydub import AudioSegment
 from datetime import datetime, timedelta, timezone
 from time import monotonic
 from typing import Any, Dict, List, Optional, Tuple
@@ -18,6 +23,7 @@ from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.dispatcher.event.bases import SkipHandler
 from sqlalchemy import and_, delete, select, update
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -296,6 +302,47 @@ def _desc_line(lang: str, r: Reminder, tz_name: str, now_utc: datetime) -> str:
 async def _load_user(session: AsyncSession, tg_id: int) -> Optional[User]:
     return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
+# ---------------------------------------------------------------------
+# VOICE STT (FREE GOOGLE)
+# ---------------------------------------------------------------------
+
+async def _transcribe_voice_free(message: Message, lang_code: str = "ru") -> str:
+    """Бесплатный перевод голоса в текст через Google Web Speech API"""
+    if not message.voice:
+        return ""
+    
+    ogg_path = ""
+    wav_path = ""
+    try:
+        f = await message.bot.get_file(message.voice.file_id)
+        if not f.file_path:
+            return ""
+            
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as ogg_file:
+            ogg_path = ogg_file.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as wav_file:
+            wav_path = wav_file.name
+
+        await message.bot.download_file(f.file_path, destination=ogg_path)
+        
+        audio = AudioSegment.from_ogg(ogg_path)
+        audio.export(wav_path, format="wav")
+        
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+            rec_lang = "uk-UA" if lang_code == "uk" else "en-US" if lang_code == "en" else "ru-RU"
+            text = recognizer.recognize_google(audio_data, language=rec_lang)
+            
+        os.remove(ogg_path)
+        os.remove(wav_path)
+        return text
+    except Exception as e:
+        logging.error(f"Free STT Error: {e}")
+        if os.path.exists(ogg_path): os.remove(ogg_path)
+        if os.path.exists(wav_path): os.remove(wav_path)
+        return ""
+
 
 # ---------------------------------------------------------------------
 # HELP
@@ -331,7 +378,7 @@ async def remind_help(m: Message, session: AsyncSession, lang: Optional[str] = N
             lang_code,
             (
                 "⏰ Напоминания без напряга\n\n"
-                "Скинь задачу и время — я напомню.\n\n"
+                "Скинь задачу и время текстом или голосовым 🎙 — я напомню.\n\n"
                 "Примеры:\n"
                 "• Вода в 12:00\n"
                 "• Отчёт по будням в 10:00\n"
@@ -340,7 +387,7 @@ async def remind_help(m: Message, session: AsyncSession, lang: Optional[str] = N
             ),
             (
                 "⏰ Нагадування без напруги\n\n"
-                "Надішли задачу й час — я нагадаю.\n\n"
+                "Надішли задачу й час текстом або голосовим 🎙 — я нагадаю.\n\n"
                 "Приклади:\n"
                 "• Вода о 12:00\n"
                 "• Звіт по буднях о 10:00\n"
@@ -349,7 +396,7 @@ async def remind_help(m: Message, session: AsyncSession, lang: Optional[str] = N
             ),
             (
                 "⏰ Reminders without pressure\n\n"
-                "Send the task and time — I’ll remind you.\n\n"
+                "Send the task and time (text or voice 🎙) — I’ll remind you.\n\n"
                 "Examples:\n"
                 "• Water at 12:00\n"
                 "• Report weekdays at 10:00\n"
@@ -434,8 +481,37 @@ def _should_parse(text: Optional[str]) -> bool:
 
 
 # ---------------------------------------------------------------------
-# PARSE FLOW
+# PARSE FLOW (Текст + Голос)
 # ---------------------------------------------------------------------
+
+@router.message(F.voice)
+async def remind_parse_voice(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
+    """Перехват голоса для создания напоминаний. Если не подходит — отдаем в Журнал/Ассистент"""
+    if not m.from_user:
+        return
+        
+    # Если юзер в режиме ожидания ответа на перенос/редактирование, этот хэндлер не сработает,
+    # сработает тот, что ниже (по приоритету aiogram поймает первым, если поставить его выше, 
+    # но у нас фильтр по F.from_user.id.func)
+    
+    # Чтобы Журнал тоже ловил голос, мы расшифруем, и если это НЕ напоминание — пустим дальше
+    lang_code = await _get_lang(session, m, fallback=lang)
+    
+    # Скажем, что слушаем, чтобы юзер понимал, что бот не завис
+    wait_msg = await m.answer("🎧 Анализирую голос...")
+    text = await _transcribe_voice_free(m, lang_code)
+    
+    # Если текста нет или он не похож на напоминание -> передаем эстафету Журналу!
+    if not text or not _should_parse(text):
+        await wait_msg.delete()
+        raise SkipHandler()
+        
+    await wait_msg.delete()
+    
+    # Подменяем текст сообщения и пускаем в основную логику напоминаний
+    m.text = text
+    await m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
+    await remind_parse(m, session, lang)
 
 
 @router.message(F.text.func(_should_parse))
@@ -664,9 +740,9 @@ async def reminders_list(
         await m.answer(
             _tr(
                 lang_code,
-                "Пока нет напоминаний. Напиши: «вода в 12:00».",
-                "Поки немає нагадувань. Напиши: «вода о 12:00».",
-                "No reminders yet. Send: “water at 12:00”.",
+                "Пока нет напоминаний. Напиши: «вода в 12:00» или надиктуй.",
+                "Поки немає нагадувань. Напиши: «вода о 12:00» або надиктуй.",
+                "No reminders yet. Send: “water at 12:00” or use voice.",
             ),
             parse_mode=None,
         )
@@ -713,8 +789,25 @@ async def reminders_menu(m: Message, session: AsyncSession, lang: Optional[str] 
 
 
 # ---------------------------------------------------------------------
-# PENDING INPUT HANDLER (перенести/изменить)
+# PENDING INPUT HANDLER (перенести/изменить) ТЕКСТ + ГОЛОС
 # ---------------------------------------------------------------------
+
+@router.message(F.voice & F.from_user.id.func(lambda uid: uid in _pending))
+async def reminders_pending_voice(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
+    lang_code = await _get_lang(session, m, fallback=lang)
+    
+    wait_msg = await m.answer("🎧 Расшифровываю голос...")
+    text = await _transcribe_voice_free(m, lang_code)
+    await wait_msg.delete()
+
+    if not text:
+        await m.answer("Не удалось разобрать голос. Попробуй текстом.")
+        return
+
+    # Подменяем текст и пускаем в текстовый обработчик
+    m.text = text
+    await m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
+    await reminders_pending_input(m, session, lang)
 
 
 @router.message(F.text & F.from_user.id.func(lambda uid: uid in _pending))
@@ -1099,15 +1192,15 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
 
         prompt = _tr(
             lang_code,
-            "Ок. Пришли новое время (пример: «в 12:30», «завтра в 9», «через 15 минут», «по будням в 10:00»)."
+            "Ок. Пришли новое время (например: «в 12:30», «через 15 минут») или надиктуй голосом 🎙."
             if action == "move"
-            else "Ок. Пришли новый текст напоминания (что именно напоминать).",
-            "Ок. Надішли новий час (приклад: «о 12:30», «завтра о 9», «через 15 хвилин», «по буднях о 10:00»)."
+            else "Ок. Пришли новый текст напоминания или надиктуй голосом 🎙.",
+            "Ок. Надішли новий час (наприклад: «о 12:30», «через 15 хвилин») або надиктуй голосом 🎙."
             if action == "move"
-            else "Ок. Надішли новий текст нагадування (що саме нагадувати).",
-            "Ok. Send new time (e.g. “at 12:30”, “tomorrow 9”, “in 15 minutes”, “weekdays at 10:00”)."
+            else "Ок. Надішли новий текст нагадування або надиктуй голосом 🎙.",
+            "Ok. Send new time (e.g. “at 12:30”, “in 15 minutes”) or send a voice message 🎙."
             if action == "move"
-            else "Ok. Send new reminder text.",
+            else "Ok. Send new reminder text or voice message 🎙.",
         )
 
         if c.message:

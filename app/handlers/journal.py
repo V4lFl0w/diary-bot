@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import cast, Optional
+import os
+import tempfile
+import speech_recognition as sr
+from pydub import AudioSegment
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -333,6 +337,77 @@ async def journal_cancel(
         ),
         reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id),
     )
+    
+
+async def _transcribe_voice_free(message: Message, lang_code: str = "ru") -> str:
+    """Бесплатный перевод голоса в текст через Google Web Speech API"""
+    if not message.voice:
+        return ""
+    
+    ogg_path = ""
+    wav_path = ""
+    try:
+        f = await message.bot.get_file(message.voice.file_id)
+        if not f.file_path:
+            return ""
+            
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as ogg_file:
+            ogg_path = ogg_file.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as wav_file:
+            wav_path = wav_file.name
+
+        await message.bot.download_file(f.file_path, destination=ogg_path)
+        
+        audio = AudioSegment.from_ogg(ogg_path)
+        audio.export(wav_path, format="wav")
+        
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_path) as source:
+            audio_data = recognizer.record(source)
+            rec_lang = "uk-UA" if lang_code == "uk" else "en-US" if lang_code == "en" else "ru-RU"
+            text = recognizer.recognize_google(audio_data, language=rec_lang)
+            
+        os.remove(ogg_path)
+        os.remove(wav_path)
+        return text
+    except Exception as e:
+        if os.path.exists(ogg_path): os.remove(ogg_path)
+        if os.path.exists(wav_path): os.remove(wav_path)
+        return ""
+
+
+@router.message(JournalFSM.waiting_text, F.voice)
+async def journal_save_voice(
+    m: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    lang: Optional[str] = None,
+):
+    if not m.from_user:
+        return
+
+    user = await _get_user(session, m.from_user.id)
+    loc = _user_lang(user, lang)
+
+    wait_msg = await m.answer("🎧 Расшифровываю запись для журнала...")
+    text = await _transcribe_voice_free(m, loc)
+    await wait_msg.delete()
+
+    if not text:
+        await m.answer(
+            _tr(
+                loc,
+                "Не удалось разобрать голос. Попробуй еще раз или напиши текстом.",
+                "Не вдалося розпізнати голос. Спробуй ще раз або напиши текстом.",
+                "Couldn't recognize the voice. Try again or send text."
+            )
+        )
+        return
+
+    # Подменяем голос на текст и отправляем в обычный текстовый обработчик журнала
+    m.text = text
+    await m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
+    await journal_save(m, state, session, lang)
 
 
 @router.message(JournalFSM.waiting_text, F.text)
