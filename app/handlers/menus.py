@@ -202,9 +202,18 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
 
     await _log(session, user, tg_lang, "open_profile_menu", "menu")
 
-    # --- Считаем лимиты ---
+    # --- 1. ОПРЕДЕЛЯЕМ ТАРИФ ---
+    is_prem = _is_premium_user(user)
     plan = _assistant_plan(user)
     
+    # Подстраховка: если у юзера премиум, но тариф в БД кривой, ставим PRO
+    if is_prem and plan not in ["pro", "max", "pro_max"]:
+        plan = "pro"
+
+    # Красивое название тарифа
+    plan_name = "Базовый" if plan in ["free", "basic"] and not is_prem else plan.upper()
+
+    # --- 2. СЧИТАЕМ ЛИМИТЫ ЗА 24 ЧАСА ---
     # Ассистент (текст)
     ast_used = await _usage_tokens_last_24h(session, user.id, "assistant")
     ast_limit = _quota_limits_tokens(plan, "assistant")
@@ -213,34 +222,66 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
     vis_used = await _usage_tokens_last_24h(session, user.id, "vision")
     vis_limit = _quota_limits_tokens(plan, "vision")
 
-    # --- Формируем текст профиля ---
-    status_icon = "💎" if _is_premium_user(user) else "🆓"
-    status_text = "Premium" if _is_premium_user(user) else "Базовый"
+    # Web-поиск (лимит делит общую квоту ассистента, но нам надо показать расход)
+    web_used = await _usage_tokens_last_24h(session, user.id, "assistant_web")
+
+    # --- 3. ФОРМИРУЕМ ТЕКСТ ПРОФИЛЯ ---
+    status_icon = "💎" if is_prem else "🆓"
     
-    # Если есть дата окончания премиума
+    # Дата окончания премиума
     pu = getattr(user, "premium_until", None)
     until_text = ""
-    if pu and _is_premium_user(user):
+    if pu and is_prem:
+        if pu.tzinfo is None:
+            pu = pu.replace(tzinfo=timezone.utc)
         until_text = f" (до {pu.strftime('%d.%m.%Y')})"
 
-    text = (
-        f"👤 <b>Твой профиль</b>\n"
-        f"ID: <code>{m.from_user.id}</code>\n"
-        f"Тариф: {status_icon} <b>{status_text}</b>{until_text}\n\n"
-        f"<b>Доступно на 24 часа:</b>\n"
-        f"🤖 ИИ-Ассистент: {max(0, ast_limit - ast_used):,} / {ast_limit:,} токенов\n"
-    )
+    lines = [
+        f"👤 <b>Твой профиль</b>",
+        f"ID: <code>{m.from_user.id}</code>",
+        f"Тариф: {status_icon} <b>{plan_name}</b>{until_text}",
+        "",
+        f"<b>Доступно на 24 часа:</b>",
+        "",
+        f"💬 <b>Текстовые ИИ-запросы</b> (Журнал, Кино):",
+        f"└ {max(0, ast_limit - ast_used):,} / {ast_limit:,} токенов"
+    ]
 
-    if vis_limit > 0:
-        text += f"📸 Разбор фото: {max(0, vis_limit - vis_used):,} / {vis_limit:,} токенов\n"
+    # Блок: Фото (Калории, Поиск по кадру)
+    if is_prem or vis_limit > 0:
+        display_vis = vis_limit if vis_limit > 0 else 120000
+        lines.extend([
+            "",
+            f"📸 <b>Разбор фото</b> (Калории, Кадры):",
+            f"└ {max(0, display_vis - vis_used):,} / {display_vis:,} токенов"
+        ])
     else:
-        text += f"📸 Разбор фото: 🔒 <i>(Только в Premium)</i>\n"
+        lines.extend([
+            "",
+            f"📸 <b>Разбор фото</b> (Калории, Кадры):",
+            f"└ 🔒 <i>Только в Premium</i>"
+        ])
 
-    # Если есть какие-то другие лимиты (например калории), можешь добавить их сюда
-    
-    text += "\n<i>Лимиты обновляются автоматически каждые 24 часа.</i>"
+    # Блок: Web-поиск (доступен только в Pro)
+    if plan in ["pro", "max", "pro_max"]:
+        lines.extend([
+            "",
+            f"🌐 <b>Web-поиск и Парсинг</b>:",
+            f"└ {max(0, ast_limit - web_used):,} / {ast_limit:,} токенов"
+        ])
+    else:
+        lines.extend([
+            "",
+            f"🌐 <b>Web-поиск и Парсинг</b>:",
+            f"└ 🔒 <i>Только в PRO-тарифе</i>"
+        ])
 
-    await m.answer(text, parse_mode="HTML")
+    lines.extend([
+        "",
+        f"<i>🔄 Лимиты обновляются автоматически каждые 24 часа.</i>"
+    ])
+
+    await m.answer("\n".join(lines), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "menu:home")
