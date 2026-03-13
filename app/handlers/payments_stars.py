@@ -25,6 +25,8 @@ from aiogram.types import (
 )
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from aiogram import Bot
+from aiogram.filters import Command
 
 from app.config import settings
 from app.models.payment import Payment, PaymentPlan, PaymentProvider, PaymentStatus
@@ -398,3 +400,39 @@ async def on_successful_payment_stars(m: Message, session: AsyncSession) -> None
     is_admin = is_admin_tg(m.from_user.id) if m.from_user else False
     kb = get_main_kb(lang, is_premium=True, is_admin=is_admin) if get_main_kb else None
     await m.answer(_success_text(lang), reply_markup=kb)
+
+
+@router.message(Command("refund_my_stars"))
+async def force_refund_last_stars(m: Message, bot: Bot, session: AsyncSession):
+    # Защита: только для админа
+    if not is_admin_tg(m.from_user.id):
+        return
+        
+    await m.answer("⏳ Ищу последние платежи Stars...")
+    
+    try:
+        # Запрашиваем последние 10 транзакций бота
+        transactions = await bot.get_star_transactions(limit=10)
+        refunded_count = 0
+        
+        for tx in transactions.transactions:
+            # Ищем входящие платежи от твоего аккаунта
+            if tx.source and tx.source.type == "user" and tx.source.user.id == m.from_user.id:
+                if tx.amount > 0:  # Это пополнение баланса бота
+                    try:
+                        # Делаем возврат!
+                        await bot.refund_star_payment(
+                            user_id=m.from_user.id, 
+                            telegram_payment_charge_id=tx.id
+                        )
+                        refunded_count += 1
+                        await m.answer(f"✅ Успешно вернул {tx.amount} ⭐\nID транзакции: {tx.id}")
+                        break # Возвращаем только последний, чтобы не отменить всё подряд
+                    except Exception as e:
+                        await m.answer(f"❌ Не смог вернуть платеж {tx.id}. Ошибка: {e}")
+                        
+        if refunded_count == 0:
+            await m.answer("🤷‍♂️ Не нашел недавних платежей от тебя, которые можно вернуть.")
+            
+    except Exception as e:
+        await m.answer(f"❌ Ошибка при запросе транзакций: {e}")
