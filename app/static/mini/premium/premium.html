@@ -594,25 +594,25 @@
       return money(priceUah);
     }
 
-    // 🔥 Замени старую функцию payByStars на эту:
-    async function payByStars(planId, starsAmount, title, description) {
+    // 🔥 ИЗМЕНЕНО: Функция больше не принимает starsAmount
+    async function payByStars(planId, title, description) {
       if (!tg || typeof tg.openInvoice !== "function") {
         tgPopup("Оплата Stars доступна только внутри Telegram.");
         return false;
       }
       
       const btn = document.getElementById("payBtn");
-      if (btn) btn.disabled = true; // Защита от двойного клика
+      if (btn) btn.disabled = true;
 
       try {
         const resp = await fetch("/api/stars/invoice", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            stars: Number(starsAmount || 0),
-            tg_id: Number(tgUserId), // Передаем ID юзера
-            plan_id: planId,         // Передаем тариф (pro)
-            period: selectedPeriod,  // Передаем период (month)
+            // УБРАЛИ ПОЛЕ STARS!
+            tg_id: Number(tgUserId),
+            plan_id: planId,
+            period: selectedPeriod,
             title: title || "Premium",
             description: description || `Подписка ${planId} (${selectedPeriod})`,
           }),
@@ -634,12 +634,10 @@
           return false;
         }
 
-        // Вызываем окно оплаты Telegram
         tg.openInvoice(link, (status) => {
           console.log("Stars invoice status:", status);
           if (status === 'paid') {
              tgPopup("Оплата успешно завершена! ✅ Закройте это окно, чтобы бот обновил профиль.");
-             // Закрываем окно через пару секунд
              setTimeout(() => tg.close(), 2000);
           } else if (status === 'failed') {
              tgPopup("Ошибка при оплате ❌");
@@ -659,7 +657,8 @@
       }
     }
 
-    async function payByMono(kind, amountUah, title, description, isAuto = true) {
+    // 🔥 ИЗМЕНЕНО: Функция больше не принимает amountUah
+    async function payByMono(kind, title, description, isAuto = true) {
       if (!tg) {
         alert("DEV MODE: tg is missing");
         return false;
@@ -680,7 +679,7 @@
           body: JSON.stringify({
             tg_id: tgIdFallback,
             kind: String(kind || "unknown"),
-            amount_uah: Number(amountUah || 0),
+            // amount_uah БОЛЬШЕ НЕТ!
             title: title || "DiaryBot Premium",
             description: description || "Оплата Premium",
             is_auto: Boolean(isAuto) 
@@ -714,7 +713,6 @@
       }
     }
 
-    // 🔥 ИСПРАВЛЕННЫЕ БУЛЛИТЫ (без токенов)
     const PLANS = [
       {
         id: "basic",
@@ -1049,7 +1047,6 @@
       haptic("medium");
       const plan = PLANS.find(x => x.id === selectedPlanId);
       const priceUah = calcPriceUah(plan);
-      const stars = calcStars(selectedPlanId);
 
       if (payMethodSub === "crypto") {
         if (selectedPlanId === "basic") {
@@ -1071,10 +1068,9 @@
       }
 
       if (payMethodSub === "stars") {
-        if (!stars || stars <= 0) { tgPopup("Stars amount is not configured"); return; }
+        // 🔥 ИЗМЕНЕНО: Не передаем stars в функцию
         await payByStars(
           selectedPlanId,
-          stars,
           "Premium",
           `Premium (${selectedPlanId}, ${selectedPeriod}) через Stars`
         );
@@ -1083,7 +1079,6 @@
 
       await payByMono(
         `sub:${selectedPlanId}:${selectedPeriod}`,
-        Number(priceUah),
         "DiaryBot Premium",
         `${plan.name} • ${selectedPeriod}`,
         false 
@@ -1099,7 +1094,6 @@
       
       await payByMono(
         `tokens:${pack.id}`,
-        Number(pack.price_uah),
         "DiaryBot Tokens",
         `Пакет: ${pack.name[LANG] || pack.name.ru}`,
         false

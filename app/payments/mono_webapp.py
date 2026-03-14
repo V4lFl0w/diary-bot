@@ -23,6 +23,9 @@ from app.db import async_session
 from app.models.user import User
 from app.models.payment import Payment, PaymentPlan, PaymentStatus
 
+# Импортируем нашу единую базу цен
+from app.services.pricing import get_spec
+
 # Пытаемся импортировать модель Subscription (если она есть)
 try:
     from app.models.subscription import Subscription
@@ -61,10 +64,10 @@ async def get_db_session():
         yield session
 
 
+# 🔥 ИЗМЕНЕНО: Мы больше не просим фронтенд передавать сумму!
 class MonoInvoiceIn(BaseModel):
     tg_id: int = Field(..., gt=0)
-    kind: str = Field(..., min_length=1, max_length=64)
-    amount_uah: int = Field(..., gt=0, le=200_000)
+    kind: str = Field(..., min_length=1, max_length=64)  # пример: "sub:pro:month" или "tokens:t300"
     title: str = Field(default="DiaryBot Premium")
     description: str = Field(default="Оплата через Monobank")
     redirect_url: Optional[str] = None
@@ -84,12 +87,45 @@ async def create_mono_invoice(
     if not token:
         raise HTTPException(status_code=500, detail="MONO_TOKEN/MONOBANK_TOKEN not set")
 
-    amount = int(body.amount_uah) * 100
+    # 🔥 БЕЗОПАСНОСТЬ: Бэкенд сам определяет цену на основе kind
+    real_uah_price = 0
+    parts = body.kind.split(":")
+    
+    if len(parts) >= 3 and parts[0] == "sub":
+        # Это подписка: sub:pro:month
+        plan_id = parts[1]
+        period = parts[2]
+        sku = f"{plan_id}_{period}".lower()
+        
+        spec = get_spec(sku)
+        if not spec or int(spec.uah) <= 0:
+            raise HTTPException(status_code=400, detail=f"Invalid plan or price not found for {sku}")
+            
+        real_uah_price = int(spec.uah)
+        
+    elif len(parts) >= 2 and parts[0] == "tokens":
+        # Это токены: tokens:t300
+        token_pack = parts[1]
+        # Жестко зашитые цены для токенов, чтобы не зависеть от фронта
+        token_prices = {"t100": 199, "t300": 499, "t800": 1099}
+        if token_pack not in token_prices:
+            raise HTTPException(status_code=400, detail=f"Invalid token pack {token_pack}")
+            
+        real_uah_price = token_prices[token_pack]
+        
+    else:
+        raise HTTPException(status_code=400, detail="Invalid kind format")
+
+    if real_uah_price <= 0:
+        raise HTTPException(status_code=400, detail="Calculated price is zero")
+
+    # Монобанк ждет сумму в копейках
+    amount_kopecks = real_uah_price * 100
     base_url = (os.getenv("PUBLIC_URL") or os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
 
     # Базовый payload
     payload: dict[str, Any] = {
-        "amount": amount,
+        "amount": amount_kopecks,
         "ccy": 980,
         "merchantPaymInfo": {
             "reference": f"webapp:{body.kind}:{body.tg_id}",
@@ -104,7 +140,6 @@ async def create_mono_invoice(
     # Разделяем логику: Автоподписка vs Разовая оплата
     if body.is_auto:
         target_url = MONO_SUB_CREATE_URL
-        # Мапинг интервалов
         interval_map = {"month": "1m", "quarter": "3m", "year": "1y"}
         mono_interval = "1m"
         for k, v in interval_map.items():
@@ -143,7 +178,6 @@ async def create_mono_invoice(
         # СОХРАНЯЕМ EXTERNAL_ID СРАЗУ (Чтобы работал возврат)
         user = (await session.execute(select(User).where(User.tg_id == body.tg_id))).scalar_one_or_none()
         if user:
-            # === ФИКС ОШИБКИ БАЗЫ ДАННЫХ (определяем plan) ===
             plan_enum = PaymentPlan.MONTH
             kind_low = body.kind.lower()
             if "quarter" in kind_low: 
@@ -156,12 +190,12 @@ async def create_mono_invoice(
             # Создаем запись платежа
             new_pay = Payment(
                 user_id=user.id,
-                plan=plan_enum,   # <--- ТЕПЕРЬ БАЗА ПРИМЕТ ЗАПИСЬ
-                amount_cents=amount,
+                plan=plan_enum, 
+                amount_cents=amount_kopecks,
                 currency="UAH",
                 external_id=invoice_id, 
                 status=PaymentStatus.PENDING,
-                provider="mono",  # <--- ТЕПЕРЬ СТРОГО "mono"
+                provider="mono", 
                 sku=body.kind
             )
             session.add(new_pay)
