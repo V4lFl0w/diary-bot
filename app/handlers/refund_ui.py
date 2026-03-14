@@ -481,7 +481,6 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
             
             if charge_id:
                 try:
-                    # refund_star_payment возвращает True в случае успеха
                     res_stars = await bot.refund_star_payment(user_id=tg_id, telegram_payment_charge_id=str(charge_id))
                     if res_stars:
                         refund_success = True
@@ -491,26 +490,30 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                 stars_err = "No charge_id"
 
             if refund_success:
-                r = await approve_refund(session, payment_id=payment_id, admin_note=f"auto_ok:{reason_text}")
-                if getattr(r, "ok", False):
-                    # 🔥 ОТМЕНА ПРЕМИУМА
-                    u.is_premium = False
-                    u.premium_until = None
-                    if hasattr(u, "premium_plan"):
-                        u.premium_plan = "free"
-                    if hasattr(u, "plan"):
-                        u.plan = "basic"
-                    if hasattr(u, "assistant_plan"):
-                        u.assistant_plan = "basic"
-                    await session.commit()
+                try:
+                    await approve_refund(session, payment_id=payment_id, admin_note=f"auto_ok:{reason_text}")
+                except Exception:
+                    pass
 
-                    await log_admin_action(
-                        session,
-                        admin_tg_id=c.from_user.id,
-                        action="refund_approve_ui",
-                        payment_id=payment_id,
-                        extra={"reason": reason_text},
-                    )
+                # 🔥 ЖЕЛЕЗОБЕТОННАЯ ОТМЕНА ПРЕМИУМА
+                u.is_premium = False
+                u.premium_until = _now_utc()
+                u.plan = "free"
+                if hasattr(u, "premium_plan"):
+                    u.premium_plan = "free"
+                if hasattr(u, "assistant_plan"):
+                    u.assistant_plan = "free"
+                
+                pay.status = PaymentStatus.REFUNDED
+                await session.commit()
+
+                await log_admin_action(
+                    session,
+                    admin_tg_id=c.from_user.id,
+                    action="refund_approve_ui",
+                    payment_id=payment_id,
+                    extra={"reason": reason_text},
+                )
                 await bot.send_message(
                     tg_id,
                     _t(
@@ -577,17 +580,20 @@ async def refund_reason(c: CallbackQuery, session: AsyncSession) -> None:
                 mono_err_text = f"Missing Data: token={bool(mono_token)}, inv_id={invoice_id}"
 
             if refund_success:
-                await approve_refund(session, payment_id=payment_id, admin_note=f"auto_mono_refund:{reason_text}")
+                try:
+                    await approve_refund(session, payment_id=payment_id, admin_note=f"auto_mono_refund:{reason_text}")
+                except Exception:
+                    pass
                 
-                # 🔥 ОТМЕНА ПРЕМИУМА
+                # 🔥 ЖЕЛЕЗОБЕТОННАЯ ОТМЕНА ПРЕМИУМА
                 u.is_premium = False
-                u.premium_until = None
+                u.premium_until = _now_utc()
+                u.plan = "free"
                 if hasattr(u, "premium_plan"):
                     u.premium_plan = "free"
-                if hasattr(u, "plan"):
-                    u.plan = "basic"
                 if hasattr(u, "assistant_plan"):
-                    u.assistant_plan = "basic"
+                    u.assistant_plan = "free"
+                pay.status = PaymentStatus.REFUNDED
                 await session.commit()
 
                 await log_admin_action(session, admin_tg_id=c.from_user.id, action="refund_approve_ui", payment_id=payment_id)
@@ -709,12 +715,10 @@ async def refund_back_to_pick(c: CallbackQuery, session: AsyncSession) -> None:
 
 def _is_trc20_address(text: str) -> bool:
     s = (text or "").strip()
-    # TRON base58 адрес обычно 34 символа и начинается с T
     if not s.startswith("T"):
         return False
     if len(s) < 33 or len(s) > 36:
         return False
-    # мягкая проверка (без полной base58 валидации)
     return True
 
 
@@ -735,7 +739,6 @@ async def refund_crypto_address_capture(m: Message, session: AsyncSession) -> No
     if not u:
         raise SkipHandler
 
-    # Берём последние crypto-платежи пользователя и ищем тот, где refund_status == requested
     q = (
         select(Payment)
         .where(Payment.user_id == u.id)
@@ -760,7 +763,6 @@ async def refund_crypto_address_capture(m: Message, session: AsyncSession) -> No
                     payload = parsed
             except Exception:
                 pass
-        # Ищем активную заявку, где ещё нет адреса
         if payload.get("refund_status") == "requested" and not payload.get("refund_address"):
             target = p
             target_payload = payload
