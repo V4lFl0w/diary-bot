@@ -13,16 +13,45 @@ from app.models.kv_cache import KVCache
 
 
 # ====== ПЛАНЫ ======
-# У тебя: basic / pro / pro_max
-def _norm_plan(p: str | None) -> str:
-    if not p:
+def _is_premium_active(user: User | None) -> bool:
+    if not user:
+        return False
+
+    try:
+        if bool(getattr(user, "is_premium", False)):
+            return True
+    except Exception:
+        pass
+
+    try:
+        pu = getattr(user, "premium_until", None)
+        if pu is None:
+            return False
+        if pu.tzinfo is None:
+            pu = pu.replace(tzinfo=timezone.utc)
+        return pu > datetime.now(timezone.utc)
+    except Exception:
+        return False
+
+
+def _norm_user_plan(user: User | None) -> str:
+    if not user:
+        return "free"
+
+    if not _is_premium_active(user):
+        return "free"
+
+    raw = str(getattr(user, "premium_plan", "") or "").strip().lower()
+
+    if raw == "pro":
+        return "pro"
+    if raw in {"max", "pro_max", "promax", "pro-max"}:
+        return "max"
+    if raw in {"basic", "trial"}:
         return "basic"
-    p = p.strip().lower()
-    if p in ("basic", "pro", "pro_max", "trial"):
-        return p
-    # на всякий случай совместимость:
-    if p in ("max", "promax", "pro-max"):
-        return "pro_max"
+    if raw == "free":
+        return "free"
+
     return "basic"
 
 
@@ -47,39 +76,45 @@ UNIT_COST = {
     "serpapi_lens": 1,  # Movies/Frames (Lens)
 }
 
-# ====== МЕСЯЧНЫЕ ЛИМИТЫ ПО ПЛАНАМ (units / YYYY-MM) ====== ПО ПЛАНАМ (в units / 24h) ======
-# Настраивай под себя: смысл — НЕ дать сожрать SerpAPI.
-PLAN_MONTHLY_UNITS = {
+# ====== ДНЕВНЫЕ ЛИМИТЫ ПО ПЛАНАМ (units / YYYY-MM-DD) ======
+# Настраивай под себя: смысл — НЕ дать сожрать SerpAPI/OpenAI за день.
+PLAN_DAILY_UNITS = {
+    "free": {
+        "serpapi_web": 0,
+        "serpapi_lens": 0,
+        "openai_calories_text": 0,
+        "openai_calories_vision": 0,
+    },
     "basic": {
-        "serpapi_web": 6,
-        "serpapi_lens": 6,
-        "openai_calories_text": 120,
-        "openai_calories_vision": 25,
+        "serpapi_web": 2,
+        "serpapi_lens": 2,
+        "openai_calories_text": 10,
+        "openai_calories_vision": 3,
     },
     "pro": {
+        "serpapi_web": 6,
+        "serpapi_lens": 6,
+        "openai_calories_text": 25,
+        "openai_calories_vision": 10,
+    },
+    "max": {
         "serpapi_web": 15,
         "serpapi_lens": 15,
-        "openai_calories_text": 400,
-        "openai_calories_vision": 80,
-    },
-    "pro_max": {
-        "serpapi_web": 30,
-        "serpapi_lens": 30,
-        "openai_calories_text": 900,
-        "openai_calories_vision": 180,
+        "openai_calories_text": 60,
+        "openai_calories_vision": 25,
     },
     "trial": {
-        "serpapi_web": 2,
-        "serpapi_lens": 3,
-        "openai_calories_text": 25,
-        "openai_calories_vision": 5,
+        "serpapi_web": 1,
+        "serpapi_lens": 1,
+        "openai_calories_text": 5,
+        "openai_calories_vision": 1,
     },
 }
 
 
-def _month_bucket_utc() -> str:
+def _day_bucket_utc() -> str:
     d = datetime.now(timezone.utc)
-    return f"{d.year:04d}-{d.month:02d}"
+    return f"{d.year:04d}-{d.month:02d}-{d.day:02d}"
 
 
 async def _get_or_create_row(session: AsyncSession, user_id: int, feature: str, bucket: str) -> QuotaUsage:
@@ -99,13 +134,13 @@ async def _get_or_create_row(session: AsyncSession, user_id: int, feature: str, 
 
 
 async def enforce_and_add_units(session: AsyncSession, user: User, feature: str, add_units: int) -> None:
-    plan = _norm_plan(getattr(user, "premium_plan", None))
+    plan = _norm_user_plan(user)
     feature = _norm_feature(feature)
 
-    limits = PLAN_MONTHLY_UNITS.get(plan, PLAN_MONTHLY_UNITS["basic"])
+    limits = PLAN_DAILY_UNITS.get(plan, PLAN_DAILY_UNITS["free"])
     limit = int(limits.get(feature, 0))
 
-    bucket = _month_bucket_utc()
+    bucket = _day_bucket_utc()
     row = await _get_or_create_row(session, user.id, feature, bucket)
 
     add_units = int(add_units)

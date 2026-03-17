@@ -380,22 +380,26 @@ def _pay_kb(lang: str, tg_id: int, is_premium: bool = False) -> InlineKeyboardMa
     ]
 
     if is_premium:
-        rows.append([
-            InlineKeyboardButton(
-                text=_t_cancel_label(lang),
-                web_app=WebAppInfo(url=_webapp_url(tg_id, lang)),
-            )
-        ])
-        rows.append([
-            InlineKeyboardButton(
-                text={
-                    "ru": "💸 Возврат средств",
-                    "uk": "💸 Повернення коштів",
-                    "en": "💸 Refund",
-                }.get(lang, "💸 Возврат средств"),
-                callback_data="refund:open",
-            )
-        ])
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=_t_cancel_label(lang),
+                    web_app=WebAppInfo(url=_webapp_url(tg_id, lang)),
+                )
+            ]
+        )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text={
+                        "ru": "💸 Возврат средств",
+                        "uk": "💸 Повернення коштів",
+                        "en": "💸 Refund",
+                    }.get(lang, "💸 Возврат средств"),
+                    callback_data="refund:open",
+                )
+            ]
+        )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -406,20 +410,30 @@ def _active_premium_kb(lang: str, tg_id: int, has_auto_renew: bool = False) -> I
     ]
 
     if has_auto_renew:
-        rows.append([
-            InlineKeyboardButton(
-                text={"ru": "🚫 Отменить подписку", "uk": "🚫 Скасувати підписку", "en": "🚫 Cancel subscription"}.get(lang, "🚫 Отменить подписку"),
-                callback_data=CB_SUB_CANCEL
-            )
-        ])
-
-    rows.append([
-        InlineKeyboardButton(
-            text={'ru': '💸 Возврат средств', 'uk': '💸 Повернення коштів', 'en': '💸 Refund'}.get(lang, '💸 Возврат средств'), 
-            callback_data='refund:open'
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text={
+                        "ru": "🚫 Отменить подписку",
+                        "uk": "🚫 Скасувати підписку",
+                        "en": "🚫 Cancel subscription",
+                    }.get(lang, "🚫 Отменить подписку"),
+                    callback_data=CB_SUB_CANCEL,
+                )
+            ]
         )
-    ])
-    
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text={"ru": "💸 Возврат средств", "uk": "💸 Повернення коштів", "en": "💸 Refund"}.get(
+                    lang, "💸 Возврат средств"
+                ),
+                callback_data="refund:open",
+            )
+        ]
+    )
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -631,13 +645,13 @@ def _build_menu(lang: str, user: Dict[str, Any], has_sub: bool = False) -> str:
         unlocked_cta = "У тебе вже є преміум — всі функції розблоковані 💚"
         locked_cta = "Щоб відкрити замочки, оформи преміум нижче — обери тариф нижче 👇"
         trial_hint = "Можна отримати 24 години преміуму: підпишись на канал і натисни «Перевірити»."
-        
+
         status_text = f"активний до {_fmt_local(until, tz_name)} ({tz_name})" if until else "активний"
         if has_sub:
-             status_active = f"Статус: {status_text} (Автопродовження увімкнено 🔄) ✅"
+            status_active = f"Статус: {status_text} (Автопродовження увімкнено 🔄) ✅"
         else:
-             status_active = f"Статус: {status_text} ✅"
-             
+            status_active = f"Статус: {status_text} ✅"
+
         status_inactive = "Статус: не активний 🔒"
 
     elif loc == "en":
@@ -661,13 +675,13 @@ def _build_menu(lang: str, user: Dict[str, Any], has_sub: bool = False) -> str:
         unlocked_cta = "You already have Premium — everything is unlocked 💚"
         locked_cta = "To unlock everything, activate Premium below — choose a plan below 👇"
         trial_hint = "You can get 24 hours of Premium: subscribe to the channel and tap “Check”."
-        
+
         status_text = f"active until {_fmt_local(until, tz_name)} ({tz_name})" if until else "active"
         if has_sub:
-             status_active = f"Status: {status_text} (Auto-renew is ON 🔄) ✅"
+            status_active = f"Status: {status_text} (Auto-renew is ON 🔄) ✅"
         else:
-             status_active = f"Status: {status_text} ✅"
-             
+            status_active = f"Status: {status_text} ✅"
+
         status_inactive = "Status: not active 🔒"
 
     else:
@@ -691,13 +705,13 @@ def _build_menu(lang: str, user: Dict[str, Any], has_sub: bool = False) -> str:
         unlocked_cta = "У тебя уже есть премиум — все функции разблокированы 💚\n\n<i>💸 Возврат средств доступен в течение 48 часов после оплаты.</i>"
         locked_cta = "Чтобы открыть замочки, оформи премиум ниже — выбором тарифа ниже 👇"
         trial_hint = "Можно получить 24 часа премиума: подпишись на канал и нажми «Проверить»."
-        
+
         status_text = f"активен до {_fmt_local(until, tz_name)} ({tz_name})" if until else "активен"
         if has_sub:
-             status_active = f"Статус: {status_text} (Автопродление включено 🔄) ✅"
+            status_active = f"Статус: {status_text} (Автопродление включено 🔄) ✅"
         else:
-             status_active = f"Статус: {status_text} ✅"
-             
+            status_active = f"Статус: {status_text} ✅"
+
         status_inactive = "Статус: не активен 🔒"
 
     free_block = "\n".join(free)
@@ -734,7 +748,7 @@ async def cmd_premium(
     lang_code = _lang_of(user, m, fallback=lang)
     active = _is_active(user)
     has_sub = await _has_active_subscription(session, m.from_user.id)
-    
+
     text = _build_menu(lang_code, user, has_sub) if active else _build_menu_short(lang_code, user)
     _resolve_is_admin(m.from_user.id, user)
 
@@ -762,7 +776,7 @@ async def open_premium_cb(
     lang_code = _lang_of(user, c, fallback=lang)
     active = _is_active(user)
     has_sub = await _has_active_subscription(session, c.from_user.id)
-    
+
     text = _build_menu(lang_code, user, has_sub) if active else _build_menu_short(lang_code, user)
     _resolve_is_admin(c.from_user.id, user)
 
@@ -933,6 +947,7 @@ async def sub_cancel_confirm(
     mono_error = False
     if ok and sub_external_id:
         import httpx
+
         token = os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN")
         if token:
             try:
@@ -940,7 +955,7 @@ async def sub_cancel_confirm(
                     mono_res = await client.post(
                         "https://api.monobank.ua/api/merchant/subscription/cancel",
                         headers={"X-Token": token},
-                        json={"subscriptionId": str(sub_external_id)}
+                        json={"subscriptionId": str(sub_external_id)},
                     )
                     if mono_res.status_code != 200:
                         mono_error = True
@@ -968,7 +983,7 @@ async def sub_cancel_confirm(
         "uk": "✅ Автопродовження вимкнено. Преміум діє до кінця оплаченого періоду.",
         "en": "✅ Auto-renew is off. Premium stays active until the end of the paid period.",
     }.get(lang_code, "✅ Done")
-    
+
     if mono_error:
         pass
 
@@ -1004,10 +1019,26 @@ async def premium_reset(
 
     await _ensure_user_columns(session)
 
+    now_utc = datetime.now(timezone.utc)
+
+    await session.execute(
+        sql_text(
+            "UPDATE subscriptions "
+            "SET status='canceled', auto_renew=false, expires_at=:now "
+            "WHERE user_id=(SELECT id FROM users WHERE tg_id=:tg) "
+            "AND status='active'"
+        ),
+        {"tg": target_id, "now": now_utc},
+    )
+
     if hard:
-        sql = "UPDATE users SET is_premium=0, premium_until=NULL, premium_trial_given=0 WHERE tg_id=:tg"
+        sql = (
+            "UPDATE users "
+            "SET is_premium=0, premium_until=NULL, premium_trial_given=0, premium_plan='free' "
+            "WHERE tg_id=:tg"
+        )
     else:
-        sql = "UPDATE users SET is_premium=0, premium_until=NULL WHERE tg_id=:tg"
+        sql = "UPDATE users SET is_premium=0, premium_until=NULL, premium_plan='free' WHERE tg_id=:tg"
 
     await session.execute(sql_text(sql), {"tg": target_id})
     await session.commit()

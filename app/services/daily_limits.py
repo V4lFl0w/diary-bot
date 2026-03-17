@@ -59,30 +59,34 @@ def _day_bucket_utc() -> str:
     return f"{d.year:04d}-{d.month:02d}-{d.day:02d}"
 
 
-DAILY_LIMITS: dict[str, dict[str, int]] = {
+DAILY_LIMITS = {
     "free": {
-        "reminders_daily": 7,
-        "journal_entries_daily": 3,
+        "journal_entries_daily": 7,
         "journal_voice_daily": 3,
-        "journal_ai_daily": 0,
+        "reminders_daily": 7,
+        "calories_text_daily": 10,
+        "calories_voice_daily": 3,
     },
     "basic": {
-        "reminders_daily": 30,
-        "journal_entries_daily": 20,
-        "journal_voice_daily": 20,
-        "journal_ai_daily": 0,
+        "journal_entries_daily": 10,
+        "journal_voice_daily": 5,
+        "reminders_daily": 15,
+        "calories_text_daily": 25,
+        "calories_voice_daily": 8,
     },
     "pro": {
-        "reminders_daily": 100,
-        "journal_entries_daily": 70,
-        "journal_voice_daily": 70,
-        "journal_ai_daily": 70,
+        "journal_entries_daily": 25,
+        "journal_voice_daily": 12,
+        "reminders_daily": 40,
+        "calories_text_daily": 60,
+        "calories_voice_daily": 20,
     },
     "max": {
-        "reminders_daily": 300,
-        "journal_entries_daily": 200,
-        "journal_voice_daily": 200,
-        "journal_ai_daily": 200,
+        "journal_entries_daily": 60,
+        "journal_voice_daily": 25,
+        "reminders_daily": 100,
+        "calories_text_daily": 150,
+        "calories_voice_daily": 50,
     },
 }
 

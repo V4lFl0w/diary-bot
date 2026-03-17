@@ -508,6 +508,41 @@ def _should_parse(text: Optional[str]) -> bool:
     return _has_trigger(text) or _looks_like_reminder(text) or _is_list_alias(text)
 
 
+def _clean_reminder_title(raw: str) -> str:
+    s = (raw or "").strip()
+
+    s = re.sub(
+        r"^(напомни(?:ть)?|нагадай|remind)\b[:,]?\s*",
+        "",
+        s,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    s = re.sub(r"\s+", " ", s).strip(" .,:;!-–—")
+
+    bad_exact = {
+        "напомни",
+        "напомнить",
+        "remind",
+        "нагадай",
+        "сходить",
+        "сделать",
+        "купить",
+        "позвонить",
+        "написать",
+        "починить",
+    }
+
+    if s.lower() in bad_exact:
+        return ""
+
+    return s
+
+
+def _has_any_time_hint(text: str) -> bool:
+    return bool(_time_re.search((text or "").strip().lower()))
+
+
 # ---------------------------------------------------------------------
 # PARSE FLOW (Текст + Голос)
 # ---------------------------------------------------------------------
@@ -575,8 +610,23 @@ async def remind_parse(m: Message, session: AsyncSession, lang: Optional[str] = 
         await reminders_list(m, session, lang=lang)
         return
 
-    parsed = parse_any(m.text or "", user_tz=tz_name, now=now_local)
+    raw_text = m.text or ""
+    parsed = parse_any(raw_text, user_tz=tz_name, now=now_local)
     if not parsed:
+        if _has_trigger(raw_text):
+            title_guess = _clean_reminder_title(raw_text)
+            if title_guess and not _has_any_time_hint(raw_text):
+                await m.answer(
+                    _tr(
+                        lang_code,
+                        f"Ок, задачу понял: «{title_guess}». Когда напомнить?",
+                        f"Ок, задачу зрозумів: «{title_guess}». Коли нагадати?",
+                        f"Got it: “{title_guess}”. When should I remind you?",
+                    ),
+                    parse_mode=None,
+                )
+                return
+
         await m.answer(
             _tr(
                 lang_code,
@@ -676,14 +726,14 @@ async def remind_parse(m: Message, session: AsyncSession, lang: Optional[str] = 
             return
         next_run_utc = to_utc(dt, tz_name)
 
-    what = (getattr(pr, "what", None) or "").strip()
+    what = _clean_reminder_title((getattr(pr, "what", None) or "").strip())
     if not what:
         await m.answer(
             _tr(
                 lang_code,
-                "Не понял что напомнить.",
-                "Не зрозумів що нагадати.",
-                "What to remind?",
+                "Я понял время, но не понял саму задачу. Что именно напомнить?",
+                "Я зрозумів час, але не зрозумів саму задачу. Що саме нагадати?",
+                "I understood the time, but not the task itself. What exactly should I remind you about?",
             ),
             parse_mode=None,
         )

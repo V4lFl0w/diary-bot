@@ -63,6 +63,7 @@ router = Router(name="assistant")
 
 _UPGRADE_MARKER = "[Upgrade to Pro]"
 
+
 def _normalize_lang(code: Optional[str]) -> str:
     s = (code or "ru").strip().lower()
     if s.startswith(("ua", "uk")):
@@ -71,6 +72,7 @@ def _normalize_lang(code: Optional[str]) -> str:
         return "en"
     return "ru"
 
+
 def _tr(lang: str, ru: str, uk: str, en: str) -> str:
     loc = _normalize_lang(lang)
     if loc == "uk":
@@ -78,6 +80,7 @@ def _tr(lang: str, ru: str, uk: str, en: str) -> str:
     if loc == "en":
         return en
     return ru
+
 
 def _strip_upgrade_marker(text: str) -> tuple[str, bool]:
     if not isinstance(text, str):
@@ -88,22 +91,33 @@ def _strip_upgrade_marker(text: str) -> tuple[str, bool]:
     t = re.sub(r"\n{3,}", "\n\n", t).strip()
     return t, True
 
+
 def _upgrade_to_pro_inline_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="Upgrade to Pro", callback_data="open_premium")
     kb.adjust(1)
     return kb.as_markup()
 
+
 def _assistant_tools_kb(lang: str) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(
-        InlineKeyboardButton(text=_tr(lang, "🌐 Искать в Web", "🌐 Шукати в Web", "🌐 Search Web"), callback_data="assistant:web"),
-        InlineKeyboardButton(text=_tr(lang, "🎬 Найти по кадру", "🎬 Знайти за кадром", "🎬 Find by frame"), callback_data="assistant:media"),
+        InlineKeyboardButton(
+            text=_tr(lang, "🌐 Искать в Web", "🌐 Шукати в Web", "🌐 Search Web"), callback_data="assistant:web"
+        ),
+        InlineKeyboardButton(
+            text=_tr(lang, "🎬 Найти по кадру", "🎬 Знайти за кадром", "🎬 Find by frame"),
+            callback_data="assistant:media",
+        ),
         width=2,
     )
     kb.row(
-        InlineKeyboardButton(text=_tr(lang, "💬 Спросить ИИ", "💬 Запитати ШІ", "💬 Ask AI"), callback_data="assistant:ask"),
-        InlineKeyboardButton(text=_tr(lang, "📚 Искать в базе", "📚 Шукати в базі", "📚 Search in KB"), callback_data="assistant:kb"),
+        InlineKeyboardButton(
+            text=_tr(lang, "💬 Спросить ИИ", "💬 Запитати ШІ", "💬 Ask AI"), callback_data="assistant:ask"
+        ),
+        InlineKeyboardButton(
+            text=_tr(lang, "📚 Искать в базе", "📚 Шукати в базі", "📚 Search in KB"), callback_data="assistant:kb"
+        ),
         width=2,
     )
     kb.row(
@@ -112,9 +126,11 @@ def _assistant_tools_kb(lang: str) -> InlineKeyboardMarkup:
     )
     return kb.as_markup()
 
+
 async def _get_user(session: AsyncSession, tg_id: int) -> Optional[User]:
     res = await session.execute(select(User).where(User.tg_id == tg_id))
     return res.scalar_one_or_none()
+
 
 def _detect_lang(user: Optional[User], obj: Message | CallbackQuery | None = None) -> str:
     tg_lang = None
@@ -129,6 +145,7 @@ def _detect_lang(user: Optional[User], obj: Message | CallbackQuery | None = Non
         or tg_lang
         or "ru"
     )
+
 
 @router.callback_query(F.data == "assistant:stop")
 async def assistant_stop_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
@@ -154,6 +171,7 @@ async def assistant_stop_cb(cb: CallbackQuery, state: FSMContext, session: Async
     msg = _tr(lang, "Ок, режим помощника выключен.", "Ок, режим помічника вимкнено.", "Ok, assistant mode off.")
     await m.answer(msg, reply_markup=get_main_kb(lang, is_premium=_has_premium(user), is_admin=is_admin))
 
+
 @router.callback_query(F.data == "assistant:web")
 async def assistant_web_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     try:
@@ -178,9 +196,10 @@ async def assistant_web_cb(cb: CallbackQuery, state: FSMContext, session: AsyncS
         lang,
         "🌐 Web-режим. Пришли ссылку (https://...) или напиши `web: <запрос>`.",
         "🌐 Web-режим. Надішли посилання (https://...) або напиши `web: <запит>`.",
-        "🌐 Web mode. Send a link (https://...) or type `web: <query>`."
+        "🌐 Web mode. Send a link (https://...) or type `web: <query>`.",
     )
     await m.answer(msg, parse_mode="Markdown", reply_markup=_assistant_tools_kb(lang))
+
 
 @router.callback_query(F.data == "assistant:media")
 async def assistant_media_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
@@ -205,9 +224,10 @@ async def assistant_media_cb(cb: CallbackQuery, state: FSMContext, session: Asyn
         lang,
         "🎬 Режим кадра/фото. Пришли скрин/фото или опиши сцену (год/актёр если знаешь).",
         "🎬 Режим кадру/фото. Надішли скрін/фото або опиши сцену (рік/актор якщо знаєш).",
-        "🎬 Frame/Photo mode. Send a screenshot/photo or describe the scene (year/actor if known)."
+        "🎬 Frame/Photo mode. Send a screenshot/photo or describe the scene (year/actor if known).",
     )
     await m.answer(msg, reply_markup=_assistant_tools_kb(lang))
+
 
 @router.callback_query(F.data == "assistant:ask")
 async def assistant_ask_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
@@ -232,9 +252,10 @@ async def assistant_ask_cb(cb: CallbackQuery, state: FSMContext, session: AsyncS
         lang,
         "❓ Режим вопроса. Напиши, что нужно решить (1–2 предложения).",
         "❓ Режим питання. Напиши, що треба вирішити (1–2 речення).",
-        "❓ Question mode. Write what you want to solve (1-2 sentences)."
+        "❓ Question mode. Write what you want to solve (1-2 sentences).",
     )
     await m.answer(msg, reply_markup=_assistant_tools_kb(lang))
+
 
 @router.callback_query(F.data == "assistant:kb")
 async def assistant_kb_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
@@ -259,9 +280,10 @@ async def assistant_kb_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSe
         lang,
         "📚 База знаний.\n\n• чтобы добавить введи: `kb+: <текст>`\n• чтобы спросить: `kb?: <вопрос>`\n",
         "📚 База знань.\n\n• щоб додати введи: `kb+: <текст>`\n• щоб запитати: `kb?: <питання>`\n",
-        "📚 Knowledge base.\n\n• to add enter: `kb+: <text>`\n• to ask: `kb?: <question>`\n"
+        "📚 Knowledge base.\n\n• to add enter: `kb+: <text>`\n• to ask: `kb?: <question>`\n",
     )
     await m.answer(msg, reply_markup=_assistant_tools_kb(lang), parse_mode="Markdown")
+
 
 @router.callback_query(F.data == "media:noop")
 async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMContext):
@@ -286,6 +308,7 @@ async def _assistant_passthrough_menu_callbacks(cb: CallbackQuery, state: FSMCon
     await state.clear()
     raise SkipHandler
 
+
 @router.callback_query(F.data.startswith("media:"))
 async def _media_callback_fallback(cb: CallbackQuery, state: FSMContext) -> None:
     data = (cb.data or "").strip()
@@ -301,11 +324,13 @@ async def _media_callback_fallback(cb: CallbackQuery, state: FSMContext) -> None
         except Exception:
             pass
 
+
 _POSTER_RE = re.compile(r"(?m)^\s*🖼\s+(https?://\S+)\s*$")
 _MEDIA_KNOBS_LINE = "\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить"
 _MEDIA_KNOBS_LINE2 = (
     "\n\n👉 Нажми кнопку: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить.\nЕсли кнопок нет — ответь цифрой."
 )
+
 
 def _strip_media_knobs(text: str) -> str:
     if not isinstance(text, str):
@@ -314,6 +339,7 @@ def _strip_media_knobs(text: str) -> str:
     t = t.replace(_MEDIA_KNOBS_LINE, "")
     t = t.replace(_MEDIA_KNOBS_LINE2, "")
     return t.strip()
+
 
 def _needs_media_kb(text: str) -> bool:
     if not isinstance(text, str):
@@ -326,6 +352,7 @@ def _needs_media_kb(text: str) -> bool:
         or "Если кнопок нет" in t
     )
 
+
 def _extract_poster_url(text: str) -> tuple[Optional[str], str]:
     if not text:
         return None, text
@@ -337,22 +364,42 @@ def _extract_poster_url(text: str) -> tuple[Optional[str], str]:
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return (url or None), cleaned
 
+
 def _media_inline_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text={"ru": "✅ Это оно", "uk": "✅ Це воно", "en": "✅ This is it"}.get(lang, "✅ Это оно"), callback_data="media:pick")
-    kb.button(text={"ru": "🔁 Другие варианты", "uk": "🔁 Інші варіанти", "en": "🔁 Other options"}.get(lang, "🔁 Другие варианты"), callback_data="media:nav:next")
-    kb.button(text={"ru": "🧩 Уточнить", "uk": "🧩 Уточнити", "en": "🧩 Refine"}.get(lang, "🧩 Уточнить"), callback_data="media:refine")
+    kb.button(
+        text={"ru": "✅ Это оно", "uk": "✅ Це воно", "en": "✅ This is it"}.get(lang, "✅ Это оно"),
+        callback_data="media:pick",
+    )
+    kb.button(
+        text={"ru": "🔁 Другие варианты", "uk": "🔁 Інші варіанти", "en": "🔁 Other options"}.get(
+            lang, "🔁 Другие варианты"
+        ),
+        callback_data="media:nav:next",
+    )
+    kb.button(
+        text={"ru": "🧩 Уточнить", "uk": "🧩 Уточнити", "en": "🧩 Refine"}.get(lang, "🧩 Уточнить"),
+        callback_data="media:refine",
+    )
     kb.adjust(2, 1)
     return kb.as_markup()
 
+
 def _open_premium_inline_kb(lang: str = "ru") -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
-    kb.button(text={"ru": "💎 Открыть Premium", "uk": "💎 Відкрити Premium", "en": "💎 Open Premium"}.get(lang, "💎 Открыть Premium"), callback_data="open_premium")
+    kb.button(
+        text={"ru": "💎 Открыть Premium", "uk": "💎 Відкрити Premium", "en": "💎 Open Premium"}.get(
+            lang, "💎 Открыть Premium"
+        ),
+        callback_data="open_premium",
+    )
     kb.adjust(1)
     return kb.as_markup()
 
+
 class AssistantFSM(StatesGroup):
     waiting_question = State()
+
 
 async def _typing_loop(chat_id: int, *, interval: float = 4.0) -> None:
     try:
@@ -364,6 +411,7 @@ async def _typing_loop(chat_id: int, *, interval: float = 4.0) -> None:
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
         return
+
 
 def _has_premium(user: Optional[User]) -> bool:
     if not user:
@@ -385,16 +433,43 @@ def _has_premium(user: Optional[User]) -> bool:
 
     return bool(getattr(user, "has_premium", False))
 
+
 def _looks_like_media_text(text: str) -> bool:
     t = (text or "").lower()
     keys = (
-        "фильм", "сериал", "кино", "мульт", "мультик", "кадр", "откуда кадр", "по кадру",
-        "как называется", "что за фильм", "что за сериал", "что за мультик", "название фильма",
-        "название сериала", "в главной роли", "главную роль играет", "с актёром", "с актером",
-        "про фильм где", "про сериал где", "season", "episode", "movie", "series", "tv",
-        "актёр", "актер", "актриса", "режиссер", "режиссёр",
+        "фильм",
+        "сериал",
+        "кино",
+        "мульт",
+        "мультик",
+        "кадр",
+        "откуда кадр",
+        "по кадру",
+        "как называется",
+        "что за фильм",
+        "что за сериал",
+        "что за мультик",
+        "название фильма",
+        "название сериала",
+        "в главной роли",
+        "главную роль играет",
+        "с актёром",
+        "с актером",
+        "про фильм где",
+        "про сериал где",
+        "season",
+        "episode",
+        "movie",
+        "series",
+        "tv",
+        "актёр",
+        "актер",
+        "актриса",
+        "режиссер",
+        "режиссёр",
     )
     return any(k in t for k in keys)
+
 
 def _is_noise_msg(text: str) -> bool:
     t = (text or "").strip()
@@ -404,18 +479,39 @@ def _is_noise_msg(text: str) -> bool:
         return True
     return False
 
+
 def _is_menu_click(text: str) -> bool:
     return any(
         fn(text)
         for fn in (
-            is_root_journal_btn, is_root_reminders_btn, is_root_calories_btn, is_root_stats_btn,
-            is_root_assistant_btn, is_root_media_btn, is_root_premium_btn, is_root_proactive_btn,
-            is_report_bug_btn, is_admin_btn, is_journal_btn, is_journal_today_btn, is_journal_week_btn,
-            is_journal_history_btn, is_journal_search_btn, is_journal_range_btn, is_meditation_btn,
-            is_music_btn, is_premium_info_btn, is_premium_card_btn, is_premium_stars_btn,
-            is_language_btn, is_privacy_btn, is_data_privacy_btn, is_back_btn,
+            is_root_journal_btn,
+            is_root_reminders_btn,
+            is_root_calories_btn,
+            is_root_stats_btn,
+            is_root_assistant_btn,
+            is_root_media_btn,
+            is_root_premium_btn,
+            is_root_proactive_btn,
+            is_report_bug_btn,
+            is_admin_btn,
+            is_journal_btn,
+            is_journal_today_btn,
+            is_journal_week_btn,
+            is_journal_history_btn,
+            is_journal_search_btn,
+            is_journal_range_btn,
+            is_meditation_btn,
+            is_music_btn,
+            is_premium_info_btn,
+            is_premium_card_btn,
+            is_premium_stars_btn,
+            is_language_btn,
+            is_privacy_btn,
+            is_data_privacy_btn,
+            is_back_btn,
         )
     )
+
 
 async def _ack_media_search_once(m: Message, state: FSMContext) -> None:
     try:
@@ -431,13 +527,16 @@ async def _ack_media_search_once(m: Message, state: FSMContext) -> None:
     except Exception:
         pass
 
+
 async def _reset_media_ack(state: FSMContext) -> None:
     try:
         await state.update_data(_media_ack_sent=False)
     except Exception:
         pass
 
+
 # =============== ENTRY ===============
+
 
 @router.message(AssistantFSM.waiting_question, F.text)
 async def _assistant_text_in_waiting_question(m: Message, state: FSMContext, session: AsyncSession):
@@ -454,6 +553,7 @@ async def _assistant_text_in_waiting_question(m: Message, state: FSMContext, ses
 
     return await assistant_dialog(m, state, session)
 
+
 @router.message(F.text.func(is_root_assistant_btn))
 async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) -> None:
     if not m.from_user:
@@ -469,7 +569,7 @@ async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) 
             lang,
             "🤖 Помощник — это твой **умный режим** в дневнике.\n\nЧто он делает:\n• 🧠 раскладывает мысли по полочкам\n• 🎯 помогает найти фильм, идею, решение\n• 📚 анализирует документы и пополняет базу знаний\n• 🌊 снижает шум в голове и многое другое\n\n💎 Доступен в Premium. Нажми кнопку ниже 👇",
             "🤖 Помічник — це твій **розумний режим** у щоденнику.\n\nЩо він робить:\n• 🧠 розкладає думки по поличках\n• 🎯 допомагає знайти фільм, ідею, рішення\n• 📚 аналізує документи та поповнює базу знань\n• 🌊 знижує шум у голові та багато іншого\n\n💎 Доступний у Premium. Натисни кнопку нижче 👇",
-            "🤖 Assistant is your **smart mode** in the journal.\n\nWhat it does:\n• 🧠 organizes your thoughts\n• 🎯 helps find a movie, idea, or solution\n• 📚 analyzes documents and builds a knowledge base\n• 🌊 reduces mental noise and much more\n\n💎 Available in Premium. Tap the button below 👇"
+            "🤖 Assistant is your **smart mode** in the journal.\n\nWhat it does:\n• 🧠 organizes your thoughts\n• 🎯 helps find a movie, idea, or solution\n• 📚 analyzes documents and builds a knowledge base\n• 🌊 reduces mental noise and much more\n\n💎 Available in Premium. Tap the button below 👇",
         )
         await m.answer(msg, reply_markup=_open_premium_inline_kb(lang), parse_mode="Markdown")
         return
@@ -479,11 +579,13 @@ async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) 
         lang,
         "🤖 Режим помощника включён.\nМожешь писать текст или отправить фото.\n\nЧтобы выйти — напиши «стоп» или /cancel.",
         "🤖 Режим помічника увімкнено.\nМожеш писати текст або надіслати фото.\n\nЩоб вийти — напиши «стоп» або /cancel.",
-        "🤖 Assistant mode is on.\nYou can send text or photos.\n\nTo exit, type 'stop' or /cancel."
+        "🤖 Assistant mode is on.\nYou can send text or photos.\n\nTo exit, type 'stop' or /cancel.",
     )
     await m.answer(msg, reply_markup=get_main_kb(lang, is_premium=True, is_admin=is_admin))
 
+
 # =============== EXIT ===============
+
 
 @router.callback_query(F.data.func(is_root_assistant_btn))
 async def assistant_entry_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
@@ -516,7 +618,7 @@ async def assistant_entry_cb(cb: CallbackQuery, state: FSMContext, session: Asyn
             lang,
             "🤖 Помощник — это твой **умный режим** в дневнике.\n\nЧто он делает:\n• 🧠 раскладывает мысли по полочкам\n• 🎯 помогает найти фильм, идею, решение\n• 📚 анализирует документы и пополняет базу знаний\n• 🌊 снижает шум в голове и многое другое\n\n💎 Доступен в Premium. Нажми кнопку ниже 👇",
             "🤖 Помічник — це твій **розумний режим** у щоденнику.\n\nЩо він робить:\n• 🧠 розкладає думки по поличках\n• 🎯 допомагає знайти фільм, ідею, рішення\n• 📚 аналізує документи та поповнює базу знань\n• 🌊 знижує шум у голові та багато іншого\n\n💎 Доступний у Premium. Натисни кнопку нижче 👇",
-            "🤖 Assistant is your **smart mode** in the journal.\n\nWhat it does:\n• 🧠 organizes your thoughts\n• 🎯 helps find a movie, idea, or solution\n• 📚 analyzes documents and builds a knowledge base\n• 🌊 reduces mental noise and much more\n\n💎 Available in Premium. Tap the button below 👇"
+            "🤖 Assistant is your **smart mode** in the journal.\n\nWhat it does:\n• 🧠 organizes your thoughts\n• 🎯 helps find a movie, idea, or solution\n• 📚 analyzes documents and builds a knowledge base\n• 🌊 reduces mental noise and much more\n\n💎 Available in Premium. Tap the button below 👇",
         )
         await m.answer(msg, reply_markup=_open_premium_inline_kb(lang), parse_mode="Markdown")
         return
@@ -526,9 +628,10 @@ async def assistant_entry_cb(cb: CallbackQuery, state: FSMContext, session: Asyn
         lang,
         "🤖 Режим помощника включён.\nМожешь писать текст или отправить фото.\n\nЧтобы выйти — напиши «стоп» или /cancel.",
         "🤖 Режим помічника увімкнено.\nМожеш писати текст або надіслати фото.\n\nЩоб вийти — напиши «стоп» або /cancel.",
-        "🤖 Assistant mode is on.\nYou can send text or photos.\n\nTo exit, type 'stop' or /cancel."
+        "🤖 Assistant mode is on.\nYou can send text or photos.\n\nTo exit, type 'stop' or /cancel.",
     )
     await m.answer(msg, reply_markup=get_main_kb(lang, is_premium=True, is_admin=is_admin))
+
 
 @router.message(AssistantFSM.waiting_question, F.text.casefold().in_(("стоп", "stop", "/cancel")))
 async def assistant_exit(m: Message, state: FSMContext, session: AsyncSession) -> None:
@@ -543,12 +646,15 @@ async def assistant_exit(m: Message, state: FSMContext, session: AsyncSession) -
     msg = _tr(lang, "Ок, режим помощника выключен.", "Ок, режим помічника вимкнено.", "Ok, assistant mode off.")
     await m.answer(msg, reply_markup=get_main_kb(lang, is_premium=_has_premium(user), is_admin=is_admin))
 
+
 @router.message(AssistantFSM.waiting_question, F.text.func(_is_menu_click))
 async def assistant_menu_exit(m: Message, state: FSMContext) -> None:
     await state.clear()
     raise SkipHandler()
 
+
 # =============== PHOTO (PRO) ===============
+
 
 @router.message(AssistantFSM.waiting_question, F.photo)
 async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) -> None:
@@ -576,7 +682,7 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
     from app.services.assistant import _assistant_plan, run_assistant_vision
 
     plan = _assistant_plan(user)
-    if plan != "pro":
+    if plan not in ["pro", "max", "pro_max"]:
         await m.answer("Photo search is available in PRO plan.")
         return
 
@@ -635,6 +741,7 @@ async def assistant_photo(m: Message, state: FSMContext, session: AsyncSession) 
             await m.answer(clean2, reply_markup=_media_inline_kb(lang), parse_mode=None)
     else:
         await m.answer(str(reply))
+
 
 @router.message(
     AssistantFSM.waiting_question,
@@ -717,6 +824,7 @@ async def _assistant_media_fallback_message(message: Message, state: FSMContext,
         return
 
     await message.answer(str(reply))
+
 
 async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession) -> None:
     if not m.from_user:
@@ -834,6 +942,7 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
     else:
         await m.answer(str(reply), reply_markup=_assistant_tools_kb(lang))
 
+
 @router.callback_query(F.data == "media:pick")
 async def media_ok(call: CallbackQuery, state: FSMContext) -> None:
     try:
@@ -842,6 +951,7 @@ async def media_ok(call: CallbackQuery, state: FSMContext) -> None:
     except Exception:
         pass
     await call.answer("✅ Ок, принято.")
+
 
 @router.callback_query(F.data == "media:nav:next")
 async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
@@ -905,6 +1015,7 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
 
     await call.answer()
 
+
 @router.callback_query(F.data == "media:refine")
 async def media_hint(call: CallbackQuery, state: FSMContext) -> None:
     try:
@@ -919,10 +1030,11 @@ async def media_hint(call: CallbackQuery, state: FSMContext) -> None:
             lang,
             "🧩 Ок, уточни одним сообщением:\n• актёр/актриса?\n• примерный год?\n• страна/жанр?\n• что происходило в сцене?\n",
             "🧩 Ок, уточни одним повідомленням:\n• актор/актриса?\n• приблизний рік?\n• країна/жанр?\n• що відбувалося у сцені?\n",
-            "🧩 Ok, clarify in one message:\n• actor/actress?\n• approximate year?\n• country/genre?\n• what happened in the scene?\n"
+            "🧩 Ok, clarify in one message:\n• actor/actress?\n• approximate year?\n• country/genre?\n• what happened in the scene?\n",
         )
         await call.message.answer(msg)
     await call.answer()
+
 
 @router.message(F.photo)
 async def assistant_photo_fallback(m: Message, state: FSMContext, session: AsyncSession) -> None:

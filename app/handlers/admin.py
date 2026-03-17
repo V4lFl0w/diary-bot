@@ -29,13 +29,13 @@ from app.services.subscriptions import (
     get_current_subscription,
     sync_user_premium_flags,
     utcnow,
-)  
+)
 
 from app.utils.aiogram_guards import cb_reply
 
 try:
     from app.models.event import AnalyticsEvent
-except Exception: 
+except Exception:
     AnalyticsEvent = None  # type: ignore
 
 router = Router(name="admin")
@@ -217,6 +217,7 @@ TXT: Dict[str, Dict[str, str]] = {
 
 # -------------------- i18n & formatters --------------------
 
+
 def _normalize_lang(code: str | None) -> str:
     s = (code or "ru").strip().lower()
     if s.startswith(("ua", "uk")):
@@ -233,6 +234,7 @@ def _tr(lang: str | None, key: str) -> str:
     block = TXT.get(key, {})
     return block.get(lang2) or block.get("ru") or key
 
+
 def _is_really_premium(prem_until_dt: datetime | None, now_dt: datetime) -> bool:
     """Жесткая проверка: если время вышло, премиума нет, даже если флаг застрял."""
     if not prem_until_dt:
@@ -241,12 +243,15 @@ def _is_really_premium(prem_until_dt: datetime | None, now_dt: datetime) -> bool
         prem_until_dt = prem_until_dt.replace(tzinfo=timezone.utc)
     return prem_until_dt > now_dt
 
+
 def _format_dt(dt: datetime | None, fmt: str = "%d.%m.%Y") -> str:
     if not dt:
         return "-"
     return dt.strftime(fmt)
 
+
 # -------------------- admin menu helper --------------------
+
 
 def is_admin_btn(text: str) -> bool:
     t = (text or "").strip().lower()
@@ -369,7 +374,8 @@ def _take_top(rows: Iterable[Tuple[str, int]], allowed: set[str], limit: int = 3
     return out
 
 
-CB_GIVE_TIER = "give_tier:"  
+CB_GIVE_TIER = "give_tier:"
+
 
 def _kb_give_tier(lang: str, user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -388,13 +394,13 @@ def _apply_premium(user: User, hours: int = 24) -> None:
 
     if hasattr(user, "is_premium"):
         try:
-            user.is_premium = True  
+            user.is_premium = True
         except Exception:
             pass
 
     if hasattr(user, "premium_until"):
         try:
-            user.premium_until = until  
+            user.premium_until = until
         except Exception:
             pass
 
@@ -411,13 +417,13 @@ def _reset_premium(user: User) -> None:
         pass
 
     try:
-        setattr(user, "premium_plan", "basic")
+        setattr(user, "premium_plan", "free")
     except Exception:
         pass
 
     if hasattr(user, "premium_until"):
         try:
-            user.premium_until = None  
+            user.premium_until = None
         except Exception:
             pass
 
@@ -430,7 +436,7 @@ def _set_ban(user: User, banned: bool) -> bool:
     ok = False
     if hasattr(user, "is_banned"):
         try:
-            user.is_banned = bool(banned)  
+            user.is_banned = bool(banned)
             ok = True
         except Exception:
             pass
@@ -438,9 +444,9 @@ def _set_ban(user: User, banned: bool) -> bool:
     if hasattr(user, "banned_until"):
         try:
             if banned:
-                user.banned_until = datetime.now(timezone.utc) + timedelta(days=3650)  
+                user.banned_until = datetime.now(timezone.utc) + timedelta(days=3650)
             else:
-                user.banned_until = None  
+                user.banned_until = None
             ok = True
         except Exception:
             pass
@@ -746,17 +752,16 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
             prem_until,
             prem_plan,
         ) in rows:
-            
             real_prem = _is_really_premium(prem_until, now)
-            
+
             icon = "💎" if real_prem else "👤"
             plan_str = str(prem_plan).upper() if real_prem and prem_plan else "FREE"
             date_str = _format_dt(prem_until)
             seen_str = _format_dt(last_seen_at, "%d.%m %H:%M")
             uname = f"@{username}" if username else "NoUser"
-            
+
             link = f"<a href='tg://user?id={tg_id}'>{tg_id}</a>"
-            
+
             lines.append(f"{icon} {link} | {uname} | <b>{plan_str}</b> | До: {date_str} | Был: {seen_str}")
 
         if c.message:
@@ -786,7 +791,7 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
                     {"since": since.isoformat()},
                 )
             ).all()
-            
+
             parsed_rows = []
             for r in rows:
                 parsed_rows.append((r[0], r[1], r[2], r[3], r[4], None, r[7], r[8], r[9], r[5], r[6]))
@@ -834,16 +839,16 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
 
         now = datetime.now(timezone.utc)
         lines = ["👥 <b>Active users (7d):</b>\n"]
-        
-        for (tg_id, uid, username, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_ts, cnt) in rows:
+
+        for tg_id, uid, username, loc, langx, last_seen_at, is_prem, prem_until, prem_plan, last_ts, cnt in rows:
             real_prem = _is_really_premium(prem_until, now)
-            
+
             icon = "💎" if real_prem else "👤"
             plan_str = str(prem_plan).upper() if real_prem and prem_plan else "FREE"
             date_str = _format_dt(prem_until)
             uname = f"@{username}" if username else "NoUser"
             link = f"<a href='tg://user?id={tg_id}'>{tg_id}</a>"
-            
+
             lines.append(f"{icon} {link} | {uname} | <b>{plan_str}</b> | До: {date_str} | Событий: {cnt}")
 
         if c.message:
@@ -939,13 +944,13 @@ async def on_give_tier(c: CallbackQuery, session: AsyncSession, state: FSMContex
             base_from = now
         existing_sub.expires_at = base_from + timedelta(days=1)  # 24h
         existing_sub.auto_renew = False
-        existing_sub.plan = tier  
+        existing_sub.plan = tier
         existing_sub.source = "admin"
         session.add(existing_sub)
     else:
         sub = Subscription(
             user_id=user.id,
-            plan=tier,  
+            plan=tier,
             status="active",
             started_at=now,
             expires_at=now + timedelta(days=1),
@@ -1000,7 +1005,7 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
         return
 
     await session.execute(
-        update(User).where(User.id == user.id).values(is_premium=False, premium_until=None, premium_plan="basic")
+        update(User).where(User.id == user.id).values(is_premium=False, premium_until=None, premium_plan="free")
     )
 
     try:
@@ -1014,7 +1019,7 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
         except Exception:
             pass
         await session.execute(
-            update(User).where(User.id == user.id).values(is_premium=False, premium_until=None, premium_plan="basic")
+            update(User).where(User.id == user.id).values(is_premium=False, premium_until=None, premium_plan="free")
         )
 
     try:
@@ -1052,19 +1057,19 @@ async def on_find_id(m: Message, session: AsyncSession, state: FSMContext) -> No
         return
 
     now = datetime.now(timezone.utc)
-    
+
     # Жесткая проверка реального статуса
-    real_prem = _is_really_premium(getattr(u, 'premium_until', None), now)
-    
-    plan_val = getattr(u, 'premium_plan', getattr(u, 'plan', 'basic'))
+    real_prem = _is_really_premium(getattr(u, "premium_until", None), now)
+
+    plan_val = getattr(u, "premium_plan", getattr(u, "plan", "basic"))
     plan_str = str(plan_val).upper() if real_prem else "FREE"
-    
+
     date_str = _format_dt(getattr(u, "premium_until", None), "%d.%m.%Y %H:%M")
     seen_str = _format_dt(getattr(u, "last_seen_at", None), "%d.%m.%Y %H:%M")
-    
-    uname = getattr(u, 'username', None)
+
+    uname = getattr(u, "username", None)
     uname_str = f"@{uname}" if uname else "Нет"
-    
+
     link = f"<a href='tg://user?id={tg_id}'>{tg_id}</a>"
 
     text = (

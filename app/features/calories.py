@@ -18,6 +18,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from PIL import Image, ImageDraw, ImageFont
 
 from app.services.quota_units import cache_key, cache_get_json, cache_set_json, enforce_and_add_units
+from app.services.daily_limits import add_daily_usage, check_daily_available
 
 # --- optional emoji renderer (keeps emojis on image cards) ---
 try:
@@ -670,26 +671,26 @@ async def _transcribe_voice_free(message: types.Message, lang_code: str = "ru") 
     """Надежный перевод голоса через OpenAI Whisper"""
     if not message.voice:
         return ""
-    
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return ""
 
     # Импортируем tempfile только здесь, чтобы не засорять глобальную область
-    import tempfile 
-    
+    import tempfile
+
     ogg_path = ""
     try:
         f = await message.bot.get_file(message.voice.file_id)
         if not f.file_path:
             return ""
-            
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as ogg_file:
             ogg_path = ogg_file.name
 
         # Скачиваем оригинальный ogg от Телеграма
         await message.bot.download_file(f.file_path, destination=ogg_path)
-        
+
         # Отправляем прямо в Whisper, он сам ест .ogg
         async with httpx.AsyncClient(timeout=30.0) as client:
             with open(ogg_path, "rb") as audio_file:
@@ -697,16 +698,16 @@ async def _transcribe_voice_free(message: types.Message, lang_code: str = "ru") 
                     "https://api.openai.com/v1/audio/transcriptions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     files={"file": ("voice.ogg", audio_file, "audio/ogg")},
-                    data={"model": "whisper-1"}
+                    data={"model": "whisper-1"},
                 )
                 r.raise_for_status()
                 text = r.json().get("text", "")
-                
+
         os.remove(ogg_path)
         return text
     except Exception as e:
         logging.error(f"Whisper STT Error: {e}")
-        if os.path.exists(ogg_path): 
+        if os.path.exists(ogg_path):
             os.remove(ogg_path)
         return ""
 
@@ -863,10 +864,10 @@ async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None
 
     # Считаем результат локального поиска
     if grams_info:
-        # 🔥 ФИКС: Если текст похож на список (есть запятые) или он длиннее 4 слов, 
+        # 🔥 ФИКС: Если текст похож на список (есть запятые) или он длиннее 4 слов,
         # локальная база идёт лесом. Заставляем код передать запрос умной нейросети (OpenAI).
         is_complex = "," in text or len(text.split()) > 4
-        
+
         if not is_complex:
             kcal = p = f = c = 0.0
             for g, meta in grams_info:
@@ -1027,21 +1028,22 @@ async def analyze_photo(
 
     namespace = "openai_calories_vision"
     key = None
-    
+
     if session is not None and user is not None:
         key = cache_key({"img": b64[:256], "lang": lang_code, "model": model})
         cached = await cache_get_json(session, namespace, key)
         # Если есть в кэше — отдаем бесплатно, токены не списываем
         if isinstance(cached, dict):
             return cached
-        
+
         # 🔥 Проверка новых лимитов (из assistant.py) ДО отправки запроса
         try:
             from app.services.assistant import _usage_last_24h, _quota_limits, _assistant_plan
+
             plan = _assistant_plan(user)
             vis_used = await _usage_last_24h(session, user.id, "vision")
             vis_limit = _quota_limits(plan, "vision")
-            
+
             if vis_limit > 0 and vis_used >= vis_limit:
                 return {"error": "limit_reached"}
             elif vis_limit == 0 and plan not in ["pro", "max", "pro_max"]:
@@ -1081,22 +1083,17 @@ async def analyze_photo(
         if session is not None and user is not None:
             try:
                 from sqlalchemy import text as sql_text
-                from datetime import datetime, timezone
+                from datetime import datetime
                 from app.services.assistant import _assistant_plan
-                
+
                 plan_str = _assistant_plan(user)
                 query = sql_text("""
-                    INSERT INTO llm_usage 
+                    INSERT INTO llm_usage
                     (user_id, feature, model, plan, input_tokens, output_tokens, total_tokens, cost_usd_micros, meta, created_at)
-                    VALUES 
+                    VALUES
                     (:u, 'vision', :m, :p, 0, 0, 800, 0, '{}'::json, :ts)
                 """)
-                await session.execute(query, {
-                    "u": user.id,
-                    "m": model,
-                    "p": plan_str,
-                    "ts": datetime.utcnow()
-                })
+                await session.execute(query, {"u": user.id, "m": model, "p": plan_str, "ts": datetime.utcnow()})
                 await session.commit()
             except Exception as e:
                 logging.error(f"FATAL Token Write Error in Calories: {e}")
@@ -1132,13 +1129,13 @@ async def analyze_photo(
             "c": float(data.get("c", 0) or 0),
             "confidence": float(data.get("confidence", 0) or 0),
         }
-        
+
         # Сохраняем успешный результат в кэш на 7 дней
         if session is not None and user is not None and key:
             await cache_set_json(session, namespace, key, out_data, ttl_sec=7 * 24 * 60 * 60)
-            
+
         return out_data
-        
+
     except Exception as e:
         logging.error(f"Analyze Photo Error: {e}")
         return None
@@ -1199,16 +1196,36 @@ async def cal_cmd(
 
     raw = (message.text or "").strip()
     query = _strip_cmd_prefix(raw)
-
     if query:
-        res = await analyze_text(query, lang_code=lang_code)
+        if not user:
+            await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
+            return
+
+        ok_daily, used_daily, limit_daily = await check_daily_available(session, user, "calories_text_daily", 1)
+        if not ok_daily:
+            await message.answer(
+                _tr(
+                    lang_code,
+                    f"⛔️ Лимит текстовых запросов по калориям на сегодня исчерпан: {used_daily}/{limit_daily}.",
+                    f"⛔️ Ліміт текстових запитів по калоріях на сьогодні вичерпано: {used_daily}/{limit_daily}.",
+                    f"⛔️ Daily text calories limit reached: {used_daily}/{limit_daily}.",
+                )
+            )
+            return
+
+        res = await analyze_text(query, lang_code=lang_code, session=session, user=user)
         if _kcal_is_invalid(res):
-            err_msg = _tr(lang_code,
-                          "Не смог нормально посчитать. Укажи граммы/начинку, например: ‘5 шт (~250 г), начинка: вишня’ или ‘250 г вареников’.",
-                          "Не зміг нормально порахувати. Вкажи грами/начинку, наприклад: ‘5 шт (~250 г), начинка: вишня’ або ‘250 г вареників’.",
-                          "Couldn't calculate properly. Please specify grams/ingredients, eg: ‘5 pcs (~250g)’ or ‘250g chicken’.")
+            err_msg = _tr(
+                lang_code,
+                "Не смог нормально посчитать. Укажи граммы/начинку, например: ‘5 шт (~250 г), начинка: вишня’ или ‘250 г вареников’.",
+                "Не зміг нормально порахувати. Вкажи грами/начинку, наприклад: ‘5 шт (~250 г), начинка: вишня’ або ‘250 г вареників’.",
+                "Couldn't calculate properly. Please specify grams/ingredients, eg: ‘5 pcs (~250g)’ or ‘250g chicken’.",
+            )
             await message.answer(err_msg)
             return
+
+        await add_daily_usage(session, user, "calories_text_daily", 1)
+
         out = _format_cal_total(lang_code, res)
         card = render_text_card(out)
         await message.answer_photo(BufferedInputFile(card, filename="kcal.jpg"))
@@ -1438,13 +1455,32 @@ async def cal_text_in_mode(
     if not payload:
         return
 
-    res = await analyze_text(payload, lang_code=lang_code)
+    if not user:
+        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
+        return
+
+    ok_daily, used_daily, limit_daily = await check_daily_available(session, user, "calories_text_daily", 1)
+    if not ok_daily:
+        await message.answer(
+            _tr(
+                lang_code,
+                f"⛔️ Лимит текстовых запросов по калориям на сегодня исчерпан: {used_daily}/{limit_daily}.",
+                f"⛔️ Ліміт текстових запитів по калоріях на сьогодні вичерпано: {used_daily}/{limit_daily}.",
+                f"⛔️ Daily text calories limit reached: {used_daily}/{limit_daily}.",
+            )
+        )
+        return
+
+    res = await analyze_text(payload, lang_code=lang_code, session=session, user=user)
     if _kcal_is_invalid(res):
         await message.answer(
             "Не смог нормально посчитать. Укажи граммы/начинку, например: "
             "‘5 шт (~250 г), начинка: вишня/картошка/капуста/творог’ или ‘250 г вареников с картошкой’."
         )
         return
+
+    await add_daily_usage(session, user, "calories_text_daily", 1)
+
     out = _format_cal_total(lang_code, res)
     await message.answer(out)
 
@@ -1457,10 +1493,26 @@ async def cal_voice_in_mode(
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
+    if not user:
+        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
+        return
+
+    ok_voice, used_voice, limit_voice = await check_daily_available(session, user, "calories_voice_daily", 1)
+    if not ok_voice:
+        await message.answer(
+            _tr(
+                lang_code,
+                f"⛔️ Лимит голосовых запросов по калориям на сегодня исчерпан: {used_voice}/{limit_voice}.",
+                f"⛔️ Ліміт голосових запитів по калоріях на сьогодні вичерпано: {used_voice}/{limit_voice}.",
+                f"⛔️ Daily voice calories limit reached: {used_voice}/{limit_voice}.",
+            )
+        )
+        return
+
     wait_msg = await message.answer("🎧 Слушаю...")
     text = await _transcribe_voice_free(message, lang_code)
     await wait_msg.delete()
-    
+
     if not text:
         await message.answer("Не удалось разобрать голос. Попробуй еще раз или напиши текстом.")
         return
@@ -1469,7 +1521,9 @@ async def cal_voice_in_mode(
     if _kcal_is_invalid(res):
         await message.answer(f"🗣 Услышал: «{text}»\nНе смог нормально посчитать. Уточни продукты.")
         return
-        
+
+    assert user is not None
+    await add_daily_usage(session, user, "calories_voice_daily", 1)
     out = _format_cal_total(lang_code, res)
     await message.answer(f"🗣 <i>«{text}»</i>\n\n{out}", parse_mode="HTML")
 
@@ -1497,7 +1551,7 @@ async def cal_portion_in_mode(
     if not payload:
         return
 
-    res = await analyze_text(payload, lang_code=lang_code)
+    res = await analyze_text(payload, lang_code=lang_code, session=session, user=user)
     if _kcal_is_invalid(res):
         await message.answer(
             _tr(
@@ -1573,7 +1627,9 @@ async def cal_photo_in_input_mode(
         return
 
     if not res:
-        err_msg = _tr(lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food.")
+        err_msg = _tr(
+            lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food."
+        )
         await message.answer(err_msg)
         return
 
@@ -1632,7 +1688,9 @@ async def cal_photo_waiting(
         return
 
     if not res:
-        err_msg = _tr(lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food.")
+        err_msg = _tr(
+            lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food."
+        )
         await message.answer(err_msg)
         return
 
@@ -1680,9 +1738,27 @@ async def cal_text_free_autodetect(message: types.Message, session: AsyncSession
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
-    res = await analyze_text(text, lang_code=lang_code)
+    if not user:
+        return
+
+    ok_daily, used_daily, limit_daily = await check_daily_available(session, user, "calories_text_daily", 1)
+    if not ok_daily:
+        await message.answer(
+            _tr(
+                lang_code,
+                f"⛔️ Лимит текстовых запросов по калориям на сегодня исчерпан: {used_daily}/{limit_daily}.",
+                f"⛔️ Ліміт текстових запитів по калоріях на сьогодні вичерпано: {used_daily}/{limit_daily}.",
+                f"⛔️ Daily text calories limit reached: {used_daily}/{limit_daily}.",
+            )
+        )
+        return
+
+    res = await analyze_text(text, lang_code=lang_code, session=session, user=user)
     if _kcal_is_invalid(res):
         return
+
+    await add_daily_usage(session, user, "calories_text_daily", 1)
+
     out = _format_cal_total(lang_code, res)
     await message.answer(out)
 
@@ -1725,7 +1801,9 @@ async def cal_photo_caption_trigger(
         return
 
     if not res:
-        err_msg = _tr(lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food.")
+        err_msg = _tr(
+            lang_code, "Не удалось распознать еду.", "Не вдалося розпізнати їжу.", "Failed to recognize food."
+        )
         await message.answer(err_msg)
         return
 
@@ -1776,10 +1854,17 @@ async def cal_portion_recalc(
     last_photo_id = data.get("cal_last_photo_file_id")
 
     # Пересчитываем ТОЛЬКО по тексту (без Vision)
-    res = await analyze_text(text, lang_code=lang_code)
+    res = await analyze_text(text, lang_code=lang_code, session=session, user=user)
 
     if _kcal_is_invalid(res):
-        await message.answer(_tr(lang_code, "Не смог пересчитать. Укажи граммы или количество точнее.", "Не зміг перерахувати. Вкажи грами або кількість точніше.", "Couldn't recalculate. Be more specific with grams or quantities."))
+        await message.answer(
+            _tr(
+                lang_code,
+                "Не смог пересчитать. Укажи граммы или количество точнее.",
+                "Не зміг перерахувати. Вкажи грами або кількість точніше.",
+                "Couldn't recalculate. Be more specific with grams or quantities.",
+            )
+        )
         return
 
     total_line = _format_cal_total(lang_code, res)
@@ -1807,6 +1892,22 @@ async def cal_portion_voice_recalc(
     user = await _get_user(session, message.from_user.id)
     lang_code = _user_lang(user, lang, tg_lang)
 
+    if not user:
+        await message.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"))
+        return
+
+    ok_voice, used_voice, limit_voice = await check_daily_available(session, user, "calories_voice_daily", 1)
+    if not ok_voice:
+        await message.answer(
+            _tr(
+                lang_code,
+                f"⛔️ Лимит голосовых запросов по калориям на сегодня исчерпан: {used_voice}/{limit_voice}.",
+                f"⛔️ Ліміт голосових запитів по калоріях на сьогодні вичерпано: {used_voice}/{limit_voice}.",
+                f"⛔️ Daily voice calories limit reached: {used_voice}/{limit_voice}.",
+            )
+        )
+        return
+
     wait_msg = await message.answer("🎧 Расшифровываю...")
     text = await _transcribe_voice_free(message, lang_code)
     await wait_msg.delete()
@@ -1818,13 +1919,23 @@ async def cal_portion_voice_recalc(
     data = await state.get_data()
     last_photo_id = data.get("cal_last_photo_file_id")
 
-    res = await analyze_text(text, lang_code=lang_code)
+    res = await analyze_text(text, lang_code=lang_code, session=session, user=user)
 
     if _kcal_is_invalid(res):
-        await message.answer(_tr(lang_code, "Не смог пересчитать. Укажи граммы или количество точнее.", "Не зміг перерахувати. Вкажи грами або кількість точніше.", "Couldn't recalculate. Be more specific with grams or quantities."))
+        await message.answer(
+            _tr(
+                lang_code,
+                "Не смог пересчитать. Укажи граммы или количество точнее.",
+                "Не зміг перерахувати. Вкажи грами або кількість точніше.",
+                "Couldn't recalculate. Be more specific with grams or quantities.",
+            )
+        )
         return
 
     total_line = _format_cal_total(lang_code, res)
+
+    assert user is not None
+    await add_daily_usage(session, user, "calories_voice_daily", 1)
 
     if last_photo_id:
         await message.answer_photo(

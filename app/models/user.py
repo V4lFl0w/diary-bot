@@ -78,7 +78,7 @@ class User(TimestampMixin, Base):
 
     # -------------------- premium tiers & trials --------------------
 
-    premium_plan: Mapped[str] = mapped_column(String(16), default="basic", nullable=False)
+    premium_plan: Mapped[str] = mapped_column(String(16), default="free", nullable=False)
     basic_trial_given: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     pro_trial_given: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

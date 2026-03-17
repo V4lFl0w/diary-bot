@@ -139,9 +139,14 @@ async def sync_user_premium_flags(
         # update tier from subscription plan (basic_/pro_)
         try:
             p = str(getattr(sub, "plan", "") or "").lower()
-            if p == "pro" or p.startswith("pro_"):
+
+            if p == "basic" or p.startswith("basic_"):
+                user.premium_plan = "basic"
+            elif p == "pro" or p.startswith("pro_"):
                 user.premium_plan = "pro"
-            elif p == "basic" or p.startswith("basic_"):
+            elif p == "max" or p.startswith("max_"):
+                user.premium_plan = "max"
+            else:
                 user.premium_plan = "free"
         except Exception:
             pass
@@ -180,18 +185,25 @@ def _as_aware_utc(dt: datetime | None) -> datetime | None:
 # -------------------------------------------------
 
 PLAN_DAYS_MAP: Dict[str, int] = {
-    # базовые планы
     "trial": 1,
     "day": 1,
     "week": 7,
     "month": 30,
+    "quarter": 90,
     "year": 365,
-    # stars-планы (пример, можно расширять)
+    "basic_month": 30,
+    "basic_quarter": 90,
+    "basic_year": 365,
+    "pro_month": 30,
+    "pro_quarter": 90,
+    "pro_year": 365,
+    "max_month": 30,
+    "max_quarter": 90,
+    "max_year": 365,
     "stars_trial": 1,
     "stars_month": 30,
-    "stars_year": 365,
-    "quarter": 90,
     "stars_quarter": 90,
+    "stars_year": 365,
 }
 
 
