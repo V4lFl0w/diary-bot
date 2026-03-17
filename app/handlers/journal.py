@@ -35,6 +35,12 @@ from app.keyboards import (
 from app.models.journal import JournalEntry
 from app.models.user import User
 
+from app.services.daily_limits import (
+    add_daily_usage,
+    check_daily_available,
+    get_voice_seconds_limit,
+)
+
 # premium trial hook (мягкий, не ломаем если модуля нет)
 # premium trial hook (shim; always returns bool)
 try:
@@ -284,7 +290,11 @@ async def journal_prompt(
                 "• Что забирает твою энергию прямо сейчас?\n"
                 "• Какой один микро-шаг сделает завтрашний день лучше?\n\n"
                 "Напиши всё одним сообщением 👇\n"
-                + ("<i>💎 В Premium доступен поиск, фильтры и глубокая аналитика мыслей.</i>\n\n" if not is_premium else "")
+                + (
+                    "<i>💎 В Premium доступен поиск, фильтры и глубокая аналитика мыслей.</i>\n\n"
+                    if not is_premium
+                    else ""
+                )
                 + "/cancel — отменить"
             ),
             (
@@ -295,7 +305,11 @@ async def journal_prompt(
                 "• Що забирає твою енергію прямо зараз?\n"
                 "• Який один мікро-крок зробить завтрашній день кращим?\n\n"
                 "Напиши все одним повідомленням 👇\n"
-                + ("<i>💎 У Premium доступний пошук, фільтри та глибока аналітика думок.</i>\n\n" if not is_premium else "")
+                + (
+                    "<i>💎 У Premium доступний пошук, фільтри та глибока аналітика думок.</i>\n\n"
+                    if not is_premium
+                    else ""
+                )
                 + "/cancel — скасувати"
             ),
             (
@@ -306,7 +320,11 @@ async def journal_prompt(
                 "• What's draining your energy right now?\n"
                 "• What's one micro-step to make tomorrow better?\n\n"
                 "Write it all in one message 👇\n"
-                + ("<i>💎 Premium unlocks search, filters, and deep thought analytics.</i>\n\n" if not is_premium else "")
+                + (
+                    "<i>💎 Premium unlocks search, filters, and deep thought analytics.</i>\n\n"
+                    if not is_premium
+                    else ""
+                )
                 + "/cancel — cancel"
             ),
         )
@@ -342,7 +360,7 @@ async def _transcribe_voice_free(message: Message, lang_code: str = "ru") -> str
     """Надежный перевод голоса через OpenAI Whisper"""
     if not message.voice:
         return ""
-    
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return ""
@@ -352,28 +370,29 @@ async def _transcribe_voice_free(message: Message, lang_code: str = "ru") -> str
         f = await message.bot.get_file(message.voice.file_id)
         if not f.file_path:
             return ""
-            
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as ogg_file:
             ogg_path = ogg_file.name
 
         await message.bot.download_file(f.file_path, destination=ogg_path)
-        
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             with open(ogg_path, "rb") as audio_file:
                 r = await client.post(
                     "https://api.openai.com/v1/audio/transcriptions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     files={"file": ("voice.ogg", audio_file, "audio/ogg")},
-                    data={"model": "whisper-1"}
+                    data={"model": "whisper-1"},
                 )
                 r.raise_for_status()
                 text = r.json().get("text", "")
-                
+
         if os.path.exists(ogg_path):
             os.remove(ogg_path)
         return text
     except Exception as e:
         import logging
+
         logging.error(f"Whisper STT Error: {e}")
         if os.path.exists(ogg_path):
             os.remove(ogg_path)
@@ -393,6 +412,40 @@ async def journal_save_voice(
     user = await _get_user(session, m.from_user.id)
     loc = _user_lang(user, lang)
 
+    if not user:
+        await state.clear()
+        await m.answer(
+            _tr(loc, "Нажми /start", "Натисни /start", "Press /start"),
+            reply_markup=_main_kb_for(None, loc, tg_id=m.from_user.id),
+        )
+        return
+
+    voice_limit_sec = get_voice_seconds_limit(user)
+    voice_duration = int(getattr(m.voice, "duration", 0) or 0)
+
+    if voice_duration > voice_limit_sec:
+        await m.answer(
+            _tr(
+                loc,
+                f"⛔️ Голосовое слишком длинное для твоего тарифа: до {voice_limit_sec} сек.",
+                f"⛔️ Голосове занадто довге для твого тарифу: до {voice_limit_sec} сек.",
+                f"⛔️ Voice message is too long for your plan: up to {voice_limit_sec} sec.",
+            )
+        )
+        return
+
+    ok_voice, used_voice, limit_voice = await check_daily_available(session, user, "journal_voice_daily", 1)
+    if not ok_voice:
+        await m.answer(
+            _tr(
+                loc,
+                f"⛔️ Лимит голосовых записей в дневник на сегодня исчерпан: {used_voice}/{limit_voice}.",
+                f"⛔️ Ліміт голосових записів у щоденник на сьогодні вичерпано: {used_voice}/{limit_voice}.",
+                f"⛔️ Daily voice journal limit reached: {used_voice}/{limit_voice}.",
+            )
+        )
+        return
+
     wait_msg = await m.answer("🎧 Расшифровываю запись для журнала...")
     text = await _transcribe_voice_free(m, loc)
     await wait_msg.delete()
@@ -403,12 +456,14 @@ async def journal_save_voice(
                 loc,
                 "Не удалось разобрать голос. Попробуй еще раз или напиши текстом.",
                 "Не вдалося розпізнати голос. Спробуй ще раз або напиши текстом.",
-                "Couldn't recognize the voice. Try again or send text."
+                "Couldn't recognize the voice. Try again or send text.",
             )
         )
         return
 
-    # 🔥 ФИКС ЗАМОРОЖЕННОГО СООБЩЕНИЯ
+    await add_daily_usage(session, user, "journal_voice_daily", 1)
+
+    # Фикс замороженного сообщения
     new_m = m.model_copy(update={"text": text})
     await new_m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
     await journal_save(new_m, state, session, lang)
@@ -438,6 +493,23 @@ async def journal_save(
     user_id = user.id
     is_premium = _is_premium_user(user)
 
+    ok_daily, used_daily, limit_daily = await check_daily_available(session, user, "journal_entries_daily", 1)
+    if not ok_daily:
+        await state.clear()
+        await m.answer(
+            _tr(
+                loc,
+                f"⛔️ Лимит записей в дневник на сегодня исчерпан: {used_daily}/{limit_daily}.\n"
+                "Попробуй завтра или обнови тариф.",
+                f"⛔️ Ліміт записів у щоденник на сьогодні вичерпано: {used_daily}/{limit_daily}.\n"
+                "Спробуй завтра або онови тариф.",
+                f"⛔️ Daily journal limit reached: {used_daily}/{limit_daily}.\n"
+                "Try again tomorrow or upgrade your plan.",
+            ),
+            reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id, is_premium=is_premium),
+        )
+        return
+
     if not _policy_ok(user):
         await state.clear()
         await m.answer(
@@ -455,19 +527,51 @@ async def journal_save(
 
     # --- ЗАЩИТА ОТ КНОПОК МЕНЮ ---
     from app.keyboards import (
-        is_today_btn, is_week_btn, is_history_btn, is_search_btn, is_range_btn,
-        is_journal_add_btn, is_back_btn, is_root_journal_btn, is_root_reminders_btn,
-        is_root_calories_btn, is_root_stats_btn, is_root_assistant_btn, is_root_media_btn,
-        is_root_premium_btn, is_root_settings_btn, is_root_proactive_btn, is_report_btn, is_admin_btn
+        is_today_btn,
+        is_week_btn,
+        is_history_btn,
+        is_search_btn,
+        is_range_btn,
+        is_journal_add_btn,
+        is_back_btn,
+        is_root_journal_btn,
+        is_root_reminders_btn,
+        is_root_calories_btn,
+        is_root_stats_btn,
+        is_root_assistant_btn,
+        is_root_media_btn,
+        is_root_premium_btn,
+        is_root_settings_btn,
+        is_root_proactive_btn,
+        is_report_btn,
+        is_admin_btn,
     )
+
     def is_any_menu_btn(t: str) -> bool:
-        return any(f(t) for f in (
-            is_today_btn, is_week_btn, is_history_btn, is_search_btn, is_range_btn,
-            is_journal_add_btn, is_back_btn, is_root_journal_btn, is_root_reminders_btn,
-            is_root_calories_btn, is_root_stats_btn, is_root_assistant_btn, is_root_media_btn,
-            is_root_premium_btn, is_root_settings_btn, is_root_proactive_btn, is_report_btn, is_admin_btn
-        ))
-    
+        return any(
+            f(t)
+            for f in (
+                is_today_btn,
+                is_week_btn,
+                is_history_btn,
+                is_search_btn,
+                is_range_btn,
+                is_journal_add_btn,
+                is_back_btn,
+                is_root_journal_btn,
+                is_root_reminders_btn,
+                is_root_calories_btn,
+                is_root_stats_btn,
+                is_root_assistant_btn,
+                is_root_media_btn,
+                is_root_premium_btn,
+                is_root_settings_btn,
+                is_root_proactive_btn,
+                is_report_btn,
+                is_admin_btn,
+            )
+        )
+
     if is_any_menu_btn(text):
         return
     # -----------------------------
@@ -486,6 +590,7 @@ async def journal_save(
     entry = JournalEntry(user_id=user_id, text=text)
     session.add(entry)
     await session.commit()
+    await add_daily_usage(session, user, "journal_entries_daily", 1)
 
     try:
         await maybe_grant_trial(session, m.from_user.id)
@@ -554,7 +659,7 @@ async def journal_stats(
 
     parts: list[str] = []
     plan = _assistant_plan(user)
-    
+
     # 🔥 ИСПОЛЬЗУЕМ НОВЫЕ ФУНКЦИИ В ШТУКАХ
     limit_ast = _quota_limits(plan, "assistant")
     used_ast = await _usage_last_24h(session, user.id, "assistant")
@@ -575,13 +680,11 @@ async def journal_stats(
         f"• Текстовые запросы: ~{left_ast} шт.\n"
         f"• Анализ фото: {left_vis} шт.\n\n"
         f"👑 Твой тариф: {plan.upper()}",
-
         f"📒 <b>Щоденник</b>\n• Записів всього: {total}\n\n"
         f"🤖 <b>Нейромережі (доступно на сьогодні):</b>\n"
         f"• Текстові запити: ~{left_ast} шт.\n"
         f"• Аналіз фото: {left_vis} шт.\n\n"
         f"👑 Твій тариф: {plan.upper()}",
-
         f"📒 <b>Journal</b>\n• Total entries: {total}\n\n"
         f"🤖 <b>AI limits (available today):</b>\n"
         f"• Text queries: ~{left_ast} left\n"

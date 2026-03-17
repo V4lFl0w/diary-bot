@@ -12,8 +12,6 @@ import re
 import os
 import tempfile
 import logging
-import speech_recognition as sr
-from pydub import AudioSegment
 from datetime import datetime, timedelta, timezone
 from time import monotonic
 from typing import Any, Dict, List, Optional, Tuple
@@ -21,7 +19,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from aiogram import F, Router
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.dispatcher.event.bases import SkipHandler
@@ -29,7 +27,6 @@ from sqlalchemy import and_, delete, select, update
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.keyboards import is_reminders_btn
 from app.models.reminder import Reminder
 from app.models.user import User
 from app.services.nlp import parse_any
@@ -41,6 +38,8 @@ from app.services.reminders import (
 from app.services.reminders import (
     now_utc as now_utc_fn,
 )
+
+from app.services.daily_limits import add_daily_usage, check_daily_available
 
 # premium trial hook (мягко, без падений)
 
@@ -303,15 +302,17 @@ def _desc_line(lang: str, r: Reminder, tz_name: str, now_utc: datetime) -> str:
 async def _load_user(session: AsyncSession, tg_id: int) -> Optional[User]:
     return (await session.execute(select(User).where(User.tg_id == tg_id))).scalar_one_or_none()
 
+
 # ---------------------------------------------------------------------
 # VOICE STT (OpenAI)
 # ---------------------------------------------------------------------
+
 
 async def _transcribe_voice_free(message: Message, lang_code: str = "ru") -> str:
     """Надежный перевод голоса через OpenAI Whisper"""
     if not message.voice:
         return ""
-    
+
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return ""
@@ -320,28 +321,29 @@ async def _transcribe_voice_free(message: Message, lang_code: str = "ru") -> str
         f = await message.bot.get_file(message.voice.file_id)
         if not f.file_path:
             return ""
-            
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as ogg_file:
             ogg_path = ogg_file.name
 
         await message.bot.download_file(f.file_path, destination=ogg_path)
-        
+
         async with httpx.AsyncClient(timeout=30.0) as client:
             with open(ogg_path, "rb") as audio_file:
                 r = await client.post(
                     "https://api.openai.com/v1/audio/transcriptions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     files={"file": ("voice.ogg", audio_file, "audio/ogg")},
-                    data={"model": "whisper-1"}
+                    data={"model": "whisper-1"},
                 )
                 r.raise_for_status()
                 text = r.json().get("text", "")
-                
+
         os.remove(ogg_path)
         return text
     except Exception as e:
         logging.error(f"Whisper STT Error: {e}")
-        if os.path.exists(ogg_path): os.remove(ogg_path)
+        if os.path.exists(ogg_path):
+            os.remove(ogg_path)
         return ""
 
 
@@ -431,8 +433,10 @@ _TRIGGER_WORDS: tuple[str, ...] = (
     "off",
 )
 
+
 def _has_trigger(s: Optional[str]) -> bool:
     return bool(s) and any(w in s.lower() for w in _TRIGGER_WORDS)
+
 
 # РОБАСТНЫЙ ПАРСЕР ДЛЯ ВСЕХ 3 ЯЗЫКОВ
 _time_re = re.compile(
@@ -449,6 +453,7 @@ _time_re = re.compile(
     r"(?:в\s+это\s+|в\s+|у\s+|на\s+|this\s+|next\s+|on\s+)?(?:понедельник|понеділок|monday|вторник|вівторок|tuesday|сред[уа]|середу|wednesday|четверг|четвер|thursday|пятниц[уа]|пʼятницю|friday|суббот[уа]|суботу|saturday|воскресенье|неділю|sunday)\b"
 )
 
+
 def _looks_like_reminder(text: Optional[str]) -> bool:
     if not text:
         return False
@@ -459,22 +464,44 @@ def _looks_like_reminder(text: Optional[str]) -> bool:
         return False
     if _time_re.search(t):
         return True
-    
+
     strong = (
-        "по будням", "по выходным", "ежедневно", "раз в", "каждый", "каждую", "каждое", "каждые",
-        "щодня", "по буднях", "кожного", "на вихідних", "кожні", "кожна", "кожен",
-        "every ", "weekdays", "weekends", "daily", "everyday"
+        "по будням",
+        "по выходным",
+        "ежедневно",
+        "раз в",
+        "каждый",
+        "каждую",
+        "каждое",
+        "каждые",
+        "щодня",
+        "по буднях",
+        "кожного",
+        "на вихідних",
+        "кожні",
+        "кожна",
+        "кожен",
+        "every ",
+        "weekdays",
+        "weekends",
+        "daily",
+        "everyday",
     )
     return any(x in t for x in strong)
+
 
 def _is_list_alias(text: Optional[str]) -> bool:
     if not text:
         return False
     t = text.strip().lower()
-    return ("покажи" in t or "список" in t or "list" in t or "show" in t) and ("напомин" in t or "remind" in t or "нагадуван" in t or "нагадай" in t)
+    return ("покажи" in t or "список" in t or "list" in t or "show" in t) and (
+        "напомин" in t or "remind" in t or "нагадуван" in t or "нагадай" in t
+    )
+
 
 def _should_parse(text: Optional[str]) -> bool:
-    if not text: return False
+    if not text:
+        return False
     t = text.lower().strip()
     if t in ["⏰ напоминания", "напоминания", "⏰ нагадування", "нагадування", "⏰ reminders", "reminders"]:
         return False
@@ -485,30 +512,31 @@ def _should_parse(text: Optional[str]) -> bool:
 # PARSE FLOW (Текст + Голос)
 # ---------------------------------------------------------------------
 
+
 @router.message(F.voice)
 async def remind_parse_voice(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     """Перехват голоса для создания напоминаний. Если не подходит — отдаем в Журнал/Ассистент"""
     if not m.from_user:
         return
-        
+
     # Если юзер в режиме ожидания ответа на перенос/редактирование, этот хэндлер не сработает,
-    # сработает тот, что ниже (по приоритету aiogram поймает первым, если поставить его выше, 
+    # сработает тот, что ниже (по приоритету aiogram поймает первым, если поставить его выше,
     # но у нас фильтр по F.from_user.id.func)
-    
+
     # Чтобы Журнал тоже ловил голос, мы расшифруем, и если это НЕ напоминание — пустим дальше
     lang_code = await _get_lang(session, m, fallback=lang)
-    
+
     # Скажем, что слушаем, чтобы юзер понимал, что бот не завис
     wait_msg = await m.answer("🎧 Анализирую голос...")
     text = await _transcribe_voice_free(m, lang_code)
-    
+
     # Если текста нет или он не похож на напоминание -> передаем эстафету Журналу!
     if not text or not _should_parse(text):
         await wait_msg.delete()
         raise SkipHandler()
-        
+
     await wait_msg.delete()
-    
+
     # Подменяем текст сообщения и пускаем в основную логику
     new_m = m.model_copy(update={"text": text})
     await new_m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
@@ -690,9 +718,26 @@ async def remind_parse(m: Message, session: AsyncSession, lang: Optional[str] = 
         )
         return
 
+    ok_daily, used_daily, limit_daily = await check_daily_available(session, user, "reminders_daily", 1)
+    if not ok_daily:
+        await m.answer(
+            _tr(
+                lang_code,
+                f"⛔️ Лимит напоминаний на сегодня исчерпан: {used_daily}/{limit_daily}.\n"
+                "Попробуй завтра или обнови тариф.",
+                f"⛔️ Ліміт нагадувань на сьогодні вичерпано: {used_daily}/{limit_daily}.\n"
+                "Спробуй завтра або онови тариф.",
+                f"⛔️ Daily reminders limit reached: {used_daily}/{limit_daily}.\n"
+                "Try again tomorrow or upgrade your plan.",
+            ),
+            parse_mode=None,
+        )
+        return
+
     r = Reminder(user_id=user.id, title=what, cron=cron, next_run=next_run_utc, is_active=True)
     session.add(r)
     await session.commit()
+    await add_daily_usage(session, user, "reminders_daily", 1)
 
     try:
         await _maybe_grant_trial_safe(session, user.tg_id)
@@ -784,7 +829,10 @@ async def reminders_list(
     await m.answer("\n".join(lines), parse_mode=None, reply_markup=kb.as_markup())
 
 
-@router.message(F.text.func(lambda t: t and any(x in t.lower() for x in ['напоминания', 'нагадування', 'reminders'])))
+@router.message(
+    F.text.func(lambda t: t and any(x in t.lower() for x in ["напоминания", "нагадування", "reminders"])),
+    StateFilter("*"),
+)
 async def reminders_menu(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     await remind_help(m, session, lang=lang)
 
@@ -793,10 +841,11 @@ async def reminders_menu(m: Message, session: AsyncSession, lang: Optional[str] 
 # PENDING INPUT HANDLER (перенести/изменить) ТЕКСТ + ГОЛОС
 # ---------------------------------------------------------------------
 
+
 @router.message(F.voice & F.from_user.id.func(lambda uid: uid in _pending))
 async def reminders_pending_voice(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     lang_code = await _get_lang(session, m, fallback=lang)
-    
+
     wait_msg = await m.answer("🎧 Расшифровываю голос...")
     text = await _transcribe_voice_free(m, lang_code)
     await wait_msg.delete()
