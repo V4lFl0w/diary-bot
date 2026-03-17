@@ -18,7 +18,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from PIL import Image, ImageDraw, ImageFont
 
 from app.services.quota_units import cache_key, cache_get_json, cache_set_json, enforce_and_add_units
-from app.services.daily_limits import add_daily_usage, check_daily_available
+from app.services.daily_limits import add_daily_usage, check_daily_available, get_voice_seconds_limit
 
 # --- optional emoji renderer (keeps emojis on image cards) ---
 try:
@@ -665,6 +665,60 @@ def render_result_card(photo_bytes: bytes, text: str) -> bytes:
 
 
 # -------------------- analyze text --------------------
+
+
+async def _calories_voice_precheck(
+    message: types.Message,
+    session: AsyncSession,
+    user: Optional[User],
+    lang_code: str,
+) -> bool:
+    if not message.voice:
+        await message.answer("Не вижу голосовое сообщение.")
+        return False
+
+    if not user:
+        await message.answer("Нажми /start")
+        return False
+
+    voice_seconds = int(getattr(message.voice, "duration", 0) or 0)
+    voice_limit = int(get_voice_seconds_limit(user))
+
+    if voice_seconds > voice_limit:
+        await message.answer(f"⛔️ Голосовое слишком длинное: {voice_seconds} сек. Лимит: {voice_limit} сек.")
+        return False
+
+    ok_voice, used_voice, limit_voice = await check_daily_available(session, user, "calories_voice_daily", 1)
+    if not ok_voice:
+        await message.answer(
+            f"⛔️ Лимит голосовых запросов по калориям на сегодня исчерпан: {used_voice}/{limit_voice}."
+        )
+        return False
+
+    return True
+
+
+async def _transcribe_voice_for_calories(
+    message: types.Message,
+    session: AsyncSession,
+    user: Optional[User],
+    lang_code: str = "ru",
+    wait_text: str = "🎧 Анализирую голос...",
+) -> str:
+    ok = await _calories_voice_precheck(message, session, user, lang_code)
+    if not ok:
+        return ""
+
+    wait_msg = await message.answer(wait_text)
+    try:
+        text = await _transcribe_voice_free(message, lang_code)
+    finally:
+        try:
+            await wait_msg.delete()
+        except Exception:
+            pass
+
+    return (text or "").strip()
 
 
 async def _transcribe_voice_free(message: types.Message, lang_code: str = "ru") -> str:
@@ -1510,7 +1564,7 @@ async def cal_voice_in_mode(
         return
 
     wait_msg = await message.answer("🎧 Слушаю...")
-    text = await _transcribe_voice_free(message, lang_code)
+    text = await _transcribe_voice_for_calories(message, session, user, lang_code)
     await wait_msg.delete()
 
     if not text:
@@ -1909,7 +1963,7 @@ async def cal_portion_voice_recalc(
         return
 
     wait_msg = await message.answer("🎧 Расшифровываю...")
-    text = await _transcribe_voice_free(message, lang_code)
+    text = await _transcribe_voice_for_calories(message, session, user, lang_code)
     await wait_msg.delete()
 
     if not text:

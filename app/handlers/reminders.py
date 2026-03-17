@@ -22,7 +22,6 @@ from aiogram import F, Router
 from aiogram.filters import Command, StateFilter
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.dispatcher.event.bases import SkipHandler
 from sqlalchemy import and_, delete, select, update
 from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +38,7 @@ from app.services.reminders import (
     now_utc as now_utc_fn,
 )
 
-from app.services.daily_limits import add_daily_usage, check_daily_available
+from app.services.daily_limits import add_daily_usage, check_daily_available, get_voice_seconds_limit
 
 # premium trial hook (мягко, без падений)
 
@@ -304,6 +303,90 @@ async def _load_user(session: AsyncSession, tg_id: int) -> Optional[User]:
 
 
 # ---------------------------------------------------------------------
+# VOICE GUARDS
+# ---------------------------------------------------------------------
+
+
+async def _reminders_voice_precheck(
+    m: Message,
+    session: AsyncSession,
+    user: Optional[User],
+    lang_code: str,
+) -> bool:
+    if not m.voice:
+        await m.answer(
+            _tr(
+                lang_code,
+                "Не вижу голосовое сообщение.",
+                "Не бачу голосове повідомлення.",
+                "I can't see a voice message.",
+            ),
+            parse_mode=None,
+        )
+        return False
+
+    if not user:
+        await m.answer(
+            _tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"),
+            parse_mode=None,
+        )
+        return False
+
+    voice_seconds = int(getattr(m.voice, "duration", 0) or 0)
+    voice_limit = int(get_voice_seconds_limit(user))
+
+    if voice_seconds > voice_limit:
+        await m.answer(
+            _tr(
+                lang_code,
+                f"⛔️ Голосовое слишком длинное: {voice_seconds} сек. Лимит: {voice_limit} сек.",
+                f"⛔️ Голосове занадто довге: {voice_seconds} сек. Ліміт: {voice_limit} сек.",
+                f"⛔️ Voice message is too long: {voice_seconds}s. Limit: {voice_limit}s.",
+            ),
+            parse_mode=None,
+        )
+        return False
+
+    ok_daily, used_daily, limit_daily = await check_daily_available(session, user, "reminders_daily", 1)
+    if not ok_daily:
+        await m.answer(
+            _tr(
+                lang_code,
+                f"⛔️ Лимит напоминаний на сегодня исчерпан: {used_daily}/{limit_daily}.",
+                f"⛔️ Ліміт нагадувань на сьогодні вичерпано: {used_daily}/{limit_daily}.",
+                f"⛔️ Daily reminders limit reached: {used_daily}/{limit_daily}.",
+            ),
+            parse_mode=None,
+        )
+        return False
+
+    return True
+
+
+async def _transcribe_voice_for_reminders(
+    m: Message,
+    session: AsyncSession,
+    user: Optional[User],
+    lang_code: str,
+    wait_text: str,
+) -> str:
+    ok = await _reminders_voice_precheck(m, session, user, lang_code)
+    if not ok:
+        return ""
+
+    wait_msg = await m.answer(wait_text)
+    try:
+        text = await _transcribe_voice_free(m, lang_code)
+    finally:
+        try:
+            await wait_msg.delete()
+        except Exception:
+            pass
+
+    return text.strip()
+
+
+# ---------------------------------------------------------------------
 # VOICE STT (OpenAI)
 # ---------------------------------------------------------------------
 
@@ -554,25 +637,21 @@ async def remind_parse_voice(m: Message, session: AsyncSession, lang: Optional[s
     if not m.from_user:
         return
 
-    # Если юзер в режиме ожидания ответа на перенос/редактирование, этот хэндлер не сработает,
-    # сработает тот, что ниже (по приоритету aiogram поймает первым, если поставить его выше,
-    # но у нас фильтр по F.from_user.id.func)
-
-    # Чтобы Журнал тоже ловил голос, мы расшифруем, и если это НЕ напоминание — пустим дальше
     lang_code = await _get_lang(session, m, fallback=lang)
+    user = await _load_user(session, m.from_user.id)
 
-    # Скажем, что слушаем, чтобы юзер понимал, что бот не завис
-    wait_msg = await m.answer("🎧 Анализирую голос...")
-    text = await _transcribe_voice_free(m, lang_code)
+    text = await _transcribe_voice_for_reminders(
+        m,
+        session,
+        user,
+        lang_code,
+        "🎧 Анализирую голос...",
+    )
 
-    # Если текста нет или он не похож на напоминание -> передаем эстафету Журналу!
-    if not text or not _should_parse(text):
-        await wait_msg.delete()
-        raise SkipHandler()
+    # Если precheck не прошёл — уже ответили пользователю
+    if not text:
+        return
 
-    await wait_msg.delete()
-
-    # Подменяем текст сообщения и пускаем в основную логику
     new_m = m.model_copy(update={"text": text})
     await new_m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
     await remind_parse(new_m, session, lang)
@@ -894,17 +973,23 @@ async def reminders_menu(m: Message, session: AsyncSession, lang: Optional[str] 
 
 @router.message(F.voice & F.from_user.id.func(lambda uid: uid in _pending))
 async def reminders_pending_voice(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
-    lang_code = await _get_lang(session, m, fallback=lang)
-
-    wait_msg = await m.answer("🎧 Расшифровываю голос...")
-    text = await _transcribe_voice_free(m, lang_code)
-    await wait_msg.delete()
-
-    if not text:
-        await m.answer("Не удалось разобрать голос. Попробуй текстом.")
+    if not m.from_user:
         return
 
-    # Подменяем текст и пускаем в текстовый обработчик
+    lang_code = await _get_lang(session, m, fallback=lang)
+    user = await _load_user(session, m.from_user.id)
+
+    text = await _transcribe_voice_for_reminders(
+        m,
+        session,
+        user,
+        lang_code,
+        "🎧 Расшифровываю голос...",
+    )
+
+    if not text:
+        return
+
     new_m = m.model_copy(update={"text": text})
     await new_m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
     await reminders_pending_input(new_m, session, lang)
