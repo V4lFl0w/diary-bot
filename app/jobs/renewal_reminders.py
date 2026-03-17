@@ -41,21 +41,21 @@ def _stars_label(lang: str) -> str:
 def _pay_kb_job(lang: str, tg_id: int):
     from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
     from aiogram.types.web_app_info import WebAppInfo
-    import os
 
     loc = _normalize_lang(lang)
-    pay_text = {"ru": "💎 Открыть меню Premium", "uk": "💎 Відкрити меню Premium", "en": "💎 Open Premium Menu"}[loc]
+    pay_text = {
+        "ru": "💎 Открыть меню Premium",
+        "uk": "💎 Відкрити меню Premium",
+        "en": "💎 Open Premium Menu",
+    }[loc]
 
     rows = []
 
-    # Берем ссылку на твой WebApp из .env (или собираем вручную)
-    base_url = (os.getenv("PUBLIC_URL") or os.getenv("PUBLIC_BASE_URL") or "https://diarybot.com").strip().rstrip("/")
-    webapp_url = f"{base_url}/premium?tg_id={tg_id}"
-    
-    # Кнопка WebApp (как в главном меню)
-    rows.append([InlineKeyboardButton(text=pay_text, web_app=WebAppInfo(url=webapp_url))])
+    webapp_url = public_pay_url(tg_id=tg_id, lang=loc)
+    if not webapp_url:
+        webapp_url = f"https://diarybot.com/static/mini/premium/premium.html?tg_id={tg_id}&lang={loc}"
 
-    # Кнопку Stars пока оставляем, если она нужна
+    rows.append([InlineKeyboardButton(text=pay_text, web_app=WebAppInfo(url=webapp_url))])
     rows.append([InlineKeyboardButton(text=_stars_label(loc), callback_data="pay_stars")])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
