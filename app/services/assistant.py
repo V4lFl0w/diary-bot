@@ -534,12 +534,13 @@ async def _usage_last_24h(session: Any, user_id: int, feature: str) -> int:
         return 0
 
 
-def _quota_msg_ru(feature: str, used: int, limit: int) -> str:
+def _quota_msg_ru(feature: str, used: int, limit: int, eta_text: str | None = None) -> str:
     feat = "🌐 Web" if (feature == "assistant_web") else ("📷 Фото" if feature == "vision" else "🤖 Ассистент")
+    tail = f"\nСброс через: {eta_text}." if eta_text else ""
     return (
         f"⛔️ Лимит на сегодня по режиму {feat} исчерпан.\n"
-        f"Использовано: {used} из {limit} запросов за последние 24 часа.\n\n"
-        "Попробуй завтра или обнови тариф."
+        f"Использовано: {used} из {limit} запросов за последние 24 часа.{tail}\n\n"
+        "Попробуй позже или обнови тариф."
     )
 
 
@@ -569,7 +570,13 @@ async def _enforce_quota(*, session: Any, user: Optional[User], plan: str, featu
         return "Функция недоступна на твоем тарифе."
     used = await _usage_last_24h(session, int(user.id), usage_feature)
     if used >= limit:
-        return _quota_msg_ru(feature, used, limit)
+        eta_text = None
+        try:
+            eta_sec = await _next_slot_eta_24h(session, int(user.id), usage_feature)
+            eta_text = _format_eta_short(eta_sec, "ru")
+        except Exception:
+            eta_text = None
+        return _quota_msg_ru(feature, used, limit, eta_text)
     return None
 
 
@@ -2337,3 +2344,51 @@ async def assistant_photo_fallback(m: Message, state: FSMContext, session: Async
 
 
 __all__ = ["router"]
+
+
+# -------------------- ROLLING ETA --------------------
+
+
+async def _next_slot_eta_24h(session, user_id: int, feature: str) -> int:
+    try:
+        from app.models.llm_usage import LLMUsage
+        from sqlalchemy import select
+
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
+
+        q = (
+            select(LLMUsage.created_at)
+            .where(
+                LLMUsage.user_id == user_id,
+                LLMUsage.feature == feature,
+                LLMUsage.created_at >= since,
+            )
+            .order_by(LLMUsage.created_at.asc())
+            .limit(1)
+        )
+        res = await session.execute(q)
+        oldest = res.scalar_one_or_none()
+
+        if not oldest:
+            return 0
+
+        if oldest.tzinfo is None:
+            oldest = oldest.replace(tzinfo=timezone.utc)
+
+        next_free = oldest + timedelta(hours=24)
+        return max(0, int((next_free - datetime.now(timezone.utc)).total_seconds()))
+    except Exception:
+        return 0
+
+
+def _format_eta_short(seconds: int, lang="ru") -> str:
+    sec = max(0, int(seconds))
+    h = sec // 3600
+    m = (sec % 3600) // 60
+
+    if lang == "uk":
+        return f"{h}г {m}хв" if h > 0 else f"{m}хв"
+    if lang == "en":
+        return f"{h}h {m}m" if h > 0 else f"{m}m"
+
+    return f"{h}ч {m}м" if h > 0 else f"{m}м"

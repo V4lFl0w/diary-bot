@@ -59,6 +59,11 @@ def _day_bucket_utc() -> str:
     return f"{d.year:04d}-{d.month:02d}-{d.day:02d}"
 
 
+def _day_bucket_for_user(user: Optional[User], now=None) -> str:
+    d = get_bucket_date(user, now)
+    return f"{d.year:04d}-{d.month:02d}-{d.day:02d}"
+
+
 DAILY_LIMITS = {
     "free": {
         "journal_entries_daily": 7,
@@ -126,8 +131,8 @@ async def _get_or_create_row(
     return row
 
 
-async def get_daily_used(session: AsyncSession, user_id: int, feature: str) -> int:
-    bucket = _day_bucket_utc()
+async def get_daily_used(session: AsyncSession, user_id: int, feature: str, user: Optional[User] = None) -> int:
+    bucket = _day_bucket_for_user(user)
     q = select(QuotaUsage).where(
         QuotaUsage.user_id == user_id,
         QuotaUsage.feature == feature,
@@ -154,7 +159,7 @@ async def check_daily_available(
     feature: str,
     need_units: int = 1,
 ) -> tuple[bool, int, int]:
-    used = await get_daily_used(session, user.id, feature)
+    used = await get_daily_used(session, user.id, feature, user)
     limit = get_daily_limit(user, feature)
     ok = (used + need_units) <= limit
     return ok, used, limit
@@ -166,8 +171,56 @@ async def add_daily_usage(
     feature: str,
     add_units: int = 1,
 ) -> None:
-    bucket = _day_bucket_utc()
+    bucket = _day_bucket_for_user(user)
     row = await _get_or_create_row(session, user.id, feature, bucket)
     row.used_units = max(0, int(row.used_units) + int(add_units))
     row.updated_at = datetime.now(timezone.utc)
     await session.commit()
+
+
+# -------------------- ETA HELPERS --------------------
+
+from datetime import timedelta
+from zoneinfo import ZoneInfo
+
+
+def _user_tz(user):
+    tz_name = getattr(user, "tz", None) or "Europe/Kyiv"
+    try:
+        return ZoneInfo(str(tz_name))
+    except Exception:
+        return ZoneInfo("UTC")
+
+
+def _now_local(user, now=None):
+    base = now or datetime.now(timezone.utc)
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=timezone.utc)
+    return base.astimezone(_user_tz(user))
+
+
+def get_bucket_date(user, now=None):
+    return _now_local(user, now).date()
+
+
+def format_eta(seconds: int, lang: str = "ru") -> str:
+    sec = max(0, int(seconds))
+    h = sec // 3600
+    m = (sec % 3600) // 60
+
+    if lang == "uk":
+        return f"{h}г {m}хв" if h > 0 else f"{m}хв"
+    if lang == "en":
+        return f"{h}h {m}m" if h > 0 else f"{m}m"
+
+    return f"{h}ч {m}м" if h > 0 else f"{m}м"
+
+
+def get_daily_reset_eta_seconds(user, now=None):
+    local_now = _now_local(user, now)
+    next_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    return max(0, int((next_midnight - local_now).total_seconds()))
+
+
+def get_daily_reset_eta_text(user, lang="ru", now=None):
+    return format_eta(get_daily_reset_eta_seconds(user, now), lang)

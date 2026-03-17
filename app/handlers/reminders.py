@@ -38,7 +38,12 @@ from app.services.reminders import (
     now_utc as now_utc_fn,
 )
 
-from app.services.daily_limits import add_daily_usage, check_daily_available, get_voice_seconds_limit
+from app.services.daily_limits import (
+    add_daily_usage,
+    check_daily_available,
+    get_voice_seconds_limit,
+    get_daily_reset_eta_text,
+)
 
 # premium trial hook (мягко, без падений)
 
@@ -352,7 +357,7 @@ async def _reminders_voice_precheck(
         await m.answer(
             _tr(
                 lang_code,
-                f"⛔️ Лимит напоминаний на сегодня исчерпан: {used_daily}/{limit_daily}.",
+                f"⛔️ Лимит напоминаний на сегодня исчерпан: {used_daily}/{limit_daily}.\nСброс через: {get_daily_reset_eta_text(user, lang_code)}.",
                 f"⛔️ Ліміт нагадувань на сьогодні вичерпано: {used_daily}/{limit_daily}.",
                 f"⛔️ Daily reminders limit reached: {used_daily}/{limit_daily}.",
             ),
@@ -692,9 +697,11 @@ async def remind_parse(m: Message, session: AsyncSession, lang: Optional[str] = 
     raw_text = m.text or ""
     parsed = parse_any(raw_text, user_tz=tz_name, now=now_local)
     if not parsed:
-        if _has_trigger(raw_text):
-            title_guess = _clean_reminder_title(raw_text)
-            if title_guess and not _has_any_time_hint(raw_text):
+        title_guess = _clean_reminder_title(raw_text)
+
+        if title_guess and not _has_any_time_hint(raw_text):
+            words = [w for w in title_guess.split() if w.strip()]
+            if _has_trigger(raw_text) or (1 <= len(words) <= 6):
                 await m.answer(
                     _tr(
                         lang_code,

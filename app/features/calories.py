@@ -18,7 +18,12 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from PIL import Image, ImageDraw, ImageFont
 
 from app.services.quota_units import cache_key, cache_get_json, cache_set_json, enforce_and_add_units
-from app.services.daily_limits import add_daily_usage, check_daily_available, get_voice_seconds_limit
+from app.services.daily_limits import (
+    add_daily_usage,
+    check_daily_available,
+    get_voice_seconds_limit,
+    get_daily_reset_eta_text,
+)
 
 # --- optional emoji renderer (keeps emojis on image cards) ---
 try:
@@ -691,7 +696,7 @@ async def _calories_voice_precheck(
     ok_voice, used_voice, limit_voice = await check_daily_available(session, user, "calories_voice_daily", 1)
     if not ok_voice:
         await message.answer(
-            f"⛔️ Лимит голосовых запросов по калориям на сегодня исчерпан: {used_voice}/{limit_voice}."
+            f"⛔️ Лимит голосовых запросов по калориям на сегодня исчерпан: {used_voice}/{limit_voice}.\nСброс через: {get_daily_reset_eta_text(user, lang_code)}."
         )
         return False
 
@@ -1556,7 +1561,7 @@ async def cal_voice_in_mode(
         await message.answer(
             _tr(
                 lang_code,
-                f"⛔️ Лимит голосовых запросов по калориям на сегодня исчерпан: {used_voice}/{limit_voice}.",
+                f"⛔️ Лимит голосовых запросов по калориям на сегодня исчерпан: {used_voice}/{limit_voice}.\nСброс через: {get_daily_reset_eta_text(user, lang_code)}.",
                 f"⛔️ Ліміт голосових запитів по калоріях на сьогодні вичерпано: {used_voice}/{limit_voice}.",
                 f"⛔️ Daily voice calories limit reached: {used_voice}/{limit_voice}.",
             )
@@ -1955,7 +1960,7 @@ async def cal_portion_voice_recalc(
         await message.answer(
             _tr(
                 lang_code,
-                f"⛔️ Лимит голосовых запросов по калориям на сегодня исчерпан: {used_voice}/{limit_voice}.",
+                f"⛔️ Лимит голосовых запросов по калориям на сегодня исчерпан: {used_voice}/{limit_voice}.\nСброс через: {get_daily_reset_eta_text(user, lang_code)}.",
                 f"⛔️ Ліміт голосових запитів по калоріях на сьогодні вичерпано: {used_voice}/{limit_voice}.",
                 f"⛔️ Daily voice calories limit reached: {used_voice}/{limit_voice}.",
             )
