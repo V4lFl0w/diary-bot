@@ -28,6 +28,7 @@ from app.keyboards import (
 from app.models.user import User
 from app.services.analytics_helpers import log_ui
 from app.services.assistant import run_assistant
+
 # 🔥 Импортируем НОВЫЕ функции лимитов (штуки)
 from app.services.assistant import _usage_last_24h, _quota_limits, _assistant_plan
 
@@ -74,6 +75,7 @@ def _is_admin_user(user: User, tg_id: int) -> bool:
         return True
     try:
         from app.handlers.admin import is_admin
+
         return bool(is_admin(tg_id, user))
     except Exception:
         return False
@@ -123,7 +125,11 @@ async def open_media_menu(m: Message, session: AsyncSession, state: FSMContext) 
     lang = _user_lang(user, tg_lang)
 
     await _log(session, user, tg_lang, "open_media_menu", "menu")
-    txt = {"ru": "🧘 Медиа\n\nВыберите раздел ниже 👇", "uk": "🧘 Медіа\n\nОберіть розділ нижче 👇", "en": "🧘 Media\n\nChoose a section below 👇"}.get(lang, "🧘 Медиа\n\nВыберите раздел ниже 👇")
+    txt = {
+        "ru": "🧘 Медиа\n\nВыберите раздел ниже 👇",
+        "uk": "🧘 Медіа\n\nОберіть розділ нижче 👇",
+        "en": "🧘 Media\n\nChoose a section below 👇",
+    }.get(lang, "🧘 Медиа\n\nВыберите раздел ниже 👇")
     await m.answer(txt, reply_markup=get_media_menu_kb(lang))
 
 
@@ -151,7 +157,7 @@ async def open_about_menu(m: Message, session: AsyncSession, state: FSMContext) 
     await m.answer(
         "<b>Diary-Bot</b> — твой умный помощник.\n\n"
         "🎬 <i>This product uses the TMDB API but is not endorsed or certified by TMDB.</i>",
-        parse_mode="HTML"
+        parse_mode="HTML",
     )
 
 
@@ -168,6 +174,7 @@ async def open_proactive_menu(m: Message, session: AsyncSession, state: FSMConte
     await _log(session, user, tg_lang, "open_proactive_menu", "menu")
 
     from app.handlers.proactive import show_proactive_screen
+
     await show_proactive_screen(m, session, lang)
 
 
@@ -199,23 +206,22 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
 
     user = await _get_user(session, m.from_user.id)
     tg_lang = getattr(m.from_user, "language_code", None)
-    lang = _user_lang(user, tg_lang)
 
     await _log(session, user, tg_lang, "open_profile_menu", "menu")
 
     is_prem = _is_premium_user(user)
     plan = _assistant_plan(user)
-    
+
     # 🔥 Названия тарифов
     plan_name = "Базовый" if plan in ["free", "basic"] and not is_prem else plan.upper()
     if is_prem and plan in ["free", "basic"]:
-        plan_name = "PREMIUM" 
+        plan_name = "PREMIUM"
 
     # 🔥 СЧИТАЕМ ЛИМИТЫ (Токены больше не делим, они уже в штуках)
     ast_used = await _usage_last_24h(session, user.id, "assistant")
     ast_total = _quota_limits(plan, "assistant")
     ast_left = max(0, ast_total - ast_used) if ast_total > 0 else 0
-    
+
     vis_used = await _usage_last_24h(session, user.id, "vision")
     vis_total = _quota_limits(plan, "vision")
     vis_left = max(0, vis_total - vis_used) if vis_total > 0 else 0
@@ -233,46 +239,27 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
         until_text = f" (до {pu.strftime('%d.%m.%Y')})"
 
     lines = [
-        f"👤 <b>Твой профиль</b>",
+        "👤 <b>Твой профиль</b>",
         f"ID: <code>{m.from_user.id}</code>",
         f"Тариф: {status_icon} <b>{plan_name}</b>{until_text}",
         "",
-        f"<b>Доступно на 24 часа:</b>",
+        "<b>Доступно на 24 часа:</b>",
         "",
-        f"💬 <b>Текстовые ИИ-запросы</b>:",
-        f"└ ~{ast_left} из {ast_total} шт."
+        "💬 <b>Текстовые ИИ-запросы</b>:",
+        f"└ ~{ast_left} из {ast_total} шт.",
     ]
 
     if is_prem or vis_total > 0:
-        lines.extend([
-            "",
-            f"📸 <b>Разбор фото</b> (Калории, Кадры):",
-            f"└ ~{vis_left} из {vis_total} шт."
-        ])
+        lines.extend(["", "📸 <b>Разбор фото</b> (Калории, Кадры):", f"└ ~{vis_left} из {vis_total} шт."])
     else:
-        lines.extend([
-            "",
-            f"📸 <b>Разбор фото</b> (Калории, Кадры):",
-            f"└ 🔒 <i>Только в Premium</i>"
-        ])
+        lines.extend(["", "📸 <b>Разбор фото</b> (Калории, Кадры):", "└ 🔒 <i>Только в Premium</i>"])
 
     if is_prem or web_total > 0:
-        lines.extend([
-            "",
-            f"🌐 <b>Web-поиск и Парсинг</b>:",
-            f"└ ~{web_left} из {web_total} шт."
-        ])
+        lines.extend(["", "🌐 <b>Web-поиск и Парсинг</b>:", f"└ ~{web_left} из {web_total} шт."])
     else:
-        lines.extend([
-            "",
-            f"🌐 <b>Web-поиск и Парсинг</b>:",
-            f"└ 🔒 <i>Только в PRO-тарифе</i>"
-        ])
+        lines.extend(["", "🌐 <b>Web-поиск и Парсинг</b>:", "└ 🔒 <i>Только в PRO-тарифе</i>"])
 
-    lines.extend([
-        "",
-        f"<i>🔄 Лимиты обновляются автоматически каждые 24 часа.</i>"
-    ])
+    lines.extend(["", "<i>🔄 Лимиты обновляются автоматически каждые 24 часа.</i>"])
 
     await m.answer("\n".join(lines).replace(",", " "), parse_mode="HTML")
 
@@ -361,5 +348,6 @@ async def media_mode_text_router(message: Message, session: AsyncSession, state:
     if reply:
         clean = reply.replace("\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", "")
         await message.answer(clean, reply_markup=_media_inline_kb(lang), parse_mode=None)
+
 
 __all__ = ["router"]
