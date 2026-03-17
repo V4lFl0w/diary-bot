@@ -25,7 +25,7 @@ class StarsInvoiceIn(BaseModel):
     tg_id: int
     plan_id: str
     period: str
-    
+
     title: str = Field(default="Premium")
     description: str = Field(default="Оплата Premium через Telegram Stars")
     photo_url: Optional[str] = None
@@ -38,7 +38,7 @@ class StarsInvoiceOut(BaseModel):
 @router.post("/invoice", response_model=StarsInvoiceOut)
 async def create_stars_invoice(body: StarsInvoiceIn) -> StarsInvoiceOut:
     """Создает запись Payment в БД и генерирует invoice_link для Stars"""
-    
+
     token = os.getenv("BOT_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
     if not token:
         logging.error("create_stars_invoice: BOT_TOKEN is missing")
@@ -46,7 +46,7 @@ async def create_stars_invoice(body: StarsInvoiceIn) -> StarsInvoiceOut:
 
     sku = f"{body.plan_id}_{body.period}".strip().lower()
     spec = get_spec(sku)
-    
+
     if not spec:
         logging.error(f"Invalid SKU received: {sku}")
         raise HTTPException(status_code=400, detail=f"Invalid SKU: {sku}")
@@ -58,7 +58,7 @@ async def create_stars_invoice(body: StarsInvoiceIn) -> StarsInvoiceOut:
 
     async with async_session() as session:
         user = (await session.execute(select(User).where(User.tg_id == body.tg_id))).scalar_one_or_none()
-        
+
         if not user:
             logging.error(f"User not found for tg_id: {body.tg_id}")
             raise HTTPException(status_code=404, detail="User not found")
@@ -76,15 +76,15 @@ async def create_stars_invoice(body: StarsInvoiceIn) -> StarsInvoiceOut:
             user_id=user.id,
             provider=PaymentProvider.STARS,
             plan=plan_enum,
-            amount_cents=real_stars_price, # <-- Безопасная цена
+            amount_cents=real_stars_price,  # <-- Безопасная цена
             currency="XTR",
             sku=sku,
             payload=json.dumps({"sku": sku, "tier": spec.tier, "period": spec.period, "days": spec.days}),
             status=PaymentStatus.PENDING,
         )
-        
+
         session.add(payment)
-        await session.flush() 
+        await session.flush()
         real_payload = f"premium_stars:{payment.id}:{sku}"
         await session.commit()
 
@@ -93,18 +93,18 @@ async def create_stars_invoice(body: StarsInvoiceIn) -> StarsInvoiceOut:
         # Телеграму тоже отдаем безопасную цену
         prices = [LabeledPrice(label="Telegram Stars", amount=real_stars_price)]
         logging.info(f"Creating Stars invoice: {real_stars_price} XTR, payload={real_payload}")
-        
+
         link = await bot.create_invoice_link(
             title=body.title,
             description=body.description,
-            payload=real_payload, 
-            provider_token="",    
+            payload=real_payload,
+            provider_token="",
             currency="XTR",
             prices=prices,
             photo_url=body.photo_url,
         )
         return StarsInvoiceOut(invoice_link=link)
-        
+
     except Exception as e:
         logging.error(f"Failed to create Stars invoice link: {e}")
         raise HTTPException(status_code=500, detail=f"create_invoice_link failed: {e}")

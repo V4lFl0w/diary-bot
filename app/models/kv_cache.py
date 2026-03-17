@@ -9,9 +9,7 @@ from app.db import Base
 
 class KVCache(Base):
     __tablename__ = "kv_cache"
-    __table_args__ = (
-        UniqueConstraint("namespace", "key", name="uq_kv_cache_namespace_key"),
-    )
+    __table_args__ = (UniqueConstraint("namespace", "key", name="uq_kv_cache_namespace_key"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     namespace: Mapped[str] = mapped_column(String(64), nullable=False, default="default")

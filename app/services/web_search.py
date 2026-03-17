@@ -50,7 +50,7 @@ async def serpapi_search(
 
     # ---- Quota (charge only on real external attempt; refund on fail/empty) ----
     add_units = int(UNIT_COST.get(feature, 1))
-    plan = (getattr(user, 'premium_plan', None) or 'basic').strip().lower()
+    plan = (getattr(user, "premium_plan", None) or "basic").strip().lower()
     try:
         await enforce_and_add_units(session, user, feature, add_units)
     except PermissionError:

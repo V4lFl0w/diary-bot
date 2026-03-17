@@ -490,17 +490,7 @@ def get_settings_menu_kb(lang: str) -> ReplyKeyboardMarkup:
                 },
             )
         ),
-        KeyboardButton(
-            text=_t(
-                lang,
-                "btn_about",
-                {
-                    "ru": "ℹ️ О боте",
-                    "uk": "ℹ️ Про бота",
-                    "en": "ℹ️ About"
-                }
-            )
-        )
+        KeyboardButton(text=_t(lang, "btn_about", {"ru": "ℹ️ О боте", "uk": "ℹ️ Про бота", "en": "ℹ️ About"})),
     ]
 
     row_back = [
@@ -530,7 +520,7 @@ def _norm_btn(s: str) -> str:
     - чистим пробелы/регистр
     - убираем ведущий премиум-бейдж 💎 (чтобы клики совпадали у free/premium)
     """
-    t = _norm(s).replace('\ufe0f', '')
+    t = _norm(s).replace("\ufe0f", "")
     if t.startswith("💎 "):
         t = t[2:].strip()
     elif t.startswith("💎"):
@@ -544,7 +534,10 @@ def _norm_btn(s: str) -> str:
 
 # root
 ROOT_JOURNAL_TXT = {_norm_btn(x) for x in ("📓 журнал", "журнал", "📓 journal", "journal")}
-ROOT_REMINDERS_TXT = {_norm_btn(x) for x in ("⏰ напоминания", "напоминания", "⏰ reminders", "reminders", "⏰ нагадування", "нагадування")}
+ROOT_REMINDERS_TXT = {
+    _norm_btn(x)
+    for x in ("⏰ напоминания", "напоминания", "⏰ reminders", "reminders", "⏰ нагадування", "нагадування")
+}
 ROOT_CALORIES_TXT = {
     _norm_btn(x)
     for x in (
@@ -1053,7 +1046,7 @@ __all__ = [
     "is_root_stats_btn",
     "is_root_assistant_btn",
     "is_root_media_btn",
-    "is_root_profile_btn", # <--- НОВАЯ КНОПКА
+    "is_root_profile_btn",  # <--- НОВАЯ КНОПКА
     "is_root_premium_btn",
     "is_root_settings_btn",
     "is_root_proactive_btn",

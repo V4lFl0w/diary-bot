@@ -72,7 +72,12 @@ def _menu_kb(l: str, tg_id: int) -> InlineKeyboardMarkup:
     webapp_btns: list[InlineKeyboardButton] = []
     if _is_https_url(WEBAPP_MUSIC_URL):
         webapp_btns.append(
-            InlineKeyboardButton(text={"ru": "🎧 Открыть плеер", "uk": "🎧 Відкрити плеєр", "en": "🎧 Open player"}.get(l, "🎧 Открыть плеер"), web_app=WebAppInfo(url=_music_webapp_url(tg_id)))
+            InlineKeyboardButton(
+                text={"ru": "🎧 Открыть плеер", "uk": "🎧 Відкрити плеєр", "en": "🎧 Open player"}.get(
+                    l, "🎧 Открыть плеер"
+                ),
+                web_app=WebAppInfo(url=_music_webapp_url(tg_id)),
+            )
         )
 
     return InlineKeyboardMarkup(

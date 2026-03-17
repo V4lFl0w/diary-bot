@@ -33,16 +33,40 @@ def _normalize_lang(code: str | None) -> str:
 def _flow(kind: str, lang: str):
     if kind == "morning":
         if lang == "uk":
-            return [("main", "1) Для чого це мені сьогодні? (1 фраза)"), ("steps", "2) 3 маленькі кроки"), ("start", "3) О котрій стартую?")]
+            return [
+                ("main", "1) Для чого це мені сьогодні? (1 фраза)"),
+                ("steps", "2) 3 маленькі кроки"),
+                ("start", "3) О котрій стартую?"),
+            ]
         elif lang == "en":
-            return [("main", "1) What is my main goal today?"), ("steps", "2) 3 tiny steps"), ("start", "3) When do I start?")]
-        return [("main", "1) Для чего это мне сегодня? (1 фраза)"), ("steps", "2) 3 маленьких шага"), ("start", "3) Во сколько стартую?")]
+            return [
+                ("main", "1) What is my main goal today?"),
+                ("steps", "2) 3 tiny steps"),
+                ("start", "3) When do I start?"),
+            ]
+        return [
+            ("main", "1) Для чего это мне сегодня? (1 фраза)"),
+            ("steps", "2) 3 маленьких шага"),
+            ("start", "3) Во сколько стартую?"),
+        ]
     else:
         if lang == "uk":
-            return [("day", "1) Як пройшов день? (1 фраза)"), ("win", "2) 1 перемога/результат"), ("lesson", "3) 1 висновок на завтра")]
+            return [
+                ("day", "1) Як пройшов день? (1 фраза)"),
+                ("win", "2) 1 перемога/результат"),
+                ("lesson", "3) 1 висновок на завтра"),
+            ]
         elif lang == "en":
-            return [("day", "1) How was your day? (1 phrase)"), ("win", "2) 1 win/result"), ("lesson", "3) 1 lesson for tomorrow")]
-        return [("day", "1) Как прошёл день? (1 фраза)"), ("win", "2) 1 победа/результат за день"), ("lesson", "3) 1 вывод/урок на завтра")]
+            return [
+                ("day", "1) How was your day? (1 phrase)"),
+                ("win", "2) 1 win/result"),
+                ("lesson", "3) 1 lesson for tomorrow"),
+            ]
+        return [
+            ("day", "1) Как прошёл день? (1 фраза)"),
+            ("win", "2) 1 победа/результат за день"),
+            ("lesson", "3) 1 вывод/урок на завтра"),
+        ]
 
 
 @router.callback_query(F.data.startswith("proactive:checkin:"))

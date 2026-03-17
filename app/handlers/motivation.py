@@ -46,9 +46,18 @@ class MotStates(StatesGroup):
 
 def _kb(lang: str) -> ReplyKeyboardMarkup:
     rows = [
-        [KeyboardButton(text=BTN_SUPPORT.get(lang, BTN_SUPPORT["ru"])), KeyboardButton(text=BTN_JUMP.get(lang, BTN_JUMP["ru"]))],
-        [KeyboardButton(text=BTN_COMEBACK.get(lang, BTN_COMEBACK["ru"])), KeyboardButton(text=BTN_STREAK.get(lang, BTN_STREAK["ru"]))],
-        [KeyboardButton(text=BTN_QUOTE.get(lang, BTN_QUOTE["ru"])), KeyboardButton(text=BTN_BACK.get(lang, BTN_BACK["ru"]))],
+        [
+            KeyboardButton(text=BTN_SUPPORT.get(lang, BTN_SUPPORT["ru"])),
+            KeyboardButton(text=BTN_JUMP.get(lang, BTN_JUMP["ru"])),
+        ],
+        [
+            KeyboardButton(text=BTN_COMEBACK.get(lang, BTN_COMEBACK["ru"])),
+            KeyboardButton(text=BTN_STREAK.get(lang, BTN_STREAK["ru"])),
+        ],
+        [
+            KeyboardButton(text=BTN_QUOTE.get(lang, BTN_QUOTE["ru"])),
+            KeyboardButton(text=BTN_BACK.get(lang, BTN_BACK["ru"])),
+        ],
     ]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
 
@@ -92,15 +101,15 @@ async def motivation_cancel(m: Message, state: FSMContext, session: AsyncSession
         return  # не наша отмена
 
     await state.clear()
-    
+
     user = await _get_user(session, m.from_user.id) if m.from_user else None
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
-    
+
     text = _t(
         lang,
         "Ок, отменил. Выбирай кнопку ниже 👇",
         "Ок, скасував. Обирай кнопку нижче 👇",
-        "Ok, cancelled. Choose a button below 👇"
+        "Ok, cancelled. Choose a button below 👇",
     )
     # Возвращаем меню мотивации на нужном языке
     await m.answer(text, reply_markup=_kb(lang))

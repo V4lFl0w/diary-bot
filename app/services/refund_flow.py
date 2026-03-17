@@ -121,6 +121,7 @@ async def approve_refund(
     if pay.external_id and not str(pay.external_id).startswith("star"):
         import os
         import httpx
+
         token = os.getenv("MONO_TOKEN") or os.getenv("MONOBANK_TOKEN") or os.getenv("MONO_API_TOKEN")
         if token:
             try:
@@ -128,7 +129,7 @@ async def approve_refund(
                     resp = await client.post(
                         "https://api.monobank.ua/api/merchant/invoice/cancel",
                         headers={"X-Token": token},
-                        json={"invoiceId": str(pay.external_id)}
+                        json={"invoiceId": str(pay.external_id)},
                     )
                     resp.raise_for_status()
             except Exception as e:

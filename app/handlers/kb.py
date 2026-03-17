@@ -18,9 +18,11 @@ except Exception:
 
 router = Router(name="kb")
 
+
 class KBStates(StatesGroup):
     waiting_add_text = State()
     waiting_ask_text = State()
+
 
 def _normalize_lang(code: str | None) -> str:
     s = (code or "ru").strip().lower()
@@ -30,6 +32,7 @@ def _normalize_lang(code: str | None) -> str:
         return "en"
     return "ru"
 
+
 def _tr(lang: str, ru: str, uk: str, en: str) -> str:
     loc = _normalize_lang(lang)
     if loc == "uk":
@@ -38,12 +41,14 @@ def _tr(lang: str, ru: str, uk: str, en: str) -> str:
         return en
     return ru
 
+
 def _kb_menu_kb(lang: str):
     kb = InlineKeyboardBuilder()
     kb.button(text=_tr(lang, "📚 Добавить", "📚 Додати", "📚 Add"), callback_data="kb:add")
     kb.button(text=_tr(lang, "🔎 Спросить", "🔎 Запитати", "🔎 Ask"), callback_data="kb:ask")
     kb.adjust(2)
     return kb.as_markup()
+
 
 @router.message(Command("kb"))
 async def kb_cmd(message: Message, session: AsyncSession, user: User, state: FSMContext):
@@ -53,8 +58,14 @@ async def kb_cmd(message: Message, session: AsyncSession, user: User, state: FSM
         if not ok:
             return
     await state.clear()
-    msg = _tr(lang, "📚 База знаний (v1)\nВыбери действие:", "📚 База знань (v1)\nОбери дію:", "📚 Knowledge Base (v1)\nChoose action:")
+    msg = _tr(
+        lang,
+        "📚 База знаний (v1)\nВыбери действие:",
+        "📚 База знань (v1)\nОбери дію:",
+        "📚 Knowledge Base (v1)\nChoose action:",
+    )
     await message.answer(msg, reply_markup=_kb_menu_kb(lang))
+
 
 @router.callback_query(F.data == "kb:add")
 async def kb_add_cb(call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext):
@@ -69,9 +80,15 @@ async def kb_add_cb(call: CallbackQuery, session: AsyncSession, user: User, stat
         if not ok:
             return
     await state.set_state(KBStates.waiting_add_text)
-    txt = _tr(lang, "Ок. Скинь текст/факт, который добавить в базу (одним сообщением).", "Ок. Надішли текст/факт для збереження у базу.", "Ok. Send text/fact to save in KB (one message).")
+    txt = _tr(
+        lang,
+        "Ок. Скинь текст/факт, который добавить в базу (одним сообщением).",
+        "Ок. Надішли текст/факт для збереження у базу.",
+        "Ok. Send text/fact to save in KB (one message).",
+    )
     await call.message.answer(txt)
     await call.answer()
+
 
 @router.callback_query(F.data == "kb:ask")
 async def kb_ask_cb(call: CallbackQuery, session: AsyncSession, user: User, state: FSMContext):
@@ -86,33 +103,50 @@ async def kb_ask_cb(call: CallbackQuery, session: AsyncSession, user: User, stat
         if not ok:
             return
     await state.set_state(KBStates.waiting_ask_text)
-    txt = _tr(lang, "Ок. Напиши вопрос — я найду релевантные записи.", "Ок. Напиши питання — я знайду релевантні записи.", "Ok. Ask a question and I'll find relevant notes.")
+    txt = _tr(
+        lang,
+        "Ок. Напиши вопрос — я найду релевантные записи.",
+        "Ок. Напиши питання — я знайду релевантні записи.",
+        "Ok. Ask a question and I'll find relevant notes.",
+    )
     await call.message.answer(txt)
     await call.answer()
+
 
 @router.message(KBStates.waiting_add_text)
 async def kb_add_text(message: Message, session: AsyncSession, user: User, state: FSMContext):
     lang = _normalize_lang(getattr(user, "lang", None) or getattr(message.from_user, "language_code", None))
     txt = (message.text or "").strip()
     if not txt:
-        await message.answer(_tr(lang, "Скинь текстом, пожалуйста 🙂", "Надішли текстом, будь ласка 🙂", "Send as text, please 🙂"))
+        await message.answer(
+            _tr(lang, "Скинь текстом, пожалуйста 🙂", "Надішли текстом, будь ласка 🙂", "Send as text, please 🙂")
+        )
         return
     item = await kb_add(session, user_id=int(user.id), content=txt)
     await state.clear()
-    await message.answer(_tr(lang, f"✅ Добавлено (id={item.id}).", f"✅ Додано (id={item.id}).", f"✅ Added (id={item.id})."), reply_markup=_kb_menu_kb(lang))
+    await message.answer(
+        _tr(lang, f"✅ Добавлено (id={item.id}).", f"✅ Додано (id={item.id}).", f"✅ Added (id={item.id})."),
+        reply_markup=_kb_menu_kb(lang),
+    )
+
 
 @router.message(KBStates.waiting_ask_text)
 async def kb_ask_text(message: Message, session: AsyncSession, user: User, state: FSMContext):
     lang = _normalize_lang(getattr(user, "lang", None) or getattr(message.from_user, "language_code", None))
     q = (message.text or "").strip()
     if not q:
-        await message.answer(_tr(lang, "Напиши вопрос текстом 🙂", "Напиши питання текстом 🙂", "Write your question as text 🙂"))
+        await message.answer(
+            _tr(lang, "Напиши вопрос текстом 🙂", "Напиши питання текстом 🙂", "Write your question as text 🙂")
+        )
         return
     hits = await kb_search(session, user_id=int(user.id), q=q, limit=5)
     await state.clear()
 
     if not hits:
-        await message.answer(_tr(lang, "Ничего не нашёл по этому запросу.", "Нічого не знайдено.", "Nothing found for this query."), reply_markup=_kb_menu_kb(lang))
+        await message.answer(
+            _tr(lang, "Ничего не нашёл по этому запросу.", "Нічого не знайдено.", "Nothing found for this query."),
+            reply_markup=_kb_menu_kb(lang),
+        )
         return
 
     top = _tr(lang, "🔎 Нашёл в базе:", "🔎 Знайдено в базі:", "🔎 Found in KB:")
