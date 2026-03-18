@@ -39,6 +39,7 @@ from app.services.daily_limits import (
     add_daily_usage,
     check_daily_available,
     get_voice_seconds_limit,
+    get_daily_reset_eta_text,
 )
 
 # premium trial hook (мягкий, не ломаем если модуля нет)
@@ -439,7 +440,7 @@ async def journal_save_voice(
         await m.answer(
             _tr(
                 loc,
-                f"⛔️ Лимит голосовых записей в дневник на сегодня исчерпан: {used_voice}/{limit_voice}.",
+                f"⛔️ Лимит голосовых записей в дневник на сегодня исчерпан: {used_voice}/{limit_voice}.\nСброс через: {get_daily_reset_eta_text(user, loc)}.",
                 f"⛔️ Ліміт голосових записів у щоденник на сьогодні вичерпано: {used_voice}/{limit_voice}.",
                 f"⛔️ Daily voice journal limit reached: {used_voice}/{limit_voice}.",
             )

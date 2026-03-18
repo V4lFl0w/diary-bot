@@ -30,7 +30,14 @@ from app.services.analytics_helpers import log_ui
 from app.services.assistant import run_assistant
 
 # 🔥 Импортируем НОВЫЕ функции лимитов (штуки)
-from app.services.assistant import _usage_last_24h, _quota_limits, _assistant_plan
+from app.services.assistant import (
+    _usage_last_24h,
+    _quota_limits,
+    _assistant_plan,
+    _next_slot_eta_24h,
+    _format_eta_short,
+)
+from app.services.daily_limits import get_daily_reset_eta_text, get_daily_limit, get_daily_used
 
 router = Router(name="menus")
 
@@ -206,62 +213,134 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
 
     user = await _get_user(session, m.from_user.id)
     tg_lang = getattr(m.from_user, "language_code", None)
+    lang = _user_lang(user, tg_lang)
 
     await _log(session, user, tg_lang, "open_profile_menu", "menu")
+
+    def tr(ru: str, uk: str, en: str) -> str:
+        if lang == "uk":
+            return uk
+        if lang == "en":
+            return en
+        return ru
 
     is_prem = _is_premium_user(user)
     plan = _assistant_plan(user)
 
-    # 🔥 Названия тарифов
-    plan_name = "Базовый" if plan in ["free", "basic"] and not is_prem else plan.upper()
+    if plan in ["free", "basic"] and not is_prem:
+        plan_name = tr("Базовый", "Базовий", "Basic")
+    else:
+        plan_name = str(plan).upper()
+
     if is_prem and plan in ["free", "basic"]:
         plan_name = "PREMIUM"
 
-    # 🔥 СЧИТАЕМ ЛИМИТЫ (Токены больше не делим, они уже в штуках)
-    ast_used = await _usage_last_24h(session, user.id, "assistant")
-    ast_total = _quota_limits(plan, "assistant")
-    ast_left = max(0, ast_total - ast_used) if ast_total > 0 else 0
-
-    vis_used = await _usage_last_24h(session, user.id, "vision")
-    vis_total = _quota_limits(plan, "vision")
-    vis_left = max(0, vis_total - vis_used) if vis_total > 0 else 0
-
-    web_used = await _usage_last_24h(session, user.id, "assistant_web")
-    web_total = _quota_limits(plan, "assistant_web")
-    web_left = max(0, web_total - web_used) if web_total > 0 else 0
-
     status_icon = "💎" if is_prem else "🆓"
+
     pu = getattr(user, "premium_until", None)
     until_text = ""
     if pu and is_prem:
         if pu.tzinfo is None:
             pu = pu.replace(tzinfo=timezone.utc)
-        until_text = f" (до {pu.strftime('%d.%m.%Y')})"
+        until_text = tr(
+            f" (до {pu.strftime('%d.%m.%Y')})",
+            f" (до {pu.strftime('%d.%m.%Y')})",
+            f" (until {pu.strftime('%d.%m.%Y')})",
+        )
+
+    # ---------- DAILY LIMITS ----------
+    eta_text = get_daily_reset_eta_text(user, lang)
+
+    calories_used = await get_daily_used(session, user.id, "calories_text_daily", user)
+    calories_total = get_daily_limit(user, "calories_text_daily")
+
+    journal_used = await get_daily_used(session, user.id, "journal_entries_daily", user)
+    journal_total = get_daily_limit(user, "journal_entries_daily")
+
+    reminders_used = await get_daily_used(session, user.id, "reminders_daily", user)
+    reminders_total = get_daily_limit(user, "reminders_daily")
+
+    # ---------- AI LIMITS / 24H ----------
+    ast_used = await _usage_last_24h(session, user.id, "assistant")
+    ast_total = _quota_limits(plan, "assistant")
+
+    vis_used = await _usage_last_24h(session, user.id, "vision")
+    vis_total = _quota_limits(plan, "vision")
+
+    web_used = await _usage_last_24h(session, user.id, "assistant_web")
+    web_total = _quota_limits(plan, "assistant_web")
+
+    async def slot_line(feature: str, used: int, total: int, kind: str) -> str:
+        if kind == "text":
+            return tr(
+                "⏳ Следующий слот текста: ",
+                "⏳ Наступний слот тексту: ",
+                "⏳ Next text slot: ",
+            ) + (
+                tr("недоступно на текущем тарифе", "недоступно на поточному тарифі", "unavailable on current plan")
+                if total <= 0
+                else tr("уже доступен", "вже доступний", "already available")
+                if used < total
+                else _format_eta_short(await _next_slot_eta_24h(session, int(user.id), feature), lang)
+            )
+
+        if kind == "photo":
+            return tr(
+                "⏳ Следующий слот фото: ",
+                "⏳ Наступний слот фото: ",
+                "⏳ Next photo slot: ",
+            ) + (
+                tr("недоступно на текущем тарифе", "недоступно на поточному тарифі", "unavailable on current plan")
+                if total <= 0
+                else tr("уже доступен", "вже доступний", "already available")
+                if used < total
+                else _format_eta_short(await _next_slot_eta_24h(session, int(user.id), feature), lang)
+            )
+
+        return tr(
+            "⏳ Следующий слот Web: ",
+            "⏳ Наступний слот Web: ",
+            "⏳ Next Web slot: ",
+        ) + (
+            tr("недоступно на текущем тарифе", "недоступно на поточному тарифі", "unavailable on current plan")
+            if total <= 0
+            else tr("уже доступен", "вже доступний", "already available")
+            if used < total
+            else _format_eta_short(await _next_slot_eta_24h(session, int(user.id), feature), lang)
+        )
+
+    text_slot_line = await slot_line("assistant", ast_used, ast_total, "text")
+    photo_slot_line = await slot_line("vision", vis_used, vis_total, "photo")
+    web_slot_line = await slot_line("assistant_web", web_used, web_total, "web")
 
     lines = [
-        "👤 <b>Твой профиль</b>",
+        tr("👤 <b>Твой профиль</b>", "👤 <b>Твій профіль</b>", "👤 <b>Your profile</b>"),
         f"ID: <code>{m.from_user.id}</code>",
-        f"Тариф: {status_icon} <b>{plan_name}</b>{until_text}",
+        tr("Тариф", "Тариф", "Plan") + f": {status_icon} <b>{plan_name}</b>{until_text}",
         "",
-        "<b>Доступно на 24 часа:</b>",
+        tr(
+            f"🔄 Дневные лимиты обновятся через: {eta_text}",
+            f"🔄 Денний ліміт оновиться через: {eta_text}",
+            f"🔄 Daily limits reset in: {eta_text}",
+        ),
+        f"🔥 {tr('Калории', 'Калорії', 'Calories')}: {calories_used}/{calories_total}",
+        f"📒 {tr('Дневник', 'Щоденник', 'Journal')}: {journal_used}/{journal_total}",
+        f"⏰ {tr('Напоминания', 'Нагадування', 'Reminders')}: {reminders_used}/{reminders_total}",
         "",
-        "💬 <b>Текстовые ИИ-запросы</b>:",
-        f"└ ~{ast_left} из {ast_total} шт.",
+        tr(
+            "🤖 <b>ИИ за последние 24 часа:</b>",
+            "🤖 <b>ШІ за останні 24 години:</b>",
+            "🤖 <b>AI in the last 24 hours:</b>",
+        ),
+        f"💬 {tr('Текст', 'Текст', 'Text')}: {ast_used}/{ast_total}",
+        text_slot_line,
+        f"📸 {tr('Фото', 'Фото', 'Photo')}: {vis_used}/{vis_total}",
+        photo_slot_line,
+        f"🌐 Web: {web_used}/{web_total}",
+        web_slot_line,
     ]
 
-    if is_prem or vis_total > 0:
-        lines.extend(["", "📸 <b>Разбор фото</b> (Калории, Кадры):", f"└ ~{vis_left} из {vis_total} шт."])
-    else:
-        lines.extend(["", "📸 <b>Разбор фото</b> (Калории, Кадры):", "└ 🔒 <i>Только в Premium</i>"])
-
-    if is_prem or web_total > 0:
-        lines.extend(["", "🌐 <b>Web-поиск и Парсинг</b>:", f"└ ~{web_left} из {web_total} шт."])
-    else:
-        lines.extend(["", "🌐 <b>Web-поиск и Парсинг</b>:", "└ 🔒 <i>Только в PRO-тарифе</i>"])
-
-    lines.extend(["", "<i>🔄 Лимиты обновляются автоматически каждые 24 часа.</i>"])
-
-    await m.answer("\n".join(lines).replace(",", " "), parse_mode="HTML")
+    await m.answer("\n".join(lines), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "menu:home")

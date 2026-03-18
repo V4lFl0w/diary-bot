@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 from aiogram import F, Router, types
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -669,6 +670,21 @@ def render_result_card(photo_bytes: bytes, text: str) -> bytes:
     return buf.getvalue()
 
 
+# -------------------- cross-router guards --------------------
+
+
+def _looks_like_reminder_text(text: str) -> bool:
+    t = (text or "").strip().lower()
+    triggers = (
+        "напомни",
+        "напомнить",
+        "напомни мне",
+        "нагадай",
+        "remind",
+    )
+    return any(x in t for x in triggers)
+
+
 # -------------------- analyze text --------------------
 
 
@@ -709,10 +725,10 @@ async def _transcribe_voice_for_calories(
     user: Optional[User],
     lang_code: str = "ru",
     wait_text: str = "🎧 Анализирую голос...",
-) -> str:
+) -> str | None:
     ok = await _calories_voice_precheck(message, session, user, lang_code)
     if not ok:
-        return ""
+        return None
 
     wait_msg = await message.answer(wait_text)
     try:
@@ -1499,6 +1515,9 @@ async def cal_text_in_mode(
     lang: Optional[str] = None,
 ) -> None:
     text = (message.text or "").strip()
+    if _looks_like_reminder_text(text):
+        raise SkipHandler
+
     if not text:
         return
 
@@ -1571,6 +1590,9 @@ async def cal_voice_in_mode(
     wait_msg = await message.answer("🎧 Слушаю...")
     text = await _transcribe_voice_for_calories(message, session, user, lang_code)
     await wait_msg.delete()
+
+    if text is None:
+        return
 
     if not text:
         await message.answer("Не удалось разобрать голос. Попробуй еще раз или напиши текстом.")
@@ -1970,6 +1992,9 @@ async def cal_portion_voice_recalc(
     wait_msg = await message.answer("🎧 Расшифровываю...")
     text = await _transcribe_voice_for_calories(message, session, user, lang_code)
     await wait_msg.delete()
+
+    if text is None:
+        return
 
     if not text:
         await message.answer("Не удалось разобрать голос. Попробуй еще раз.")
