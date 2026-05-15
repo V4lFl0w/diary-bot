@@ -247,8 +247,6 @@ async def _ensure_user_columns(session: AsyncSession) -> None:
 
 async def _fetch_user(session: AsyncSession, tg_id: int) -> dict:
     """Забираем юзера как dict (минимальный срез)."""
-    await _ensure_user_columns(session)
-
     q = sql_text(
         "SELECT id, tg_id, locale, lang, is_premium, premium_until, "
         "premium_trial_given, tz, is_admin "
@@ -1019,8 +1017,6 @@ async def premium_reset(
             hard = True
         elif p.lstrip("+-").isdigit():
             target_id = int(p)
-
-    await _ensure_user_columns(session)
 
     now_utc = datetime.now(timezone.utc)
 
