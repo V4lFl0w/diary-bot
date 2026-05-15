@@ -48,7 +48,7 @@ _TEXTS = {
         "hello_need_privacy": (
             "Привет! Это дневник-помощник.\n"
             "Сначала прими <b>🔒 Политику</b> — это займёт 10 секунд.\n"
-            "Главное меню — внизу."
+            "Прими политику и начнём 👇"
         ),
         "hello_ready": ("С возвращением! Можешь писать запись командой /journal.\nГлавное меню — внизу."),
     },
@@ -56,13 +56,13 @@ _TEXTS = {
         "hello_need_privacy": (
             "Привіт! Це щоденник-помічник.\n"
             "Спочатку прийми <b>🔒 Політику</b> — це займе 10 секунд.\n"
-            "Головне меню — внизу."
+            "Прийми політику і почнемо 👇"
         ),
         "hello_ready": ("З поверненням! Можеш писати запис командою /journal.\nГоловне меню — внизу."),
     },
     "en": {
         "hello_need_privacy": (
-            "Hi! This is a journal assistant.\nFirst accept <b>🔒 Privacy</b> — takes 10 seconds.\nMain menu is below."
+            "Hi! This is a journal assistant.\nFirst accept <b>🔒 Privacy</b> — takes 10 seconds.\nAccept the policy to get started 👇"
         ),
         "hello_ready": ("Welcome back! You can write an entry with /journal.\nMain menu is below."),
     },
