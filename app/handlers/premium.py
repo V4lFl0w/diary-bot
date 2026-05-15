@@ -124,7 +124,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "sub_not_found": {
         "ru": "Не вижу подписки. Нажми «Подписаться», затем «Проверить». Если всё равно не срабатывает — оформи премиум через «🚀 Выбрать тариф» ниже 💳✨",
         "uk": "Не бачу підписки. Натисни «Підписатися», потім «Перевірити». Якщо все одно не спрацьовує — оформи преміум через «🚀 Обрати тариф» нижче 💳✨",
-        "en": "I can’t see your subscription. Tap “Subscribe”, then “Check”. If it still doesn’t work — purchase a plan via “🚀 Choose plan” below 💳✨",
+        "en": "I can’t see your subscription. Tap \"Subscribe\", then \"Check\". If it still doesn’t work — purchase a plan via \"🚀 Choose plan\" below 💳✨",
     },
     "trial_used": {
         "ru": "Бесплатный день уже использован. Чтобы пользоваться премиумом дальше, нужно оформить платную подписку — выбрать тариф ниже 💳✨",
@@ -152,7 +152,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "short_cta": {
         "ru": "Жми «🚀 Выбрать тариф» — и открой все возможности.",
         "uk": "Тицяй «🚀 Обрати тариф» — і відкрий всі можливості.",
-        "en": "Tap “🚀 Choose plan” to unlock all features.",
+        "en": "Tap \"🚀 Choose plan\" to unlock all features.",
     },
     "btn_sub": {"ru": "Подписаться", "uk": "Підписатися", "en": "Subscribe"},
     "btn_check": {"ru": "Проверить", "uk": "Перевірити", "en": "Check"},
@@ -689,7 +689,7 @@ def _build_menu(lang: str, user: Dict[str, Any], has_sub: bool = False) -> str:
         ]
         unlocked_cta = "You already have Premium — everything is unlocked 💚"
         locked_cta = "To unlock everything, activate Premium below — choose a plan below 👇"
-        trial_hint = "You can get 24 hours of Premium: subscribe to the channel and tap “Check”."
+        trial_hint = "You can get 24 hours of Premium: subscribe to the channel and tap \"Check\"."
 
         status_text = f"active until {_fmt_local(until, tz_name)} ({tz_name})" if until else "active"
         if has_sub:
@@ -851,20 +851,20 @@ async def trial_start_cb(
     lang_code = _lang_of(user, c, fallback=lang)
 
     await c.answer()
-    await _log_event(session, c.from_user.id, “trial_click”)
+    await _log_event(session, c.from_user.id, "trial_click")
     if not c.message:
         return
 
-    show_refund = bool(user.get(“is_premium”)) or await _has_paid_payment(session, user.get(“id”))
+    show_refund = bool(user.get("is_premium")) or await _has_paid_payment(session, user.get("id"))
     await cb_reply(
         c,
         {
-            “ru”: “🎁 Пробный доступ на 24 часа:\n1) Подпишись на канал\n2) Нажми «Проверить» ✅”,
-            “uk”: “🎁 Пробний доступ на 24 години:\n1) Підпишись на канал\n2) Натисни «Перевірити» ✅”,
-            “en”: “🎁 24h trial:\n1) Subscribe to the channel\n2) Tap “Check” ✅”,
-        }.get(lang_code, “🎁 Trial: subscribe then tap Check ✅”),
+            "ru": "🎁 Пробный доступ на 24 часа:\n1) Подпишись на канал\n2) Нажми «Проверить» ✅",
+            "uk": "🎁 Пробний доступ на 24 години:\n1) Підпишись на канал\n2) Натисни «Перевірити» ✅",
+            "en": "🎁 24h trial:\n1) Subscribe to the channel\n2) Tap \"Check\" ✅",
+        }.get(lang_code, "🎁 Trial: subscribe then tap Check ✅"),
         reply_markup=_subscribe_kb(
-            lang_code, c.from_user.id, show_trial=not user.get(“premium_trial_given”), show_refund=show_refund
+            lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_refund=show_refund
         ),
     )
 
