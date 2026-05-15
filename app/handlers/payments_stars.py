@@ -5,7 +5,7 @@ from __future__ import annotations
 С защитой от подмены цен и логикой отзыва премиума при возврате (Refund).
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from aiogram import F, Router
 from aiogram.types import (
@@ -198,6 +198,22 @@ async def buy_stars_package(c: CallbackQuery, session: AsyncSession) -> None:
     plan_enum = period_to_plan.get((spec.period or "").strip().lower(), PaymentPlan.MONTH)
     user = await _get_or_create_user(session, c.from_user.id)
     lang = _lang_of(user, c)
+
+    # Delete stale PENDING payments for this user older than 1 hour
+    cutoff = _utcnow() - timedelta(hours=1)
+    stale = (
+        await session.execute(
+            select(Payment).where(
+                Payment.user_id == user.id,
+                Payment.status == PaymentStatus.PENDING,
+                Payment.created_at < cutoff,
+            )
+        )
+    ).scalars().all()
+    for p in stale:
+        await session.delete(p)
+    if stale:
+        await session.flush()
 
     payment = Payment(
         user_id=user.id,
