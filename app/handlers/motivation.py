@@ -187,19 +187,22 @@ async def motivation_support_reply(m: Message, session: AsyncSession, state: FSM
     txt = (m.text or "").strip()
     await state.clear()
 
-    wait_msg = await m.answer("⏳")
-
     if not is_premium_active(user):
-        await wait_msg.delete()
         quote = _random_quote(lang)
-        text = _t(
-            lang,
-            f"🪶 {quote}\n\n💎 Персональная поддержка с ИИ доступна в Premium.",
-            f"🪶 {quote}\n\n💎 Персональна підтримка зі ШІ доступна у Premium.",
-            f"🪶 {quote}\n\n💎 Personalised AI support is available in Premium.",
-        )
+        label = _t(lang, "🪶 Цитата дня:", "🪶 Цитата дня:", "🪶 Quote of the day:")
+        if len(txt) <= 30:
+            text = _t(
+                lang,
+                f"{label}\n{quote}\n\n💎 Персональная поддержка с ИИ доступна в Premium.",
+                f"{label}\n{quote}\n\n💎 Персональна підтримка зі ШІ доступна у Premium.",
+                f"{label}\n{quote}\n\n💎 Personalised AI support is available in Premium.",
+            )
+        else:
+            text = f"{label}\n{quote}"
         await m.answer(text, reply_markup=_kb(lang))
         return
+
+    wait_msg = await m.answer("⏳")
 
     prompt = (
         f"Пользователь написал в разделе Мотивации/Поддержки: «{txt}».\n"
@@ -367,12 +370,12 @@ async def motivation_quote(m: Message, session: AsyncSession):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
-    wait_msg = await m.answer("⏳")
-
     if not is_premium_active(user):
-        await wait_msg.delete()
-        await m.answer(f"🪶 {_random_quote(lang)}", reply_markup=_kb(lang))
+        label = _t(lang, "🪶 Цитата дня:", "🪶 Цитата дня:", "🪶 Quote of the day:")
+        await m.answer(f"{label}\n{_random_quote(lang)}", reply_markup=_kb(lang))
         return
+
+    wait_msg = await m.answer("⏳")
 
     prompt = (
         "Сгенерируй одну мощную, хлесткую и нестандартную мысль для фокуса и дисциплины. "
