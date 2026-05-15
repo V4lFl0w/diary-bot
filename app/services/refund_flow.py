@@ -144,14 +144,19 @@ async def approve_refund(
 
     setattr(pay, "payload", json.dumps(payload, ensure_ascii=False))
 
-    # 3) close subscription if exists
-    sub_id = getattr(pay, "subscription_id", None)
-    if sub_id:
-        sub = (await session.execute(select(Subscription).where(Subscription.id == sub_id))).scalar_one_or_none()
-        if sub and hasattr(sub, "status"):
-            setattr(sub, "status", "cancelled")
-        if sub and hasattr(sub, "expires_at"):
-            setattr(sub, "expires_at", _now_utc())
+    # 3) close active subscription for this user (Payment has no subscription_id column)
+    if pay.user_id:
+        sub = (
+            await session.execute(
+                select(Subscription).where(
+                    Subscription.user_id == pay.user_id,
+                    Subscription.status == "active",
+                )
+            )
+        ).scalar_one_or_none()
+        if sub:
+            sub.status = "cancelled"
+            sub.expires_at = _now_utc()
 
     await session.commit()
     return RefundResult(True, "✅ Возврат подтверждён: payment=refunded, подписка закрыта (если была).")
