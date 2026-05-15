@@ -34,7 +34,7 @@ def _tmdb_auth_headers_and_params() -> Tuple[Dict[str, str], Dict[str, str]]:
     return headers, params
 
 
-async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5) -> List[Dict[str, Any]]:
+async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5, page: int = 1) -> List[Dict[str, Any]]:
     q = (query or "").strip()
     if not q:
         return []
@@ -49,7 +49,7 @@ async def tmdb_search_multi(query: str, *, lang: str = "ru-RU", limit: int = 5) 
         "query": q,
         "language": lang,
         "include_adult": "false",
-        "page": 1,
+        "page": max(1, page),
     }
 
     async with httpx.AsyncClient(timeout=20.0) as client:

@@ -44,16 +44,23 @@ def _sort_media(items: list[dict], query: str = "") -> list[dict]:
     return sorted(items or [], key=score, reverse=True)
 
 
-async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
+async def _tmdb_best_effort(
+    query: str,
+    *,
+    limit: int = 5,
+    page: int = 1,
+    exclude_ids: set[int] | None = None,
+) -> list[dict]:
     q = _normalize_tmdb_query(_clean_tmdb_query(query))
     if not q:
         return []
 
     year = _extract_year(q)
+    safe_page = max(1, page)
 
     async def _safe(lang: str) -> list[dict]:
         try:
-            return await tmdb_search_multi(q, lang=lang, limit=limit) or []
+            return await tmdb_search_multi(q, lang=lang, limit=limit, page=safe_page) or []
         except Exception:
             return []
 
@@ -66,4 +73,7 @@ async def _tmdb_best_effort(query: str, *, limit: int = 5) -> list[dict]:
         if filtered:
             items = filtered
 
-    return _sort_media(items, query=q)[:limit]  # Передаем query для бонуса
+    if exclude_ids:
+        items = [it for it in items if it.get("id") not in exclude_ids]
+
+    return _sort_media(items, query=q)[:limit]

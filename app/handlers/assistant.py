@@ -47,6 +47,8 @@ from app.keyboards import (
 )
 from app.models.user import User
 from app.services.assistant import run_assistant
+from app.services.media.pipeline_tmdb import _tmdb_best_effort
+from app.services.media_search import build_media_context
 
 # admin check (best-effort)
 try:
@@ -867,7 +869,7 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
             effective_text = f"web: {effective_text}"
 
     try:
-        await state.update_data(_media_last_query=text, _media_last_lang=lang)
+        await state.update_data(_media_last_query=text, _media_last_lang=lang, _media_page=1, _media_seen_ids=[])
     except Exception:
         pass
 
@@ -962,6 +964,8 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
 
     last_q = (data.get("_media_last_query") or "").strip()
     lang = (data.get("_media_last_lang") or "ru").strip()
+    media_page = int(data.get("_media_page") or 1)
+    seen_ids: list[int] = list(data.get("_media_seen_ids") or [])
 
     if not last_q:
         await call.answer("Нет контекста. Напиши запрос ещё раз 🙏", show_alert=False)
@@ -972,15 +976,22 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
         await call.answer("Юзер не найден.", show_alert=False)
         return
 
+    next_page = min(media_page + 1, 3)
+
     typing_task = asyncio.create_task(_typing_loop(call.message.chat.id, interval=4.0)) if call.message else None
+    items: list[dict] = []
     try:
-        reply = await run_assistant(user, f"{last_q}\n\nДругие варианты", lang, session=session)
-        if isinstance(reply, str):
-            clean_q, need_btn = _strip_upgrade_marker(reply)
-            if need_btn and call.message:
-                await call.message.answer(clean_q, reply_markup=_upgrade_to_pro_inline_kb(lang), parse_mode=None)
-                await call.answer()
-                return
+        items = await _tmdb_best_effort(last_q, page=next_page, exclude_ids=set(seen_ids), limit=5)
+        new_ids = [int(it["id"]) for it in items if it.get("id")]
+        try:
+            await state.update_data(
+                _media_page=next_page,
+                _media_seen_ids=list(set(seen_ids) | set(new_ids)),
+                _media_last_query=last_q,
+                _media_last_lang=lang,
+            )
+        except Exception:
+            pass
     finally:
         if typing_task:
             typing_task.cancel()
@@ -993,25 +1004,31 @@ async def media_alts(call: CallbackQuery, state: FSMContext, session: AsyncSessi
         await call.answer()
         return
 
-    if isinstance(reply, str) and _needs_media_kb(reply):
-        clean = _strip_media_knobs(reply)
-        poster_url, clean2 = _extract_poster_url(clean)
-        try:
-            await state.update_data(_media_last_query=last_q, _media_last_lang=lang)
-        except Exception:
-            pass
+    if not items:
+        no_more = {
+            "ru": "Больше вариантов не нашлось. Попробуй уточнить запрос 🧩",
+            "uk": "Більше варіантів не знайдено. Спробуй уточнити запит 🧩",
+            "en": "No more options found. Try refining your query 🧩",
+        }
+        await call.message.answer(no_more.get(lang, no_more["ru"]))
+        await call.answer()
+        return
 
-        if poster_url:
+    reply_text = build_media_context(items)
+    poster_url, clean_text = _extract_poster_url(reply_text)
+
+    if poster_url:
+        try:
             await call.message.answer_photo(
                 poster_url,
-                caption=clean2,
+                caption=clean_text[:1024],
                 reply_markup=_media_inline_kb(lang),
                 parse_mode=None,
             )
-        else:
-            await call.message.answer(clean, reply_markup=_media_inline_kb(lang), parse_mode=None)
+        except Exception:
+            await call.message.answer(clean_text, reply_markup=_media_inline_kb(lang), parse_mode=None)
     else:
-        await call.message.answer(str(reply))
+        await call.message.answer(clean_text, reply_markup=_media_inline_kb(lang), parse_mode=None)
 
     await call.answer()
 
