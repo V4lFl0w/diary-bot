@@ -8,27 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.quota_usage import QuotaUsage
 from app.models.user import User
-
-
-def _is_premium_active(user: Optional[User]) -> bool:
-    if not user:
-        return False
-
-    try:
-        if bool(getattr(user, "is_premium", False)):
-            return True
-    except Exception:
-        pass
-
-    try:
-        pu = getattr(user, "premium_until", None)
-        if pu is None:
-            return False
-        if pu.tzinfo is None:
-            pu = pu.replace(tzinfo=timezone.utc)
-        return pu > datetime.now(timezone.utc)
-    except Exception:
-        return False
+from app.services.premium_check import is_premium_active as _is_premium_active
 
 
 def _norm_plan(user: Optional[User]) -> str:

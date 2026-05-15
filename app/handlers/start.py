@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.handlers.privacy import privacy_soft_show
 from app.keyboards import get_main_kb
 from app.models.user import User
+from app.services.premium_check import is_premium_active
 
 # ✅ админ-доступ (единая логика)
 try:
@@ -105,22 +106,7 @@ def _parse_start_payload(text: str | None) -> tuple[str | None, str | None]:
 
 
 def _calc_premium(user: User | None) -> bool:
-    if False:
-        return False
-
-    if bool(getattr(user, "has_premium", False) or getattr(user, "is_premium", False)):
-        return True
-
-    pu = getattr(user, "premium_until", None)
-    if not pu:
-        return False
-
-    try:
-        if pu.tzinfo is None:
-            pu = pu.replace(tzinfo=timezone.utc)
-        return pu > datetime.now(timezone.utc)
-    except Exception:
-        return False
+    return is_premium_active(user)
 
 
 def _policy_accepted(user: User | None) -> bool:

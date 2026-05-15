@@ -18,6 +18,7 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.keyboards import get_main_kb, is_privacy_btn
+from app.services.premium_check import is_premium_active
 from app.models.user import User
 
 # ✅ единая логика админа
@@ -191,26 +192,7 @@ async def _fetch_lang(session: AsyncSession, tg_id: int, tg_lang: str | None) ->
 
 
 def _premium_active(user: Optional[User]) -> bool:
-    if not user:
-        return False
-
-    # 1) прямой флаг
-    with contextlib.suppress(Exception):
-        if bool(getattr(user, "is_premium", False)):
-            return True
-
-    # 2) premium_until > now
-    pu = getattr(user, "premium_until", None)
-    if pu:
-        try:
-            now = datetime.now(timezone.utc)
-            if getattr(pu, "tzinfo", None) is None:
-                pu = pu.replace(tzinfo=timezone.utc)
-            return pu > now
-        except Exception:
-            return False
-
-    return False
+    return is_premium_active(user)
 
 
 async def _fetch_flags(session: AsyncSession, tg_id: int) -> Tuple[bool, bool]:

@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.filters.buttons import Btn
 from app.jobs.renewal_reminders import run_renewal_reminders
+from app.services.premium_check import is_premium_active
 from app.utils.aiogram_guards import cb_reply
 
 
@@ -317,12 +318,7 @@ def _to_dt_aware(val: Any) -> Optional[datetime]:
 
 
 def _is_active(user: Dict[str, Any]) -> bool:
-    if not user.get("is_premium"):
-        return False
-    until = _to_dt_aware(user.get("premium_until"))
-    if until is None:
-        return True  # бессрочный премиум
-    return datetime.now(timezone.utc) < until
+    return is_premium_active(user)
 
 
 def _fmt_local(dt_utc: datetime, tz_name: str) -> str:
