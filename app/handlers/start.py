@@ -110,8 +110,6 @@ def _calc_premium(user: User | None) -> bool:
 
 
 def _policy_accepted(user: User | None) -> bool:
-    if False:
-        return False
     return bool(getattr(user, "consent_accepted_at", None) or getattr(user, "policy_accepted", False))
 
 
