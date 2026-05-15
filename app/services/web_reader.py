@@ -51,7 +51,7 @@ def _extract_best_text(html: str) -> str:
 async def fetch_page_text(
     url: str,
     *,
-    timeout: float = 18.0,
+    timeout: float = 8.0,
     max_chars: int = 12000,
 ) -> Tuple[str, str]:
     if not url:
@@ -62,12 +62,16 @@ async def fetch_page_text(
             timeout=timeout,
             follow_redirects=True,
             headers={
-                "User-Agent": "DiaryBotWebReader/1.0",
+                "User-Agent": "Mozilla/5.0 (compatible; DiaryBot/1.0; +https://t.me/personal_diary_assistant_bot)",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ru,en;q=0.9",
             },
         ) as client:
             r = await client.get(url)
             if r.status_code >= 400:
+                return ("", "")
+            content_type = (r.headers.get("content-type") or "").lower()
+            if not any(ct in content_type for ct in ("text/html", "text/xml", "application/xhtml")):
                 return ("", "")
             html = r.text or ""
     except Exception:
