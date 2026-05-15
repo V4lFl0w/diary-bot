@@ -158,6 +158,8 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "btn_sub": {"ru": "Подписаться", "uk": "Підписатися", "en": "Subscribe"},
     "btn_check": {"ru": "Проверить", "uk": "Перевірити", "en": "Check"},
     "btn_trial": {"ru": "🎁 Пробный доступ (24h)", "uk": "🎁 Пробний доступ (24h)", "en": "🎁 Free trial (24h)"},
+    "btn_cancel_confirm": {"ru": "✅ Да, отменить", "uk": "✅ Так, скасувати", "en": "✅ Yes, cancel"},
+    "btn_back": {"ru": "↩️ Назад", "uk": "↩️ Назад", "en": "↩️ Back"},
 }
 
 
@@ -920,8 +922,8 @@ async def premium_check(
 def _cancel_confirm_kb(lang: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Да, отменить", callback_data=CB_SUB_CANCEL_CONFIRM)],
-            [InlineKeyboardButton(text="↩️ Назад", callback_data=CB_OPEN_PREMIUM)],
+            [InlineKeyboardButton(text=t_local(lang, "btn_cancel_confirm"), callback_data=CB_SUB_CANCEL_CONFIRM)],
+            [InlineKeyboardButton(text=t_local(lang, "btn_back"), callback_data=CB_OPEN_PREMIUM)],
         ]
     )
 
