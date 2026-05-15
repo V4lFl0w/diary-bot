@@ -636,7 +636,7 @@ def _has_any_time_hint(text: str) -> bool:
 # ---------------------------------------------------------------------
 
 
-@router.message(F.voice)
+@router.message(F.voice, StateFilter(None))
 async def remind_parse_voice(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
     """Перехват голоса для создания напоминаний. Если не подходит — отдаем в Журнал/Ассистент"""
     if not m.from_user:
