@@ -67,36 +67,21 @@ async def request_refund(
             f"❌ Возврат возможен только для paid-платежей. Текущий статус: {status_obj}",
         )
 
-    # пометим запрос (best-effort: если полей нет — ничего не ломаем)
-    changed = False
-    pay.refund_requested_at = _now_utc()
-    changed = True
-    pay.refund_reason = (reason or "").strip()[:500] if reason else None
-    changed = True
-    pay.refund_status = "requested"
-    changed = True
-    # fallback: если нет отдельных полей — положим в payload (TEXT -> JSON string)
-    if not changed:
-        raw = getattr(pay, "payload", None)
-
-        payload: dict = {}
-        if isinstance(raw, dict):
-            payload = raw
-        elif isinstance(raw, str) and raw.strip():
-            try:
-                payload = json.loads(raw)
-                if not isinstance(payload, dict):
-                    payload = {}
-            except Exception:
+    # persist refund state in payload JSON (Payment has no dedicated refund columns)
+    raw = getattr(pay, "payload", None)
+    payload: dict = {}
+    if isinstance(raw, str) and raw.strip():
+        try:
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
                 payload = {}
-        else:
+        except Exception:
             payload = {}
 
-        payload["refund_requested_at"] = _now_utc().isoformat()
-        payload["refund_reason"] = (reason or "").strip()[:500]
-        payload["refund_status"] = "requested"
-
-        setattr(pay, "payload", json.dumps(payload, ensure_ascii=False))
+    payload["refund_requested_at"] = _now_utc().isoformat()
+    payload["refund_reason"] = (reason or "").strip()[:500] if reason else None
+    payload["refund_status"] = "requested"
+    pay.payload = json.dumps(payload, ensure_ascii=False)
 
     await session.commit()
     return RefundResult(True, "✅ Запрос на возврат создан. Админ рассмотрит и ответит.")
