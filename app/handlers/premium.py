@@ -157,6 +157,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     },
     "btn_sub": {"ru": "Подписаться", "uk": "Підписатися", "en": "Subscribe"},
     "btn_check": {"ru": "Проверить", "uk": "Перевірити", "en": "Check"},
+    "btn_trial": {"ru": "🎁 Пробный доступ (24h)", "uk": "🎁 Пробний доступ (24h)", "en": "🎁 Free trial (24h)"},
 }
 
 
@@ -456,7 +457,7 @@ def _subscribe_kb(
     ]
 
     if show_trial:
-        rows.append([InlineKeyboardButton(text="🎁 Пробный доступ (24h)", callback_data=CB_TRIAL_START)])
+        rows.append([InlineKeyboardButton(text=t_local(lang, "btn_trial"), callback_data=CB_TRIAL_START)])
 
     # check
     rows.append([InlineKeyboardButton(text=t_local(lang, "btn_check"), callback_data=CB_PREMIUM_CHECK)])
