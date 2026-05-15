@@ -423,6 +423,11 @@ async def media_mode_text_router(message: Message, session: AsyncSession, state:
     if not text:
         raise SkipHandler()
 
+    if len(text) < 3:
+        _menu_hint = {"ru": "Не понял, выбери пункт меню 👇", "uk": "Не зрозумів, вибери пункт меню 👇", "en": "I didn't get that, please choose a menu item 👇"}
+        await message.answer(_menu_hint.get(lang, _menu_hint["ru"]))
+        return
+
     reply = await run_assistant(user, text, lang, session=session)
     if reply:
         clean = reply.replace("\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", "")
