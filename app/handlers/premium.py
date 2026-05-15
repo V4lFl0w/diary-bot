@@ -934,7 +934,10 @@ async def sub_cancel_confirm(
     # 1. Достаем external_id подписки ДО её отмены в базе
     sub_external_id = None
     if user_db_id:
-        q = sql_text("SELECT external_id FROM subscriptions WHERE user_id=:uid AND status='active'")
+        q = sql_text(
+            "SELECT external_id FROM payments WHERE user_id=:uid AND status='paid'"
+            " ORDER BY paid_at DESC LIMIT 1"
+        )
         res = await session.execute(q, {"uid": user_db_id})
         row = res.first()
         if row:
