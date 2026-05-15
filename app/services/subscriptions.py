@@ -287,7 +287,7 @@ async def activate_subscription_from_payment(
                 started_at=now,
                 expires_at=None,
                 auto_renew=False,
-                source=payment.provider,
+                source=payment.provider.value,
             )
             session.add(sub)
 
@@ -342,7 +342,7 @@ async def activate_subscription_from_payment(
             started_at=now,
             expires_at=now + timedelta(days=effective_days),
             auto_renew=auto_renew,
-            source=payment.provider,
+            source=payment.provider.value,
         )
         session.add(sub)
 
