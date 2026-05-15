@@ -20,6 +20,7 @@ ALLOWED_CALLBACK_PREFIXES = (
     "privacy:",
     "language:",
     "premium:",
+    "open_premium",  # upsell button reachable before policy acceptance
     "stars:",  # ✅ allow Stars flows
 )
 
