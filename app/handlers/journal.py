@@ -462,12 +462,12 @@ async def journal_save_voice(
         )
         return
 
-    await add_daily_usage(session, user, "journal_voice_daily", 1)
-
     # Фикс замороженного сообщения
     new_m = m.model_copy(update={"text": text})
     await new_m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
     await journal_save(new_m, state, session, lang)
+    # Count voice usage only after the entry is successfully saved and committed
+    await add_daily_usage(session, user, "journal_voice_daily", 1)
 
 
 @router.message(JournalFSM.waiting_text, F.text)
