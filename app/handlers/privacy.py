@@ -221,8 +221,8 @@ def _soft_kb(lang: str) -> InlineKeyboardMarkup:
 
 
 def _policy_kb(lang: str) -> InlineKeyboardMarkup:
-    agree = "Agree"
-    disagree = "Disagree"
+    agree = {"ru": "✅ Принять", "uk": "✅ Прийняти", "en": "✅ Agree"}.get(lang, "✅ Принять")
+    disagree = {"ru": "❌ Отказать", "uk": "❌ Відмовити", "en": "❌ Decline"}.get(lang, "❌ Отказать")
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
