@@ -435,8 +435,25 @@ def _active_premium_kb(lang: str, tg_id: int, has_auto_renew: bool = False) -> I
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+async def _has_paid_payment(session: AsyncSession, user_db_id: int | None) -> bool:
+    if not user_db_id:
+        return False
+    result = (
+        await session.execute(
+            sql_text("SELECT 1 FROM payments WHERE user_id=:uid AND status='paid' LIMIT 1"),
+            {"uid": user_db_id},
+        )
+    ).first()
+    return result is not None
+
+
 def _subscribe_kb(
-    lang: str, tg_id: int, show_trial: bool = True, show_details: bool = True, show_stars: bool = True
+    lang: str,
+    tg_id: int,
+    show_trial: bool = True,
+    show_details: bool = True,
+    show_stars: bool = True,
+    show_refund: bool = False,
 ) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=t_local(lang, "btn_sub"), url=CHANNEL_URL)],
@@ -455,19 +472,19 @@ def _subscribe_kb(
     if show_details:
         rows.append([InlineKeyboardButton(text=t_local(lang, "btn_more"), callback_data=CB_PREMIUM_DETAILS)])
 
-    # refund
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text={
-                    "ru": "💸 Возврат средств",
-                    "uk": "💸 Повернення коштів",
-                    "en": "💸 Refund",
-                }.get(lang, "💸 Возврат средств"),
-                callback_data="refund:open",
-            )
-        ]
-    )
+    if show_refund:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text={
+                        "ru": "💸 Возврат средств",
+                        "uk": "💸 Повернення коштів",
+                        "en": "💸 Refund",
+                    }.get(lang, "💸 Возврат средств"),
+                    callback_data="refund:open",
+                )
+            ]
+        )
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -753,12 +770,14 @@ async def cmd_premium(
     if active:
         kb = _active_premium_kb(lang_code, m.from_user.id, has_auto_renew=has_sub)
     else:
+        show_refund = bool(user.get("is_premium")) or await _has_paid_payment(session, user.get("id"))
         kb = _subscribe_kb(
             lang_code,
             m.from_user.id,
             show_trial=not user.get("premium_trial_given"),
             show_details=True,
             show_stars=False,
+            show_refund=show_refund,
         )
 
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -781,12 +800,14 @@ async def open_premium_cb(
     if active:
         kb = _active_premium_kb(lang_code, c.from_user.id, has_auto_renew=has_sub)
     else:
+        show_refund = bool(user.get("is_premium")) or await _has_paid_payment(session, user.get("id"))
         kb = _subscribe_kb(
             lang_code,
             c.from_user.id,
             show_trial=not user.get("premium_trial_given"),
             show_details=True,
             show_stars=False,
+            show_refund=show_refund,
         )
 
     await c.answer()
@@ -805,8 +826,14 @@ async def premium_details_cb(
     has_sub = await _has_active_subscription(session, c.from_user.id)
 
     text = _build_menu(lang_code, user, has_sub)
+    show_refund = bool(user.get("is_premium")) or await _has_paid_payment(session, user.get("id"))
     kb = _subscribe_kb(
-        lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given"), show_details=False, show_stars=True
+        lang_code,
+        c.from_user.id,
+        show_trial=not user.get("premium_trial_given"),
+        show_details=False,
+        show_stars=True,
+        show_refund=show_refund,
     )
 
     await c.answer()
@@ -824,18 +851,21 @@ async def trial_start_cb(
     lang_code = _lang_of(user, c, fallback=lang)
 
     await c.answer()
-    await _log_event(session, c.from_user.id, "trial_click")
+    await _log_event(session, c.from_user.id, “trial_click”)
     if not c.message:
         return
 
+    show_refund = bool(user.get(“is_premium”)) or await _has_paid_payment(session, user.get(“id”))
     await cb_reply(
         c,
         {
-            "ru": "🎁 Пробный доступ на 24 часа:\n1) Подпишись на канал\n2) Нажми «Проверить» ✅",
-            "uk": "🎁 Пробний доступ на 24 години:\n1) Підпишись на канал\n2) Натисни «Перевірити» ✅",
-            "en": "🎁 24h trial:\n1) Subscribe to the channel\n2) Tap “Check” ✅",
-        }.get(lang_code, "🎁 Trial: subscribe then tap Check ✅"),
-        reply_markup=_subscribe_kb(lang_code, c.from_user.id, show_trial=not user.get("premium_trial_given")),
+            “ru”: “🎁 Пробный доступ на 24 часа:\n1) Подпишись на канал\n2) Нажми «Проверить» ✅”,
+            “uk”: “🎁 Пробний доступ на 24 години:\n1) Підпишись на канал\n2) Натисни «Перевірити» ✅”,
+            “en”: “🎁 24h trial:\n1) Subscribe to the channel\n2) Tap “Check” ✅”,
+        }.get(lang_code, “🎁 Trial: subscribe then tap Check ✅”),
+        reply_markup=_subscribe_kb(
+            lang_code, c.from_user.id, show_trial=not user.get(“premium_trial_given”), show_refund=show_refund
+        ),
     )
 
 
@@ -877,6 +907,7 @@ async def premium_check(
             )
     else:
         await _log_event(session, c.from_user.id, "trial_denied", meta="not_member")
+        show_refund = bool(user.get("is_premium")) or await _has_paid_payment(session, user.get("id"))
         await cb_reply(
             c,
             t_local(lang_code, "sub_not_found"),
@@ -884,6 +915,7 @@ async def premium_check(
                 lang_code,
                 c.from_user.id,
                 show_trial=not user.get("premium_trial_given"),
+                show_refund=show_refund,
             ),
         )
 
