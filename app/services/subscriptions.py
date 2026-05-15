@@ -12,6 +12,14 @@ from app.models.subscription import Subscription
 from app.models.user import User
 
 # -------------------------------------------------
+# Subscription status constants
+# -------------------------------------------------
+
+SUB_STATUS_ACTIVE = "active"
+SUB_STATUS_CANCELED = "canceled"
+SUB_STATUS_EXPIRED = "expired"
+
+# -------------------------------------------------
 # Время
 # -------------------------------------------------
 
@@ -158,8 +166,20 @@ async def sync_user_premium_flags(
             user.is_premium = False
             user.premium_until = None
             user.premium_plan = "free"
+        elif pu is None and bool(getattr(user, "is_premium", False)):
+            # premium_until=None (lifetime-like) but no active sub — check for explicitly expired subscription
+            expired_sub = (
+                await session.execute(
+                    select(Subscription)
+                    .where(Subscription.user_id == user.id, Subscription.status == SUB_STATUS_EXPIRED)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if expired_sub:
+                user.is_premium = False
+                user.premium_plan = "free"
         else:
-            # lifetime (premium_until=None) или ещё не истёкший ручной премиум — не трогаем
+            # ещё не истёкший ручной премиум — не трогаем
             # Но если план завис на pro без активного премиума — чиним
             if (str(getattr(user, "premium_plan", "") or "").lower() == "pro") and (
                 not bool(getattr(user, "is_premium", False))

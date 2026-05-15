@@ -26,6 +26,8 @@ from app.models.subscription import Subscription
 from app.models.user import User
 from app.services.admin_audit import log_admin_action
 from app.services.subscriptions import (
+    SUB_STATUS_ACTIVE,
+    SUB_STATUS_EXPIRED,
     get_current_subscription,
     sync_user_premium_flags,
     utcnow,
@@ -1012,8 +1014,9 @@ async def on_reset_id(m: Message, session: AsyncSession, state: FSMContext) -> N
 
     try:
         await session.execute(
-            sql_text("UPDATE subscriptions SET status='expired' WHERE user_id = :uid AND status = 'active'"),
-            {"uid": int(user.id)},
+            update(Subscription)
+            .where(Subscription.user_id == user.id, Subscription.status == SUB_STATUS_ACTIVE)
+            .values(status=SUB_STATUS_EXPIRED),
         )
     except Exception:
         try:
