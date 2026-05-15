@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from datetime import timezone
 from typing import Optional
 from aiogram import F, Router
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
 from app.services.assistant import run_assistant
+from app.services.premium_check import is_premium_active
 
 try:
     from zoneinfo import ZoneInfo
@@ -19,6 +21,28 @@ except Exception:
     ZoneInfo = None  # type: ignore
 
 router = Router(name="motivation")
+
+_STATIC_QUOTES: list[dict[str, str]] = [
+    {"ru": "Действие — единственный ответ на тревогу.", "uk": "Дія — єдина відповідь на тривогу.", "en": "Action is the only answer to anxiety."},
+    {"ru": "Ты не обязан чувствовать себя готовым. Начни сейчас.", "uk": "Ти не зобов'язаний відчувати себе готовим. Почни зараз.", "en": "You don't have to feel ready. Start now."},
+    {"ru": "Сила — не в отсутствии страха. А в том, чтобы идти вперёд несмотря на него.", "uk": "Сила — не у відсутності страху. А в тому, щоб іти вперед попри нього.", "en": "Strength is not the absence of fear — it's moving forward despite it."},
+    {"ru": "Ты уже справился с вещами, которые казались невозможными.", "uk": "Ти вже впорався з речами, які здавались неможливими.", "en": "You've already handled things that once seemed impossible."},
+    {"ru": "Боль временна. Сдаться — навсегда.", "uk": "Біль тимчасовий. Здатися — назавжди.", "en": "Pain is temporary. Quitting lasts forever."},
+    {"ru": "Делай следующий маленький шаг. Только его.", "uk": "Зроби наступний маленький крок. Тільки його.", "en": "Take the next small step. Just that one."},
+    {"ru": "Контроль над реакцией — единственное, что действительно твоё.", "uk": "Контроль над реакцією — єдине, що справді твоє.", "en": "Control over your response is the only thing truly yours."},
+    {"ru": "Твои эмоции — не ты. Ты тот, кто их наблюдает.", "uk": "Твої емоції — не ти. Ти той, хто їх спостерігає.", "en": "Your emotions are not you. You are the one observing them."},
+    {"ru": "Один честный шаг сегодня стоит ста красивых планов на завтра.", "uk": "Один чесний крок сьогодні вартий ста гарних планів на завтра.", "en": "One honest step today beats a hundred beautiful plans for tomorrow."},
+    {"ru": "Трудности — не проблема. Проблема — избегать их.", "uk": "Труднощі — не проблема. Проблема — уникати їх.", "en": "Difficulties are not the problem. Avoiding them is."},
+    {"ru": "Ты не сломлен. Ты в процессе.", "uk": "Ти не зламаний. Ти в процесі.", "en": "You are not broken. You are in process."},
+    {"ru": "Сравнивай себя только с тем, кем ты был вчера.", "uk": "Порівнюй себе лише з тим, ким ти був вчора.", "en": "Compare yourself only to who you were yesterday."},
+    {"ru": "Настойчивость важнее таланта. Каждый раз.", "uk": "Наполегливість важливіша за талант. Кожного разу.", "en": "Persistence beats talent. Every single time."},
+    {"ru": "Неудача — это данные. Используй их.", "uk": "Невдача — це дані. Використай їх.", "en": "Failure is data. Use it."},
+    {"ru": "Дисциплина — это свобода выбирать результат.", "uk": "Дисципліна — це свобода обирати результат.", "en": "Discipline is the freedom to choose your outcome."},
+]
+
+
+def _random_quote(lang: str) -> str:
+    return random.choice(_STATIC_QUOTES).get(lang, random.choice(_STATIC_QUOTES)["ru"])
 
 # Кнопки — человеческие и понятные
 BTN_SUPPORT = {"ru": "💬 Поддержка (1 строка)", "uk": "💬 Підтримка (1 рядок)", "en": "💬 Support (1 line)"}
@@ -164,6 +188,18 @@ async def motivation_support_reply(m: Message, session: AsyncSession, state: FSM
     await state.clear()
 
     wait_msg = await m.answer("⏳")
+
+    if not is_premium_active(user):
+        await wait_msg.delete()
+        quote = _random_quote(lang)
+        text = _t(
+            lang,
+            f"🪶 {quote}\n\n💎 Персональная поддержка с ИИ доступна в Premium.",
+            f"🪶 {quote}\n\n💎 Персональна підтримка зі ШІ доступна у Premium.",
+            f"🪶 {quote}\n\n💎 Personalised AI support is available in Premium.",
+        )
+        await m.answer(text, reply_markup=_kb(lang))
+        return
 
     prompt = (
         f"Пользователь написал в разделе Мотивации/Поддержки: «{txt}».\n"
@@ -332,6 +368,11 @@ async def motivation_quote(m: Message, session: AsyncSession):
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     wait_msg = await m.answer("⏳")
+
+    if not is_premium_active(user):
+        await wait_msg.delete()
+        await m.answer(f"🪶 {_random_quote(lang)}", reply_markup=_kb(lang))
+        return
 
     prompt = (
         "Сгенерируй одну мощную, хлесткую и нестандартную мысль для фокуса и дисциплины. "
