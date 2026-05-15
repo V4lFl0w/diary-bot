@@ -7,6 +7,7 @@ from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
@@ -53,9 +54,19 @@ class UserSyncMiddleware(BaseMiddleware):
 
         changed = False
         if user is None:
-            user = User(tg_id=tg_id)
-            session.add(user)
-            changed = True
+            try:
+                user = User(tg_id=tg_id)
+                session.add(user)
+                await session.flush()
+                changed = True
+            except IntegrityError:
+                # Race condition: another concurrent request inserted the same tg_id.
+                # Roll back and re-fetch the row that won the race.
+                await session.rollback()
+                res = await session.execute(select(User).where(User.tg_id == tg_id))
+                user = res.scalar_one_or_none()
+                if user is None:
+                    return await handler(event, data)
 
         # Не затираем на None, обновляем только если пришло значение
         if tg_user.username and user.username != tg_user.username:
