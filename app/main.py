@@ -51,7 +51,6 @@ from app.handlers import media_nav  # или прямой импорт пути,
 from app.handlers.kb import router as kb_router
 from app.logging_setup import setup_logging
 from app.middlewares.ban import BanMiddleware
-from app.middlewares.last_seen import LastSeenMiddleware
 from app.middlewares.policy_gate import PolicyGateMiddleware
 from app.middlewares.rate_limit import RateLimitMiddleware
 from app.middlewares.trace import TraceUpdateMiddleware
@@ -342,8 +341,6 @@ def build_dispatcher() -> Dispatcher:
 
     # 2) Язык/контекст (если надо)
     dp.update.outer_middleware(LangMiddlewareImpl() if LangMiddlewareImpl is not None else _FallbackLangMiddleware())
-
-    dp.update.outer_middleware(LastSeenMiddleware(min_update_seconds=60))
 
     # 3) Политика — железно глобально
     dp.message.outer_middleware(PolicyGateMiddleware())
