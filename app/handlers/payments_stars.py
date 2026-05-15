@@ -354,7 +354,7 @@ async def on_refunded_payment_stars(m: Message, session: AsyncSession) -> None:
     if user:
         user.is_premium = False
         user.premium_until = _utcnow()
-        user.plan = "free"
+        user.premium_plan = "free"
         if hasattr(user, "assistant_plan"):
             user.assistant_plan = "free"
 
@@ -372,10 +372,8 @@ async def on_refunded_payment_stars(m: Message, session: AsyncSession) -> None:
 # 🔥 ИСПРАВЛЕННЫЙ БЛОК: РУЧНОЙ ВОЗВРАТ ТЕПЕРЬ ТОЖЕ СНИМАЕТ ПРЕМИУМ
 @router.message(Command("refund_my_stars"))
 async def force_refund_last_stars(m: Message, bot: Bot, session: AsyncSession):
-    # Я временно снимаю проверку на админа (is_admin_tg), чтобы ты ТОЧНО смог вернуть свои деньги.
-    # Если хочешь закрыть команду от обычных юзеров, раскомментируй эти две строки:
-    # if not is_admin_tg(m.from_user.id):
-    #     return
+    if not m.from_user or not is_admin_tg(m.from_user.id):
+        return
 
     await m.answer("⏳ Ищу последние платежи Stars для возврата и снятия премиума...")
     try:
@@ -396,7 +394,7 @@ async def force_refund_last_stars(m: Message, bot: Bot, session: AsyncSession):
                         if user:
                             user.is_premium = False
                             user.premium_until = _utcnow()
-                            user.plan = "free"
+                            user.premium_plan = "free"
                             if hasattr(user, "assistant_plan"):
                                 user.assistant_plan = "free"
 
