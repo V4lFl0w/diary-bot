@@ -198,8 +198,6 @@ async def cmd_start(m: Message, session: AsyncSession, user: User | None = None)
     kb = get_main_kb(lang=lang, is_premium=is_premium, is_admin=is_admin_tg(tg_id))
 
     if not _policy_accepted(user):
-        text = _TEXTS.get(lang, _TEXTS["ru"])["hello_need_privacy"]
-        await m.answer(text, reply_markup=kb, parse_mode="HTML")
         await privacy_soft_show(m, session)
         return
 
