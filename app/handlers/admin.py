@@ -626,7 +626,9 @@ async def on_admin_cb(c: CallbackQuery, session: AsyncSession, state: FSMContext
         try:
             has_events = (
                 await session.execute(
-                    sql_text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events' LIMIT 1;")
+                    sql_text(
+                        "SELECT 1 FROM information_schema.tables WHERE table_name='events' LIMIT 1;"
+                    )
                 )
             ).scalar_one_or_none()
 

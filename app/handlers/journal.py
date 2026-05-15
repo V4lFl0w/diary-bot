@@ -698,12 +698,25 @@ async def journal_stats(
     try:
         has_analytics = (
             await session.execute(
-                sql_text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='analytics_events' LIMIT 1;")
+                sql_text(
+                    "SELECT 1 FROM information_schema.tables"
+                    " WHERE table_name='analytics_events' LIMIT 1;"
+                )
             )
         ).scalar_one_or_none()
 
         if has_analytics:
-            cols = [r[1] for r in (await session.execute(sql_text("PRAGMA table_info(analytics_events);"))).all()]
+            cols = [
+                r[0]
+                for r in (
+                    await session.execute(
+                        sql_text(
+                            "SELECT column_name FROM information_schema.columns"
+                            " WHERE table_name='analytics_events';"
+                        )
+                    )
+                ).all()
+            ]
             col_tg = "tg_id" if "tg_id" in cols else ("user_id" if "user_id" in cols else None)
             col_name = (
                 "name"
@@ -769,7 +782,11 @@ async def journal_stats(
     # events trial_* (7d)
     try:
         has_events = (
-            await session.execute(sql_text("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events' LIMIT 1;"))
+            await session.execute(
+                sql_text(
+                    "SELECT 1 FROM information_schema.tables WHERE table_name='events' LIMIT 1;"
+                )
+            )
         ).scalar_one_or_none()
 
         if has_events:
