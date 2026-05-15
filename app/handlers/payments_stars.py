@@ -258,50 +258,54 @@ async def on_successful_payment_stars(m: Message, session: AsyncSession) -> None
     if not sp or sp.currency != "XTR":
         return
 
+    # Detect language early from Telegram so error messages are localised
+    # before the user record is loaded from the DB.
+    lang = _normalize_lang(getattr(m.from_user, "language_code", None) if m.from_user else None)
+
     payload = sp.invoice_payload or ""
     if not payload.startswith("premium_stars:"):
         return
 
     parts = payload.split(":")
     if len(parts) != 3:
-        await m.answer(_error_text("ru"))
+        await m.answer(_error_text(lang))
         return
 
     try:
         payment_id = int(parts[1])
         sku = (parts[2] or "").strip().lower()
     except Exception:
-        await m.answer(_error_text("ru"))
+        await m.answer(_error_text(lang))
         return
 
     payment = await session.get(Payment, payment_id)
     if not payment:
-        await m.answer(_error_text("ru"))
+        await m.answer(_error_text(lang))
         return
 
     prov_val = getattr(payment.provider, "value", payment.provider)
     if prov_val != PaymentProvider.STARS.value or payment.currency.upper() != "XTR":
-        await m.answer(_error_text("ru"))
+        await m.answer(_error_text(lang))
         return
 
     db_sku = (getattr(payment, "sku", None) or "").strip().lower()
     if db_sku != sku:
-        await m.answer(_error_text("ru"))
+        await m.answer(_error_text(lang))
         return
 
     spec = get_spec(sku)
     if not spec or int(spec.stars or 0) <= 0:
-        await m.answer(_error_text("ru"))
+        await m.answer(_error_text(lang))
         return
 
     expected = int(spec.stars)
     if int(sp.total_amount or 0) != expected:
-        await m.answer(_error_text("ru"))
+        await m.answer(_error_text(lang))
         return
 
     if payment.status == PaymentStatus.PAID:
         user = await session.get(User, payment.user_id) if payment.user_id else None
-        lang = _lang_of(user, m) if user else "ru"
+        lang = _lang_of(user, m) if user else lang
         kb = (
             get_main_kb(lang, is_premium=True, is_admin=is_admin_tg(m.from_user.id) if m.from_user else False)
             if get_main_kb
@@ -322,8 +326,11 @@ async def on_successful_payment_stars(m: Message, session: AsyncSession) -> None
 
     if not user:
         await session.commit()
-        await m.answer(_error_text("ru"))
+        await m.answer(_error_text(lang))
         return
+
+    # Refine lang now that we have the user record
+    lang = _lang_of(user, m)
 
     duration = int(spec.days) if spec and int(spec.days or 0) > 0 else None
 
@@ -349,7 +356,6 @@ async def on_successful_payment_stars(m: Message, session: AsyncSession) -> None
     )
     await session.commit()
 
-    lang = _lang_of(user, m)
     kb = (
         get_main_kb(lang, is_premium=True, is_admin=is_admin_tg(m.from_user.id) if m.from_user else False)
         if get_main_kb
