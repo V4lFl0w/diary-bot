@@ -8,6 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.admin_audit import log_admin_action
 from app.services.refund_flow import approve_refund, request_refund
 
+try:
+    from app.handlers.admin import is_admin_tg
+except Exception:
+
+    def is_admin_tg(tg_id: int, /) -> bool:
+        return False
+
 router = Router(name="refund")
 
 
@@ -36,6 +43,10 @@ async def cmd_refund_approve(m: Message, session: AsyncSession, lang: Optional[s
     /refund_approve <payment_id> [note...]
     (дальше перенесёшь в админ-панель)
     """
+    if not m.from_user or not is_admin_tg(m.from_user.id):
+        await m.answer("⛔️ Нет доступа.")
+        return
+
     parts = (m.text or "").split(maxsplit=2)
     if len(parts) < 2 or not parts[1].isdigit():
         await m.answer("Формат: /refund_approve payment_id note(optional)")
