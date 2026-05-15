@@ -403,17 +403,18 @@ async def delete_data_cmd(m: Message, session: AsyncSession) -> None:
     # best-effort удаления
     with contextlib.suppress(Exception):
         await session.execute(
-            sql_text("DELETE FROM journal_entries WHERE tg_id=:tg"),
-            {"tg": tg_id},
-        )
-
-    with contextlib.suppress(Exception):
-        await session.execute(
             sql_text("DELETE FROM reminders WHERE tg_id=:tg"),
             {"tg": tg_id},
         )
 
     if user_db_id:
+        with contextlib.suppress(Exception):
+            await session.execute(
+                sql_text("DELETE FROM journal_entries WHERE user_id=:uid"),
+                {"uid": user_db_id},
+            )
+
+
         with contextlib.suppress(Exception):
             await session.execute(
                 sql_text("DELETE FROM user_tracks WHERE user_id=:uid"),
