@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from aiogram import Router
@@ -50,6 +50,7 @@ _TEXTS = {
             "Сначала прими <b>🔒 Политику</b> — это займёт 10 секунд.\n"
             "Прими политику и начнём 👇"
         ),
+        "hello_new": "Добро пожаловать! 🎉 Начни с 📓 Журнал — запиши свою первую мысль.",
         "hello_ready": ("С возвращением! Можешь писать запись командой /journal.\nГлавное меню — внизу."),
     },
     "uk": {
@@ -58,12 +59,14 @@ _TEXTS = {
             "Спочатку прийми <b>🔒 Політику</b> — це займе 10 секунд.\n"
             "Прийми політику і почнемо 👇"
         ),
+        "hello_new": "Ласкаво просимо! 🎉 Почни з 📓 Щоденник — запиши свою першу думку.",
         "hello_ready": ("З поверненням! Можеш писати запис командою /journal.\nГоловне меню — внизу."),
     },
     "en": {
         "hello_need_privacy": (
             "Hi! This is a journal assistant.\nFirst accept <b>🔒 Privacy</b> — takes 10 seconds.\nAccept the policy to get started 👇"
         ),
+        "hello_new": "Welcome! 🎉 Start with 📓 Journal — write your first thought.",
         "hello_ready": ("Welcome back! You can write an entry with /journal.\nMain menu is below."),
     },
 }
@@ -134,13 +137,22 @@ async def cmd_start(m: Message, session: AsyncSession, user: User | None = None)
     try:
         ca = getattr(user, "created_at", None)
         if ca is not None:
-            from datetime import timedelta
-
             if getattr(ca, "tzinfo", None) is None:
                 ca = ca.replace(tzinfo=timezone.utc)
             is_new = (datetime.now(timezone.utc) - ca) <= timedelta(seconds=30)
     except Exception:
         is_new = False
+
+    # также считаем «новым», если политика принята только что (в течение 10 секунд)
+    try:
+        caa = getattr(user, "consent_accepted_at", None)
+        if caa is not None:
+            if getattr(caa, "tzinfo", None) is None:
+                caa = caa.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - caa) <= timedelta(seconds=10):
+                is_new = True
+    except Exception:
+        pass
 
     # deep-link + defaults
     lang_dl, tz_dl = _parse_start_payload(m.text or "")
@@ -185,5 +197,6 @@ async def cmd_start(m: Message, session: AsyncSession, user: User | None = None)
         await privacy_soft_show(m, session)
         return
 
-    text = _TEXTS.get(lang, _TEXTS["ru"])["hello_ready"]
+    key = "hello_new" if is_new else "hello_ready"
+    text = _TEXTS.get(lang, _TEXTS["ru"])[key]
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
