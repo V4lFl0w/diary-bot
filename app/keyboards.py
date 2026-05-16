@@ -187,24 +187,13 @@ def get_main_kb(
         ),
     ]
 
-    # Настройки / Баг-репорт
+    # Настройки
     row_system = [
         KeyboardButton(
             text=_t(
                 lang,
                 "menu_settings_root",
                 {"ru": "⚙️ Настройки", "uk": "⚙️ Налаштування", "en": "⚙️ Settings"},
-            )
-        ),
-        KeyboardButton(
-            text=_t(
-                lang,
-                "btn_report_bug",
-                {
-                    "ru": "🧩 Баг-репорт",
-                    "uk": "🧩 Баг-репорт",
-                    "en": "🧩 Report a bug",
-                },
             )
         ),
     ]
@@ -493,6 +482,20 @@ def get_settings_menu_kb(lang: str) -> ReplyKeyboardMarkup:
         KeyboardButton(text=_t(lang, "btn_about", {"ru": "ℹ️ О боте", "uk": "ℹ️ Про бота", "en": "ℹ️ About"})),
     ]
 
+    row_bug = [
+        KeyboardButton(
+            text=_t(
+                lang,
+                "btn_report_bug",
+                {
+                    "ru": "🧩 Баг-репорт",
+                    "uk": "🧩 Баг-репорт",
+                    "en": "🧩 Report a bug",
+                },
+            )
+        ),
+    ]
+
     row_back = [
         KeyboardButton(
             text=_t(
@@ -502,7 +505,7 @@ def get_settings_menu_kb(lang: str) -> ReplyKeyboardMarkup:
             )
         )
     ]
-    return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[row1, row2, row_back])
+    return ReplyKeyboardMarkup(resize_keyboard=True, keyboard=[row1, row2, row_bug, row_back])
 
 
 # -------------------------------------------------------------------
