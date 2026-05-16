@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from aiogram import Router
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,6 +69,66 @@ _TEXTS = {
         "hello_new": "Welcome! 🎉 Start with 📓 Journal — write your first thought.",
         "hello_ready": ("Welcome back! You can write an entry with /journal.\nMain menu is below."),
     },
+}
+
+_HELP_TEXTS = {
+    "ru": (
+        "<b>Что умею:</b>\n"
+        "📓 Вести журнал мыслей и событий\n"
+        "⏰ Напоминать о задачах\n"
+        "🔥 Считать калории по фото или тексту\n"
+        "🎬 Искать фильмы и сериалы\n"
+        "🤖 Отвечать на вопросы (Premium)\n\n"
+        "<b>Быстрый старт:</b>\n"
+        "1. Нажми 📓 Журнал → напиши мысль\n"
+        "2. Нажми ⏰ Напоминания → создай задачу\n"
+        "3. Или просто напиши — бот подскажет куда\n\n"
+        "<b>Команды:</b>\n"
+        "/journal — новая запись в журнал\n"
+        "/quick &lt;текст&gt; — быстрая запись без промпта\n"
+        "/remind — новое напоминание\n"
+        "/stats — статистика\n"
+        "/cancel — отменить текущее действие\n"
+        "/delete_data — удалить все данные"
+    ),
+    "uk": (
+        "<b>Що вмію:</b>\n"
+        "📓 Вести щоденник думок і подій\n"
+        "⏰ Нагадувати про задачі\n"
+        "🔥 Рахувати калорії по фото або тексту\n"
+        "🎬 Шукати фільми та серіали\n"
+        "🤖 Відповідати на запитання (Premium)\n\n"
+        "<b>Швидкий старт:</b>\n"
+        "1. Натисни 📓 Щоденник → напиши думку\n"
+        "2. Натисни ⏰ Нагадування → створи задачу\n"
+        "3. Або просто напиши — бот підкаже куди\n\n"
+        "<b>Команди:</b>\n"
+        "/journal — новий запис у щоденник\n"
+        "/quick &lt;текст&gt; — швидкий запис без запиту\n"
+        "/remind — нове нагадування\n"
+        "/stats — статистика\n"
+        "/cancel — скасувати поточну дію\n"
+        "/delete_data — видалити всі дані"
+    ),
+    "en": (
+        "<b>What I can do:</b>\n"
+        "📓 Keep a journal of thoughts and events\n"
+        "⏰ Remind you about tasks\n"
+        "🔥 Count calories from photos or text\n"
+        "🎬 Search for movies and shows\n"
+        "🤖 Answer questions (Premium)\n\n"
+        "<b>Quick start:</b>\n"
+        "1. Tap 📓 Journal → write a thought\n"
+        "2. Tap ⏰ Reminders → create a task\n"
+        "3. Or just type — the bot will guide you\n\n"
+        "<b>Commands:</b>\n"
+        "/journal — new journal entry\n"
+        "/quick &lt;text&gt; — quick save without prompt\n"
+        "/remind — new reminder\n"
+        "/stats — statistics\n"
+        "/cancel — cancel current action\n"
+        "/delete_data — delete all data"
+    ),
 }
 
 _SUPPORTED = {"ru", "uk", "en"}
@@ -200,3 +260,17 @@ async def cmd_start(m: Message, session: AsyncSession, user: User | None = None)
     key = "hello_new" if is_new else "hello_ready"
     text = _TEXTS.get(lang, _TEXTS["ru"])[key]
     await m.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.message(Command("help"))
+async def cmd_help(m: Message, session: AsyncSession, user: User | None = None) -> None:
+    if not m.from_user:
+        return
+    if user is None:
+        from sqlalchemy import select
+
+        res = await session.execute(select(User).where(User.tg_id == m.from_user.id))
+        user = res.scalar_one_or_none()
+
+    lang = _norm_locale(getattr(user, "locale", None) or getattr(user, "lang", None) or "ru") if user else "ru"
+    await m.answer(_HELP_TEXTS.get(lang, _HELP_TEXTS["ru"]), parse_mode="HTML")

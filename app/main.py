@@ -167,6 +167,7 @@ def _has_calories_feature() -> bool:
 def _build_commands(include_admin: bool, include_calories: bool) -> Dict[str, list[BotCommand]]:
     ru = [
         BotCommand(command="start", description="Начать"),
+        BotCommand(command="help", description="Справка"),
         BotCommand(command="journal", description="Сделать запись"),
         BotCommand(command="today", description="Записи за 24 часа"),
         BotCommand(command="history", description="История записей"),
@@ -178,6 +179,7 @@ def _build_commands(include_admin: bool, include_calories: bool) -> Dict[str, li
     ]
     uk = [
         BotCommand(command="start", description="Почати"),
+        BotCommand(command="help", description="Довідка"),
         BotCommand(command="journal", description="Зробити запис"),
         BotCommand(command="today", description="Записи за 24 години"),
         BotCommand(command="history", description="Історія записів"),
@@ -189,6 +191,7 @@ def _build_commands(include_admin: bool, include_calories: bool) -> Dict[str, li
     ]
     en = [
         BotCommand(command="start", description="Start"),
+        BotCommand(command="help", description="Help"),
         BotCommand(command="journal", description="New journal entry"),
         BotCommand(command="today", description="Entries from last 24h"),
         BotCommand(command="history", description="Recent entries"),
