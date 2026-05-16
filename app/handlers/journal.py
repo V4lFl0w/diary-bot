@@ -501,11 +501,11 @@ async def journal_save(
             _tr(
                 loc,
                 f"⛔️ Лимит записей в дневник на сегодня исчерпан: {used_daily}/{limit_daily}.\n"
-                "Попробуй завтра или обнови тариф.",
+                "Бесплатный план: 3 записи/день. Premium — без ограничений 💎",
                 f"⛔️ Ліміт записів у щоденник на сьогодні вичерпано: {used_daily}/{limit_daily}.\n"
-                "Спробуй завтра або онови тариф.",
+                "Безкоштовний план: 3 записи/день. Premium — без обмежень 💎",
                 f"⛔️ Daily journal limit reached: {used_daily}/{limit_daily}.\n"
-                "Try again tomorrow or upgrade your plan.",
+                "Free plan: 3 entries/day. Premium — unlimited 💎",
             ),
             reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id, is_premium=is_premium),
         )
@@ -627,6 +627,17 @@ async def journal_save(
             "Premium unlocks: search, ranges, extended history and stats.",
         ),
         reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id, is_premium=is_premium),
+    )
+    await m.answer(
+        _tr(loc, "📖 Посмотреть сегодня", "📖 Переглянути сьогодні", "📖 View today"),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[
+                InlineKeyboardButton(
+                    text=_tr(loc, "📖 Посмотреть сегодня", "📖 Переглянути сьогодні", "📖 View today"),
+                    callback_data="journal:view_today",
+                )
+            ]]
+        ),
     )
 
 
@@ -1099,6 +1110,51 @@ async def cb_journal_open(call: CallbackQuery, session: AsyncSession, lang: Opti
 
     await call.message.answer(msg)
     await call.answer()
+
+
+@router.callback_query(F.data == "journal:view_today")
+async def cb_journal_view_today(call: CallbackQuery, session: AsyncSession, lang: Optional[str] = None):
+    await call.answer()
+    if not call.from_user or not call.message:
+        return
+    user = await _get_user(session, call.from_user.id)
+    loc = _user_lang(user, lang)
+    if not user:
+        return
+
+    tz = _user_tz(user)
+    from datetime import timedelta as _td
+    now = _now_utc().astimezone(tz)
+    since = now - _td(days=1)
+
+    from sqlalchemy import select as _select
+    q = (
+        _select(JournalEntry)
+        .where(JournalEntry.user_id == user.id)
+        .where(JournalEntry.created_at >= since.astimezone(timezone.utc))
+        .order_by(JournalEntry.created_at.desc())
+    )
+    rows = (await session.execute(q)).scalars().all()
+
+    if not rows:
+        await call.message.answer(
+            _tr(loc, "За последние 24 часа записей не было.", "За останні 24 години записів не було.", "No entries in the last 24 hours.")
+        )
+        return
+
+    lines: list[str] = []
+    for e in rows:
+        dt_local = e.created_at
+        if dt_local.tzinfo is None:
+            dt_local = dt_local.replace(tzinfo=timezone.utc)
+        dt_local = dt_local.astimezone(tz)
+        snippet = (e.text or "").strip()
+        if len(snippet) > 80:
+            snippet = snippet[:77] + "…"
+        lines.append(f"{dt_local:%Y-%m-%d %H:%M} — {snippet}")
+
+    header = _tr(loc, "Записи за последние 24 часа:", "Записи за останні 24 години:", "Entries for the last 24 hours:")
+    await call.message.answer(header + "\n\n" + "\n".join(lines))
 
 
 @router.message(F.text.regexp(r"^/open_(\d+)$"))
