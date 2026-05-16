@@ -371,18 +371,22 @@ async def privacy_disagree(c: CallbackQuery, session: AsyncSession) -> None:
 
 # -------------------- delete data --------------------
 
+CB_DELETE_CONFIRM = "delete_data:confirm"
+CB_DELETE_CANCEL = "delete_data:cancel"
 
-@router.message(Command("delete_data"))
-async def delete_data_cmd(m: Message, session: AsyncSession) -> None:
-    await _ensure_cols(session)
 
-    tg_id = m.from_user.id
-    lang = _norm_lang(getattr(m.from_user, "language_code", None))
+def _delete_confirm_kb(lang: str) -> InlineKeyboardMarkup:
+    yes = {"ru": "🗑 Да, удалить всё", "uk": "🗑 Так, видалити все", "en": "🗑 Yes, delete all"}.get(lang, "🗑 Yes, delete all")
+    no = {"ru": "↩️ Отмена", "uk": "↩️ Скасувати", "en": "↩️ Cancel"}.get(lang, "↩️ Cancel")
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[
+            InlineKeyboardButton(text=yes, callback_data=CB_DELETE_CONFIRM),
+            InlineKeyboardButton(text=no, callback_data=CB_DELETE_CANCEL),
+        ]]
+    )
 
-    user = await _get_user(session, tg_id)
-    user_db_id = getattr(user, "id", None) if user else None
 
-    # best-effort удаления
+async def _do_delete_data(session: AsyncSession, tg_id: int, user_db_id: Optional[int], user: Optional[User]) -> None:
     with contextlib.suppress(Exception):
         await session.execute(
             sql_text("DELETE FROM reminders WHERE tg_id=:tg"),
@@ -395,14 +399,11 @@ async def delete_data_cmd(m: Message, session: AsyncSession) -> None:
                 sql_text("DELETE FROM journal_entries WHERE user_id=:uid"),
                 {"uid": user_db_id},
             )
-
-
         with contextlib.suppress(Exception):
             await session.execute(
                 sql_text("DELETE FROM user_tracks WHERE user_id=:uid"),
                 {"uid": user_db_id},
             )
-
         with contextlib.suppress(Exception):
             await session.execute(
                 sql_text("DELETE FROM analytics_events WHERE user_id=:uid"),
@@ -418,19 +419,79 @@ async def delete_data_cmd(m: Message, session: AsyncSession) -> None:
             user.is_premium = False  # type: ignore[attr-defined]
         with contextlib.suppress(Exception):
             user.premium_until = None  # type: ignore[attr-defined]
-
         session.add(user)
 
     with contextlib.suppress(Exception):
         await session.commit()
 
-    await m.answer(
-        {
-            "ru": "Готово. Твои данные удалены ✅\nЕсли захочешь вернуться — просто начни заново с /start.",
-            "uk": "Готово. Твої дані видалено ✅\nЯкщо захочеш повернутись — почни з /start.",
-            "en": "Done. Your data has been deleted ✅\nIf you want to return — start again with /start.",
-        }.get(lang, "Done ✅")
-    )
+
+@router.message(Command("delete_data"))
+async def delete_data_cmd(m: Message, session: AsyncSession) -> None:
+    await _ensure_cols(session)
+    lang = _norm_lang(getattr(m.from_user, "language_code", None))
+
+    confirm_text = {
+        "ru": (
+            "⚠️ Ты удалишь все свои данные: записи, напоминания, историю.\n"
+            "Это необратимо. Продолжить?"
+        ),
+        "uk": (
+            "⚠️ Ти видалиш усі свої дані: записи, нагадування, історію.\n"
+            "Це незворотно. Продовжити?"
+        ),
+        "en": (
+            "⚠️ You will delete all your data: entries, reminders, history.\n"
+            "This cannot be undone. Continue?"
+        ),
+    }
+    await m.answer(confirm_text.get(lang, confirm_text["ru"]), reply_markup=_delete_confirm_kb(lang))
+
+
+@router.callback_query(F.data == CB_DELETE_CONFIRM)
+async def delete_data_confirm_cb(c: CallbackQuery, session: AsyncSession) -> None:
+    if not c.message:
+        return
+
+    await _ensure_cols(session)
+    lang = _norm_lang(getattr(c.from_user, "language_code", None))
+
+    tg_id = c.from_user.id
+    user = await _get_user(session, tg_id)
+    user_db_id = getattr(user, "id", None) if user else None
+
+    await _do_delete_data(session, tg_id, user_db_id, user)
+
+    with contextlib.suppress(Exception):
+        await c.message.edit_reply_markup(reply_markup=None)
+
+    done_text = {
+        "ru": "Готово. Твои данные удалены ✅\nЕсли захочешь вернуться — просто начни заново с /start.",
+        "uk": "Готово. Твої дані видалено ✅\nЯкщо захочеш повернутись — почни з /start.",
+        "en": "Done. Your data has been deleted ✅\nIf you want to return — start again with /start.",
+    }
+    await c.message.answer(done_text.get(lang, "Done ✅"))
+
+    with contextlib.suppress(Exception):
+        await c.answer()
+
+
+@router.callback_query(F.data == CB_DELETE_CANCEL)
+async def delete_data_cancel_cb(c: CallbackQuery) -> None:
+    lang = _norm_lang(getattr(c.from_user, "language_code", None))
+
+    with contextlib.suppress(Exception):
+        await c.message.edit_reply_markup(reply_markup=None)
+
+    cancel_text = {
+        "ru": "Отменил. Данные не удалены.",
+        "uk": "Скасував. Дані не видалено.",
+        "en": "Cancelled. Your data has not been deleted.",
+    }
+    if c.message:
+        await c.message.answer(cancel_text.get(lang, cancel_text["ru"]))
+
+    with contextlib.suppress(Exception):
+        await c.answer()
 
 
 __all__ = ["router", "privacy_show", "privacy_soft_show"]
