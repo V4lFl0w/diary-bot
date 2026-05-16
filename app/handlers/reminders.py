@@ -20,6 +20,8 @@ import httpx
 
 from aiogram import F, Router
 from aiogram.filters import Command, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from sqlalchemy import and_, delete, select, update
@@ -83,6 +85,11 @@ async def _require_feature_v2_safe(*args: Any, **kwargs: Any) -> bool:
 
 
 router = Router(name="reminders")
+
+
+class ReminderFSM(StatesGroup):
+    waiting_time = State()
+
 
 # ---------------------------------------------------------------------
 # Callback helpers (reply/edit) — локально, чтобы не тянуть зависимости
@@ -636,8 +643,108 @@ def _has_any_time_hint(text: str) -> bool:
 # ---------------------------------------------------------------------
 
 
+@router.message(ReminderFSM.waiting_time, F.text)
+async def remind_waiting_time(m: Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
+    if not m.from_user:
+        return
+
+    data = await state.get_data()
+    title = (data.get("reminder_title") or "").strip()
+    if not title:
+        await state.clear()
+        return
+
+    user = await _load_user(session, m.from_user.id)
+    lang_code = await _get_lang(session, m, fallback=lang)
+
+    if not user:
+        await state.clear()
+        await m.answer(_tr(lang_code, "Нажми /start", "Натисни /start", "Press /start"), parse_mode=None)
+        return
+
+    time_text = (m.text or "").strip()
+
+    if time_text.lower() in ("стоп", "stop", "/cancel", "отмена", "скасувати", "cancel"):
+        await state.clear()
+        await m.answer(_tr(lang_code, "Ок, отменил.", "Ок, скасував.", "Ok, cancelled."), parse_mode=None)
+        return
+
+    tz_name = _user_tz_name(user)
+    now_utc = now_utc_fn()
+    now_local = now_utc.astimezone(ZoneInfo(tz_name))
+
+    fake = "напомни tmp " + time_text
+    parsed = parse_any(fake, user_tz=tz_name, now=now_local)
+    pr = getattr(parsed, "reminder", None) if parsed else None
+
+    if not pr:
+        await m.answer(
+            _tr(
+                lang_code,
+                "Не понял время. Например: в 14:00, через 30 минут, завтра в 9.",
+                "Не зрозумів час. Наприклад: о 14:00, через 30 хвилин, завтра о 9.",
+                "Didn't understand the time. E.g.: at 14:00, in 30 min, tomorrow at 9.",
+            ),
+            parse_mode=None,
+        )
+        return
+
+    next_run_utc: Optional[datetime] = None
+    cron: Optional[str] = None
+
+    if getattr(pr, "cron", None):
+        cron = pr.cron
+        next_run_utc = compute_next_run(cron, now_utc, tz_name) if cron else None
+        if not next_run_utc:
+            await m.answer(
+                _tr(lang_code, "Не понял расписание.", "Не зрозумів розклад.", "Couldn't compute schedule."),
+                parse_mode=None,
+            )
+            return
+    else:
+        dt = getattr(pr, "next_run_utc", None)
+        if not isinstance(dt, datetime):
+            await m.answer(
+                _tr(lang_code, "Не понял время.", "Не зрозумів час.", "Couldn't recognise time."),
+                parse_mode=None,
+            )
+            return
+        next_run_utc = to_utc(dt, tz_name)
+
+    await state.clear()
+
+    ok_daily, used_daily, limit_daily = await check_daily_available(session, user, "reminders_daily", 1)
+    if not ok_daily:
+        await m.answer(
+            _tr(
+                lang_code,
+                "Лимит напоминаний исчерпан на сегодня.",
+                "Ліміт нагадувань вичерпано на сьогодні.",
+                "Daily reminders limit reached.",
+            ),
+            parse_mode=None,
+        )
+        return
+
+    r = Reminder(user_id=user.id, title=title, cron=cron, next_run=next_run_utc, is_active=True)
+    session.add(r)
+    await session.commit()
+    await add_daily_usage(session, user, "reminders_daily", 1)
+
+    local_str = _fmt_local(next_run_utc, tz_name)
+    await m.answer(
+        _tr(
+            lang_code,
+            "Готово ✅ «" + title + "»\n\U0001f552 " + local_str,
+            "Готово ✅ «" + title + "»\n\U0001f552 " + local_str,
+            "Done ✅ " + title + "\n\U0001f552 " + local_str,
+        ),
+        parse_mode=None,
+    )
+
+
 @router.message(F.voice, StateFilter(None))
-async def remind_parse_voice(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def remind_parse_voice(m: Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
     """Перехват голоса для создания напоминаний. Если не подходит — отдаем в Журнал/Ассистент"""
     if not m.from_user:
         return
@@ -659,11 +766,11 @@ async def remind_parse_voice(m: Message, session: AsyncSession, lang: Optional[s
 
     new_m = m.model_copy(update={"text": text})
     await new_m.answer(f"🗣 <i>«{text}»</i>", parse_mode="HTML")
-    await remind_parse(new_m, session, lang)
+    await remind_parse(new_m, state, session, lang)
 
 
 @router.message(F.text.func(_should_parse))
-async def remind_parse(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def remind_parse(m: Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
     if not m.from_user:
         return
 
@@ -702,12 +809,14 @@ async def remind_parse(m: Message, session: AsyncSession, lang: Optional[str] = 
         if title_guess and not _has_any_time_hint(raw_text):
             words = [w for w in title_guess.split() if w.strip()]
             if _has_trigger(raw_text) or (1 <= len(words) <= 6):
+                await state.set_state(ReminderFSM.waiting_time)
+                await state.update_data(reminder_title=title_guess)
                 await m.answer(
                     _tr(
                         lang_code,
-                        f"Ок, задачу понял: «{title_guess}». Когда напомнить?",
-                        f"Ок, задачу зрозумів: «{title_guess}». Коли нагадати?",
-                        f"Got it: “{title_guess}”. When should I remind you?",
+                        "Ок, задачу понял: «" + title_guess + "».\nКогда напомнить? Например: в 14:00, через 30 минут, завтра в 9.",
+                        "Ок, задачу зрозумів: «" + title_guess + "».\nКоли нагадати? Наприклад: о 14:00, через 30 хвилин, завтра о 9.",
+                        "Got it: " + title_guess + ".\nWhen should I remind you? E.g.: at 14:00, in 30 min, tomorrow at 9.",
                     ),
                     parse_mode=None,
                 )
