@@ -49,6 +49,7 @@ from app.models.user import User
 from app.services.assistant import run_assistant
 from app.services.media.pipeline_tmdb import _tmdb_best_effort
 from app.services.media_search import build_media_context
+from app.services.media.session import _media_get, _media_uid
 
 # admin check (best-effort)
 try:
@@ -822,6 +823,20 @@ async def _assistant_media_fallback_message(message: Message, state: FSMContext,
         return
 
     if isinstance(reply, str) and _needs_media_kb(reply):
+        try:
+            uid = _media_uid(user)
+            ms = _media_get(uid)
+            if ms and ms.get("items"):
+                initial_ids = [int(it["id"]) for it in ms["items"] if it.get("id")]
+                if initial_ids:
+                    await state.update_data(
+                        _media_page=1,
+                        _media_seen_ids=initial_ids,
+                        _media_last_query=text,
+                        _media_last_lang=lang,
+                    )
+        except Exception:
+            pass
         clean = _strip_media_knobs(reply)
         poster_url, clean2 = _extract_poster_url(clean)
         if poster_url:
@@ -921,6 +936,17 @@ async def assistant_dialog(m: Message, state: FSMContext, session: AsyncSession)
         sticky_media = bool(mode == "media" and until and until > now_utc)
     except Exception:
         sticky_media = False
+
+    if isinstance(reply, str):
+        try:
+            uid = _media_uid(user)
+            ms = _media_get(uid)
+            if ms and ms.get("items"):
+                initial_ids = [int(it["id"]) for it in ms["items"] if it.get("id")]
+                if initial_ids:
+                    await state.update_data(_media_seen_ids=initial_ids)
+        except Exception:
+            pass
 
     if sticky_media and isinstance(reply, str):
         try:
