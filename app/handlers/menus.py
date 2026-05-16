@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 from typing import Optional
 from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.handlers.assistant import _media_inline_kb
+from app.handlers.assistant import _media_inline_kb, _looks_like_media_text
+from app.models.journal import JournalEntry
 from app.keyboards import (
     get_journal_menu_kb,
     get_main_kb,
@@ -435,6 +437,118 @@ async def media_mode_text_router(message: Message, session: AsyncSession, state:
     if reply:
         clean = reply.replace("\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", "")
         await message.answer(clean, reply_markup=_media_inline_kb(lang), parse_mode=None)
+
+
+def _route_kb(lang: str) -> InlineKeyboardMarkup:
+    if lang == "uk":
+        return InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📓 Записати в щоденник", callback_data="route:journal"),
+            InlineKeyboardButton(text="⏰ Створити нагадування", callback_data="route:remind"),
+        ]])
+    if lang == "en":
+        return InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="📓 Save to journal", callback_data="route:journal"),
+            InlineKeyboardButton(text="⏰ Create reminder", callback_data="route:remind"),
+        ]])
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="📓 Записать в журнал", callback_data="route:journal"),
+        InlineKeyboardButton(text="⏰ Создать напоминание", callback_data="route:remind"),
+    ]])
+
+
+@router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
+async def unrecognized_text_fallback(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    if not getattr(message, "from_user", None):
+        raise SkipHandler()
+
+    text = (message.text or "").strip()
+    if len(text) <= 3:
+        raise SkipHandler()
+
+    if _looks_like_media_text(text):
+        raise SkipHandler()
+
+    user = await session.scalar(select(User).where(User.tg_id == message.from_user.id))
+    if not user:
+        raise SkipHandler()
+
+    if getattr(user, "assistant_mode", None) == "media":
+        raise SkipHandler()
+
+    lang = _user_lang(user, getattr(message.from_user, "language_code", None))
+
+    await state.update_data(_pending_text=text)
+
+    prompt = {"ru": "Куда отправить?", "uk": "Куди надіслати?", "en": "Where to send?"}.get(lang, "Куда отправить?")
+    await message.answer(prompt, reply_markup=_route_kb(lang))
+
+
+@router.callback_query(F.data == "route:journal")
+async def route_to_journal(call: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    data = await state.get_data()
+    text = (data.get("_pending_text") or "").strip()
+
+    if not text:
+        await call.answer()
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+
+    user = await _get_user(session, call.from_user.id)
+    lang = _user_lang(user, getattr(call.from_user, "language_code", None))
+
+    entry = JournalEntry(user_id=user.id, text=text)
+    session.add(entry)
+    await state.update_data(_pending_text=None)
+    await session.commit()
+
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    reply = {"ru": "✅ Записал", "uk": "✅ Записав", "en": "✅ Saved"}.get(lang, "✅ Записал")
+    await call.message.answer(reply)
+    await call.answer()
+
+
+@router.callback_query(F.data == "route:remind")
+async def route_to_remind(call: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    from app.handlers.reminders import ReminderFSM
+
+    data = await state.get_data()
+    text = (data.get("_pending_text") or "").strip()
+
+    if not text:
+        await call.answer()
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+
+    user = await _get_user(session, call.from_user.id)
+    lang = _user_lang(user, getattr(call.from_user, "language_code", None))
+
+    await state.set_state(ReminderFSM.waiting_time)
+    await state.update_data(reminder_title=text, _pending_text=None)
+
+    try:
+        await call.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    if lang == "uk":
+        prompt = "Ок, задачу зрозумів: «" + text + "».\nКоли нагадати? Наприклад: о 14:00, через 30 хвилин, завтра о 9."
+    elif lang == "en":
+        prompt = "Got it: «" + text + "».\nWhen should I remind you? E.g.: at 14:00, in 30 min, tomorrow at 9."
+    else:
+        prompt = "Ок, задачу понял: «" + text + "».\nКогда напомнить? Например: в 14:00, через 30 минут, завтра в 9."
+
+    await call.message.answer(prompt)
+    await call.answer()
 
 
 __all__ = ["router"]
