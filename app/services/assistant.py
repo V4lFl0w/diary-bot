@@ -710,7 +710,60 @@ async def build_context(session: Any, user: Optional[User], lang: str, plan: str
     return "\n".join(parts)
 
 
-def _instructions(lang: str, plan: str) -> str:
+_EMOTIONAL_KEYWORDS: dict[str, list[str]] = {
+    "stressed": [
+        "стресс", "паника", "тревога", "не могу", "задыхаюсь", "всё навалилось",
+        "overwhelmed", "anxious", "стрес", "тривога",
+    ],
+    "sad": [
+        "грустно", "плохо", "пусто", "одиноко", "депрессия", "нет сил",
+        "sad", "empty", "lonely", "сумно", "погано",
+    ],
+    "tired": [
+        "устал", "вымотан", "нет энергии", "выгорание",
+        "exhausted", "burned out", "втомився", "немає сил",
+    ],
+    "angry": [
+        "злюсь", "бесит", "ненавижу", "раздражает",
+        "angry", "hate", "злюся",
+    ],
+}
+
+
+def _detect_emotional_state(text: str) -> str:
+    t = (text or "").lower()
+    for state, keywords in _EMOTIONAL_KEYWORDS.items():
+        if any(kw in t for kw in keywords):
+            return state
+    return "neutral"
+
+
+def _instructions(lang: str, plan: str, emotional_state: str = "neutral") -> str:
+    emotional_prefix = ""
+    if emotional_state != "neutral":
+        _state_labels: dict[str, dict[str, str]] = {
+            "stressed": {"ru": "в стрессе", "uk": "у стресі", "en": "stressed"},
+            "sad": {"ru": "грустит/чувствует себя плохо", "uk": "сумує/почувається погано", "en": "sad"},
+            "tired": {"ru": "устал/выгорел", "uk": "втомився/вигорів", "en": "tired/burned out"},
+            "angry": {"ru": "злится/раздражён", "uk": "злиться/роздратований", "en": "angry/irritated"},
+        }
+        label = _state_labels.get(emotional_state, {}).get(lang, emotional_state)
+        if lang == "uk":
+            emotional_prefix = (
+                f"Користувач зараз {label}. Не давай продуктивних порад і планів. "
+                "Спочатку визнай стан одним реченням, потім м'яко запитай що відбувається.\n\n"
+            )
+        elif lang == "en":
+            emotional_prefix = (
+                f"The user is currently {label}. Do not give productivity tips or plans. "
+                "First acknowledge their state in one phrase, then gently ask what is happening.\n\n"
+            )
+        else:
+            emotional_prefix = (
+                f"Пользователь сейчас {label}. Не давай продуктивных советов и планов. "
+                "Сначала признай состояние одной фразой, потом мягко спроси что происходит.\n\n"
+            )
+
     base_map = {
         "ru": "Ты — личный помощник в Telegram. Пиши по-русски.\nНе оценивай настроение и не делай психоанализ.\nЕсли данных не хватает — задай 1 уточняющий вопрос.\n",
         "uk": "Ти — особистий помічник у Telegram. Пиши українською.\nНе оцінюй настрій і не роби психоаналіз.\nЯкщо бракує даних — постав 1 уточнювальне питання.\n",
@@ -721,13 +774,13 @@ def _instructions(lang: str, plan: str) -> str:
     tricks = "\n\nСЕКРЕТНЫЕ НАВЫКИ (Применяй только если это в тему):\n1. Формула Карвонена: Если юзер спрашивает про бег, пульс, кардио или похудение, рассчитай ему пульсовые зоны по формуле Карвонена. Запроси возраст и пульс покоя, если их нет.\n2. Музыкатерапия: Если юзер пишет, что он выгорел, устал или в депрессии, помимо слов поддержки, посоветуй ему послушать конкретный Lo-Fi/Ambient трек или классику (напиши название и автора) и порекомендуй включить раздел 'Медитация' в боте."
 
     if plan == "basic":
-        return (
+        return emotional_prefix + (
             base
             + style
             + "Режим BASIC:\n- 2–6 предложений.\n- Без планов и стратегий без запроса.\n- Журнал не использовать как память.\n"
             + tricks
         )
-    return (
+    return emotional_prefix + (
         base
         + style
         + "Режим PRO:\n- Можно использовать последние записи журнала как контекст.\n- Можно предлагать чеклисты и структуру.\n- Можно задать до 2 уточняющих вопросов.\n- Стиль: умный близкий помощник.\n"
@@ -1097,12 +1150,13 @@ async def run_assistant(
         if last_used and (datetime.now(timezone.utc) - last_used) > timedelta(hours=24):
             prev_id = None
     prompt = f"Context:\n{ctx}\n\nUser message:\n" + (text or "") + "\n"
+    emotional_state = _detect_emotional_state(raw)
 
     try:
         resp = await client.responses.create(
             previous_response_id=prev_id,
             model=model,
-            instructions=_instructions(lang, plan),
+            instructions=_instructions(lang, plan, emotional_state),
             input=prompt,
             max_output_tokens=(260 if plan == "basic" else 650),
         )
