@@ -274,3 +274,42 @@ async def cmd_help(m: Message, session: AsyncSession, user: User | None = None) 
 
     lang = _norm_locale(getattr(user, "locale", None) or getattr(user, "lang", None) or "ru") if user else "ru"
     await m.answer(_HELP_TEXTS.get(lang, _HELP_TEXTS["ru"]), parse_mode="HTML")
+
+
+@router.message(Command("quick"))
+async def cmd_quick(m: Message, session: AsyncSession, user: User | None = None) -> None:
+    if not m.from_user:
+        return
+    from sqlalchemy import select
+    from app.models.journal import JournalEntry
+
+    text = (m.text or "").strip()
+    parts = text.split(maxsplit=1)
+    entry_text = parts[1].strip() if len(parts) > 1 else ""
+
+    if user is None:
+        res = await session.execute(select(User).where(User.tg_id == m.from_user.id))
+        user = res.scalar_one_or_none()
+
+    lang = _norm_locale(getattr(user, "locale", None) or getattr(user, "lang", None) or "ru") if user else "ru"
+
+    if not entry_text:
+        hint = {
+            "ru": "Напиши текст после команды: /quick Созвон с Ваней в пятницу",
+            "uk": "Напиши текст після команди: /quick Дзвінок з Ванею у п'ятницю",
+            "en": "Add text after the command: /quick Call with Ivan on Friday",
+        }.get(lang, "Напиши текст после команды: /quick Созвон с Ваней в пятницу")
+        await m.answer(hint)
+        return
+
+    if user is None:
+        user = User(tg_id=m.from_user.id)
+        session.add(user)
+        await session.flush()
+
+    entry = JournalEntry(user_id=user.id, text=entry_text)
+    session.add(entry)
+    await session.commit()
+
+    reply = {"ru": "✅ Записал", "uk": "✅ Записав", "en": "✅ Saved"}.get(lang, "✅ Записал")
+    await m.answer(reply)
