@@ -579,9 +579,9 @@ async def assistant_entry(m: Message, state: FSMContext, session: AsyncSession) 
     await state.set_state(AssistantFSM.waiting_question)
     msg = _tr(
         lang,
-        "🤖 Режим помощника включён.\nМожешь писать текст или отправить фото.\n\nЧтобы выйти — напиши «стоп» или /cancel.",
-        "🤖 Режим помічника увімкнено.\nМожеш писати текст або надіслати фото.\n\nЩоб вийти — напиши «стоп» або /cancel.",
-        "🤖 Assistant mode is on.\nYou can send text or photos.\n\nTo exit, type 'stop' or /cancel.",
+        "🤖 Режим помощника включён.\nМожешь писать текст или отправить фото.\nИщи фильмы и сериалы — опиши или отправь кадр 🎬\n\nЧтобы выйти — напиши «стоп» или /cancel.",
+        "🤖 Режим помічника увімкнено.\nМожеш писати текст або надіслати фото.\nШукай фільми та серіали — опиши або надішли кадр 🎬\n\nЩоб вийти — напиши «стоп» або /cancel.",
+        "🤖 Assistant mode is on.\nYou can send text or photos.\nSearch movies and shows — describe or send a frame 🎬\n\nTo exit, type 'stop' or /cancel.",
     )
     await m.answer(msg, reply_markup=get_main_kb(lang, is_premium=True, is_admin=is_admin))
 
@@ -628,9 +628,9 @@ async def assistant_entry_cb(cb: CallbackQuery, state: FSMContext, session: Asyn
     await state.set_state(AssistantFSM.waiting_question)
     msg = _tr(
         lang,
-        "🤖 Режим помощника включён.\nМожешь писать текст или отправить фото.\n\nЧтобы выйти — напиши «стоп» или /cancel.",
-        "🤖 Режим помічника увімкнено.\nМожеш писати текст або надіслати фото.\n\nЩоб вийти — напиши «стоп» або /cancel.",
-        "🤖 Assistant mode is on.\nYou can send text or photos.\n\nTo exit, type 'stop' or /cancel.",
+        "🤖 Режим помощника включён.\nМожешь писать текст или отправить фото.\nИщи фильмы и сериалы — опиши или отправь кадр 🎬\n\nЧтобы выйти — напиши «стоп» или /cancel.",
+        "🤖 Режим помічника увімкнено.\nМожеш писати текст або надіслати фото.\nШукай фільми та серіали — опиши або надішли кадр 🎬\n\nЩоб вийти — напиши «стоп» або /cancel.",
+        "🤖 Assistant mode is on.\nYou can send text or photos.\nSearch movies and shows — describe or send a frame 🎬\n\nTo exit, type 'stop' or /cancel.",
     )
     await m.answer(msg, reply_markup=get_main_kb(lang, is_premium=True, is_admin=is_admin))
 
