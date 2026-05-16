@@ -436,6 +436,9 @@ def _has_premium(user: Optional[User]) -> bool:
     return bool(getattr(user, "has_premium", False))
 
 
+_MEDIA_YEAR_RE = re.compile(r"\b(19|20)\d{2}\b")
+
+
 def _looks_like_media_text(text: str) -> bool:
     t = (text or "").lower()
     keys = (
@@ -470,7 +473,14 @@ def _looks_like_media_text(text: str) -> bool:
         "режиссер",
         "режиссёр",
     )
-    return any(k in t for k in keys)
+    if any(k in t for k in keys):
+        return True
+    # "Терминатор 1984" / "Inception 2010" — слово(а) + год выпуска (1900-2099)
+    if _MEDIA_YEAR_RE.search(t):
+        without_year = _MEDIA_YEAR_RE.sub("", t).strip()
+        if any(len(w) >= 3 for w in without_year.split()):
+            return True
+    return False
 
 
 def _is_noise_msg(text: str) -> bool:
