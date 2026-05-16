@@ -608,15 +608,81 @@ async def _log_event(session: AsyncSession, tg_id: int, name: str, meta: str | N
 
 def _build_menu_short(lang: str, user: Dict[str, Any]) -> str:
     """
-    Укороченный апсейл-экран для предпродажи (только если премиум НЕ активен).
-    Цель: быстро объяснить ценность и дать 1 сильный CTA.
+    Апсейл-экран для не-премиум пользователей.
+    Содержит цену, сравнительную таблицу free vs premium и CTA.
     """
     loc = _normalize_lang(lang)
     title = {"ru": "💎 Премиум-доступ", "uk": "💎 Преміум-доступ", "en": "💎 Premium access"}.get(
         loc, "💎 Премиум-доступ"
     )
+    price = {
+        "ru": "от 99 ⭐ Stars / месяц",
+        "uk": "від 99 ⭐ Stars / місяць",
+        "en": "from 99 ⭐ Stars / month",
+    }.get(loc, "от 99 ⭐ Stars / месяц")
 
-    return f"{title}\n\n{t_local(loc, 'presale_lines')}"
+    if loc == "uk":
+        free_title = "Безкоштовно:"
+        premium_title = "Преміум:"
+        free = [
+            "✅ Щоденний журнал /journal",
+            "✅ Нагадування /remind",
+            "✅ Базова статистика /stats",
+            "✅ Базові медитації та музика",
+            "✅ Калорії текстом",
+        ]
+        premium = [
+            "🔐 Розширені нагадування",
+            "🔐 Преміум-медитації та плейлисти",
+            "🔐 Розширена статистика",
+            "🔐 Калорії з фото",
+            "🔐 Пріоритетна підтримка",
+        ]
+        cta = "Щоб відкрити замочки, оформи преміум нижче 👇"
+    elif loc == "en":
+        free_title = "Free:"
+        premium_title = "Premium:"
+        free = [
+            "✅ Daily journal /journal",
+            "✅ Reminders /remind",
+            "✅ Basic statistics /stats",
+            "✅ Basic meditations and music",
+            "✅ Text calories",
+        ]
+        premium = [
+            "🔐 Advanced reminders",
+            "🔐 Premium meditations and playlists",
+            "🔐 Extended statistics",
+            "🔐 Photo calories",
+            "🔐 Priority support",
+        ]
+        cta = "To unlock everything, activate Premium below 👇"
+    else:
+        free_title = "Бесплатно:"
+        premium_title = "Премиум:"
+        free = [
+            "✅ Ежедневный журнал /journal",
+            "✅ Напоминания /remind",
+            "✅ Базовая статистика /stats",
+            "✅ Базовые медитации и музыка",
+            "✅ Калории текстом",
+        ]
+        premium = [
+            "🔐 Расширенные напоминания",
+            "🔐 Премиум-медитации и плейлисты",
+            "🔐 Расширенная статистика",
+            "🔐 Калории по фото",
+            "🔐 Приоритетная поддержка",
+        ]
+        cta = "Чтобы открыть замочки, оформи премиум ниже 👇"
+
+    return (
+        f"{title}\n\n"
+        f"💰 {price}\n\n"
+        f"{free_title}\n" + "\n".join(free) + f"\n\n"
+        f"{premium_title}\n" + "\n".join(premium) + f"\n\n"
+        f"{cta}"
+    )
 
 
 def _build_menu(lang: str, user: Dict[str, Any], has_sub: bool = False) -> str:
@@ -774,7 +840,7 @@ async def cmd_premium(
             lang_code,
             m.from_user.id,
             show_trial=not user.get("premium_trial_given"),
-            show_details=True,
+            show_details=False,
             show_stars=False,
             show_refund=show_refund,
         )
@@ -804,7 +870,7 @@ async def open_premium_cb(
             lang_code,
             c.from_user.id,
             show_trial=not user.get("premium_trial_given"),
-            show_details=True,
+            show_details=False,
             show_stars=False,
             show_refund=show_refund,
         )
