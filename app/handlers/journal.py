@@ -284,51 +284,37 @@ async def journal_prompt(
         _tr(
             loc,
             (
-                "📒 <b>Твой личный дневник</b>\n\n"
-                "Выгружай сюда всё, что крутится в голове. Я не просто сохраню текст, а помогу найти взаимосвязи, подсвечу главное и напомню о важных инсайтах.\n\n"
-                "💡 <i>С чего начать?</i>\n"
-                "• Какая главная победа или мысль за сегодня?\n"
-                "• Что забирает твою энергию прямо сейчас?\n"
-                "• Какой один микро-шаг сделает завтрашний день лучше?\n\n"
-                "Напиши всё одним сообщением 👇\n"
+                "📓 Напиши всё что думаешь — без правил и структуры.\n"
+                "Просто выгрузи голову 👇\n"
                 + (
                     "<i>💎 В Premium доступен поиск, фильтры и глубокая аналитика мыслей.</i>\n\n"
                     if not is_premium
-                    else ""
+                    else "\n"
                 )
                 + "/cancel — отменить"
             ),
             (
-                "📒 <b>Твій особистий щоденник</b>\n\n"
-                "Вивантажуй сюди все, що крутиться в голові. Я не просто збережу текст, а допоможу знайти взаємозв'язки, підсвічу головне і нагадаю про важливі інсайти.\n\n"
-                "💡 <i>З чого почати?</i>\n"
-                "• Яка головна перемога чи думка за сьогодні?\n"
-                "• Що забирає твою енергію прямо зараз?\n"
-                "• Який один мікро-крок зробить завтрашній день кращим?\n\n"
-                "Напиши все одним повідомленням 👇\n"
+                "📓 Напиши все що думаєш — без правил і структури.\n"
+                "Просто вивантаж голову 👇\n"
                 + (
                     "<i>💎 У Premium доступний пошук, фільтри та глибока аналітика думок.</i>\n\n"
                     if not is_premium
-                    else ""
+                    else "\n"
                 )
                 + "/cancel — скасувати"
             ),
             (
-                "📒 <b>Your personal journal</b>\n\n"
-                "Offload everything on your mind. I won't just save the text, I'll help you find patterns, highlight what matters, and remind you of key insights.\n\n"
-                "💡 <i>Where to start?</i>\n"
-                "• What was your main win or thought today?\n"
-                "• What's draining your energy right now?\n"
-                "• What's one micro-step to make tomorrow better?\n\n"
-                "Write it all in one message 👇\n"
+                "📓 Write whatever's on your mind — no rules, no structure.\n"
+                "Just unload your head 👇\n"
                 + (
                     "<i>💎 Premium unlocks search, filters, and deep thought analytics.</i>\n\n"
                     if not is_premium
-                    else ""
+                    else "\n"
                 )
                 + "/cancel — cancel"
             ),
-        )
+        ),
+        parse_mode="HTML",
     )
 
 
