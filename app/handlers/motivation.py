@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
-from app.services.assistant import run_assistant
+from app.services.assistant import run_assistant, _detect_emotional_state
 from app.services.premium_check import is_premium_active
 
 try:
@@ -204,13 +204,29 @@ async def motivation_support_reply(m: Message, session: AsyncSession, state: FSM
 
     wait_msg = await m.answer("⏳")
 
-    prompt = (
-        f"Пользователь написал в разделе Мотивации/Поддержки: «{txt}».\n"
-        "Правила ответа (максимум 3-4 короткие строки):\n"
-        "1. Если сообщение позитивное (радость, успех, всё хорошо) — похвали, дай заряд энергии, скажи что он красавчик. НИКАКОГО УТЕШЕНИЯ И ЖАЛОСТИ!\n"
-        "2. Если сообщение негативное (усталость, грусть, страх) — дай короткую эмпатичную поддержку без воды и один микро-совет.\n"
-        f"ОТВЕЧАЙ СТРОГО НА ЯЗЫКЕ: {lang}\n"
-    )
+    emotional_state = _detect_emotional_state(txt)
+
+    if emotional_state != "neutral":
+        _state_labels: dict[str, str] = {
+            "stressed": "в стрессе",
+            "sad": "в грусти/чувствует себя плохо",
+            "tired": "устал/выгорел",
+            "angry": "злится/раздражён",
+        }
+        state_label = _state_labels.get(emotional_state, emotional_state)
+        prompt = (
+            f"Пользователь написал: «{txt}» в состоянии: {state_label}.\n"
+            "Ответь как живой человек который слышит и понимает. Без советов, без мотивации. Максимум 2-3 строки.\n"
+            f"ОТВЕЧАЙ СТРОГО НА ЯЗЫКЕ: {lang}\n"
+        )
+    else:
+        prompt = (
+            f"Пользователь написал в разделе Мотивации/Поддержки: «{txt}».\n"
+            "Правила ответа (максимум 3-4 короткие строки):\n"
+            "1. Если сообщение позитивное (радость, успех, всё хорошо) — похвали, дай заряд энергии, скажи что он красавчик. НИКАКОГО УТЕШЕНИЯ И ЖАЛОСТИ!\n"
+            "2. Если сообщение негативное (усталость, грусть, страх) — дай короткую эмпатичную поддержку без воды и один микро-совет.\n"
+            f"ОТВЕЧАЙ СТРОГО НА ЯЗЫКЕ: {lang}\n"
+        )
 
     reply = await run_assistant(user, prompt, lang, session=session)
 
