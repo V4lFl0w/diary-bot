@@ -428,6 +428,9 @@ async def media_mode_text_router(message: Message, session: AsyncSession, state:
         await message.answer(_menu_hint.get(lang, _menu_hint["ru"]))
         return
 
+    # каждый новый запрос начинает пагинацию с чистого листа
+    await state.update_data(_media_page=1, _media_seen_ids=[])
+
     reply = await run_assistant(user, text, lang, session=session)
     if reply:
         clean = reply.replace("\nКнопки: ✅ Это оно / 🔁 Другие варианты / 🧩 Уточнить", "")
