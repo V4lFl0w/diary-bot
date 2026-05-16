@@ -497,14 +497,18 @@ async def journal_save(
     ok_daily, used_daily, limit_daily = await check_daily_available(session, user, "journal_entries_daily", 1)
     if not ok_daily:
         await state.clear()
+        eta = get_daily_reset_eta_text(user, loc)
         await m.answer(
             _tr(
                 loc,
                 f"⛔️ Лимит записей в дневник на сегодня исчерпан: {used_daily}/{limit_daily}.\n"
+                f"Сбросится через: {eta}\n"
                 "Бесплатный план: 3 записи/день. Premium — без ограничений 💎",
                 f"⛔️ Ліміт записів у щоденник на сьогодні вичерпано: {used_daily}/{limit_daily}.\n"
+                f"Скинеться через: {eta}\n"
                 "Безкоштовний план: 3 записи/день. Premium — без обмежень 💎",
                 f"⛔️ Daily journal limit reached: {used_daily}/{limit_daily}.\n"
+                f"Resets in: {eta}\n"
                 "Free plan: 3 entries/day. Premium — unlimited 💎",
             ),
             reply_markup=_main_kb_for(user, loc, tg_id=m.from_user.id, is_premium=is_premium),
