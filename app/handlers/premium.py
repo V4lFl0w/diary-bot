@@ -616,10 +616,10 @@ def _build_menu_short(lang: str, user: Dict[str, Any]) -> str:
         loc, "💎 Премиум-доступ"
     )
     price = {
-        "ru": "от 99 ⭐ Stars / месяц",
-        "uk": "від 99 ⭐ Stars / місяць",
-        "en": "from 99 ⭐ Stars / month",
-    }.get(loc, "от 99 ⭐ Stars / месяц")
+        "ru": "от 199 ⭐ Stars / месяц",
+        "uk": "від 199 ⭐ Stars / місяць",
+        "en": "from 199 ⭐ Stars / month",
+    }.get(loc, "от 199 ⭐ Stars / месяц")
 
     if loc == "uk":
         free_title = "Безкоштовно:"
