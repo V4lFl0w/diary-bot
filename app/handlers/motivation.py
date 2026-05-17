@@ -207,13 +207,29 @@ async def motivation_support_reply(m: Message, session: AsyncSession, state: FSM
     emotional_state = _detect_emotional_state(txt)
 
     if emotional_state != "neutral":
-        _state_labels: dict[str, str] = {
-            "stressed": "в стрессе",
-            "sad": "в грусти/чувствует себя плохо",
-            "tired": "устал/выгорел",
-            "angry": "злится/раздражён",
+        _state_labels_by_lang: dict[str, dict[str, str]] = {
+            "ru": {
+                "stressed": "в стрессе",
+                "sad": "в грусти/чувствует себя плохо",
+                "tired": "устал/выгорел",
+                "angry": "злится/раздражён",
+            },
+            "uk": {
+                "stressed": "у стресі",
+                "sad": "сумує",
+                "tired": "втомився",
+                "angry": "злиться",
+            },
+            "en": {
+                "stressed": "stressed",
+                "sad": "feeling down",
+                "tired": "tired",
+                "angry": "angry",
+            },
         }
-        state_label = _state_labels.get(emotional_state, emotional_state)
+        state_label = _state_labels_by_lang.get(lang, _state_labels_by_lang["ru"]).get(
+            emotional_state, emotional_state
+        )
         prompt = (
             f"Пользователь написал: «{txt}» в состоянии: {state_label}.\n"
             "Ответь как живой человек который слышит и понимает. Без советов, без мотивации. Максимум 2-3 строки.\n"
