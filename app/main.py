@@ -59,6 +59,7 @@ from app.middlewares.trace import TraceUpdateMiddleware
 
 from app.features import router as features_router
 from app.handlers import (
+    common,
     data_privacy,
     journal,
     language,
@@ -361,6 +362,7 @@ def build_dispatcher() -> Dispatcher:
     dp.callback_query.middleware(RateLimitMiddleware(max_events=40, per_seconds=10))
 
     # ----- роутеры -----
+    dp.include_router(common.router)  # глобальный /cancel — должен быть первым
     dp.include_router(premium.router)
     dp.include_router(premium_bridge_v2.router)
     dp.include_router(premium_reset.router)
