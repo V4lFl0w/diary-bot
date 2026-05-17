@@ -38,6 +38,7 @@ from app.services.assistant import (
     _assistant_plan,
     _next_slot_eta_24h,
     _format_eta_short,
+    _is_menu_click,
 )
 from app.services.daily_limits import get_daily_reset_eta_text, get_daily_limit, get_daily_used
 
@@ -463,6 +464,9 @@ async def unrecognized_text_fallback(message: Message, session: AsyncSession, st
 
     text = (message.text or "").strip()
     if len(text) <= 3:
+        raise SkipHandler()
+
+    if _is_menu_click(text):
         raise SkipHandler()
 
     if _looks_like_media_text(text):
