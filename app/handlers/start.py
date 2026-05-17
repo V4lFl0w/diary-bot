@@ -307,8 +307,34 @@ async def cmd_quick(m: Message, session: AsyncSession, user: User | None = None)
         session.add(user)
         await session.flush()
 
+    from app.services.daily_limits import check_daily_available, add_daily_usage, get_daily_reset_eta_text
+
+    ok_daily, used_daily, limit_daily = await check_daily_available(session, user, "journal_entries_daily", 1)
+    if not ok_daily:
+        eta = get_daily_reset_eta_text(user, lang)
+        limit_msg = {
+            "ru": (
+                f"⛔️ Лимит записей в дневник на сегодня исчерпан: {used_daily}/{limit_daily}.\n"
+                f"Сбросится через: {eta}\n"
+                "Бесплатный план: 3 записи/день. Premium — без ограничений 💎"
+            ),
+            "uk": (
+                f"⛔️ Ліміт записів у щоденник на сьогодні вичерпано: {used_daily}/{limit_daily}.\n"
+                f"Скинеться через: {eta}\n"
+                "Безкоштовний план: 3 записи/день. Premium — без обмежень 💎"
+            ),
+            "en": (
+                f"⛔️ Daily journal limit reached: {used_daily}/{limit_daily}.\n"
+                f"Resets in: {eta}\n"
+                "Free plan: 3 entries/day. Premium — unlimited 💎"
+            ),
+        }.get(lang, f"⛔️ Лимит записей в дневник на сегодня исчерпан: {used_daily}/{limit_daily}.\nСбросится через: {eta}")
+        await m.answer(limit_msg)
+        return
+
     entry = JournalEntry(user_id=user.id, text=entry_text)
     session.add(entry)
+    await add_daily_usage(session, user, "journal_entries_daily", 1)
     await session.commit()
 
     reply = {"ru": "✅ Записал", "uk": "✅ Записав", "en": "✅ Saved"}.get(lang, "✅ Записал")

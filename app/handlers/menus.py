@@ -40,7 +40,13 @@ from app.services.assistant import (
     _format_eta_short,
     _is_menu_click,
 )
-from app.services.daily_limits import get_daily_reset_eta_text, get_daily_limit, get_daily_used
+from app.services.daily_limits import (
+    check_daily_available,
+    add_daily_usage,
+    get_daily_reset_eta_text,
+    get_daily_limit,
+    get_daily_used,
+)
 
 router = Router(name="menus")
 
@@ -503,9 +509,39 @@ async def route_to_journal(call: CallbackQuery, session: AsyncSession, state: FS
     user = await _get_user(session, call.from_user.id)
     lang = _user_lang(user, getattr(call.from_user, "language_code", None))
 
+    ok_daily, used_daily, limit_daily = await check_daily_available(session, user, "journal_entries_daily", 1)
+    if not ok_daily:
+        eta = get_daily_reset_eta_text(user, lang)
+        await state.update_data(_pending_text=None)
+        try:
+            await call.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        limit_msg = {
+            "ru": (
+                f"⛔️ Лимит записей в дневник на сегодня исчерпан: {used_daily}/{limit_daily}.\n"
+                f"Сбросится через: {eta}\n"
+                "Бесплатный план: 3 записи/день. Premium — без ограничений 💎"
+            ),
+            "uk": (
+                f"⛔️ Ліміт записів у щоденник на сьогодні вичерпано: {used_daily}/{limit_daily}.\n"
+                f"Скинеться через: {eta}\n"
+                "Безкоштовний план: 3 записи/день. Premium — без обмежень 💎"
+            ),
+            "en": (
+                f"⛔️ Daily journal limit reached: {used_daily}/{limit_daily}.\n"
+                f"Resets in: {eta}\n"
+                "Free plan: 3 entries/day. Premium — unlimited 💎"
+            ),
+        }.get(lang, f"⛔️ Лимит записей в дневник на сегодня исчерпан: {used_daily}/{limit_daily}.\nСбросится через: {eta}")
+        await call.message.answer(limit_msg)
+        await call.answer()
+        return
+
     entry = JournalEntry(user_id=user.id, text=text)
     session.add(entry)
     await state.update_data(_pending_text=None)
+    await add_daily_usage(session, user, "journal_entries_daily", 1)
     await session.commit()
 
     try:
