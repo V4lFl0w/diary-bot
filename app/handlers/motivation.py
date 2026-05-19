@@ -66,6 +66,7 @@ class MotStates(StatesGroup):
     waiting_support = State()
     waiting_jump = State()
     waiting_comeback = State()
+    waiting_done = State()
 
 
 def _kb(lang: str) -> ReplyKeyboardMarkup:
@@ -185,7 +186,7 @@ async def motivation_support_reply(m: Message, session: AsyncSession, state: FSM
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     txt = (m.text or "").strip()
-    await state.clear()
+    await state.set_state(MotStates.waiting_done)
 
     if not is_premium_active(user):
         quote = _random_quote(lang)
@@ -272,7 +273,7 @@ async def motivation_jump_reply(m: Message, session: AsyncSession, state: FSMCon
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     task = (m.text or "").strip()
-    await state.clear()
+    await state.set_state(MotStates.waiting_done)
 
     await m.answer(
         _t(
@@ -285,48 +286,51 @@ async def motivation_jump_reply(m: Message, session: AsyncSession, state: FSMCon
     )
 
 
-@router.message(F.text.casefold().in_({"готово", "done"}))
-async def motivation_done(m: Message, session: AsyncSession):
+@router.message(MotStates.waiting_done, F.text.casefold().in_({“готово”, “done”}))
+async def motivation_done(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(user, getattr(m.from_user, “language_code”, None) if m.from_user else None)
 
+    await state.clear()
     await m.answer(
         _t(
             lang,
-            "Красавчик ✅\nТеперь самое важное: не потерять импульс.\n\nВыбери:\n1) ещё 15 минут (продолжаю)\n2) закрываю и фиксирую (стоп)\n\nНапиши: «ещё 15» или «стоп».",
-            "Красень ✅\nТепер головне: не втратити імпульс.\n\nОбери:\n1) ще 15 хв (продовжую)\n2) закриваю і фіксую (стоп)\n\nНапиши: «ще 15» або «стоп».",
-            "Nice ✅\nNow the key: keep the impulse.\n\nChoose:\n1) another 15 min (continue)\n2) stop and lock it (stop)\n\nReply: “another 15” or “stop”.",
+            “Красавчик ✅\nТеперь самое важное: не потерять импульс.\n\nВыбери:\n1) ещё 15 минут (продолжаю)\n2) закрываю и фиксирую (стоп)\n\nНапиши: «ещё 15» или «стоп».”,
+            “Красень ✅\nТепер головне: не втратити імпульс.\n\nОбери:\n1) ще 15 хв (продовжую)\n2) закриваю і фіксую (стоп)\n\nНапиши: «ще 15» або «стоп».”,
+            “Nice ✅\nNow the key: keep the impulse.\n\nChoose:\n1) another 15 min (continue)\n2) stop and lock it (stop)\n\nReply: “another 15” or “stop”.”,
         ),
         reply_markup=_kb(lang),
     )
 
 
-@router.message(F.text.casefold().in_({"еще 15", "ещё 15", "another 15"}))
-async def motivation_more_15(m: Message, session: AsyncSession):
+@router.message(MotStates.waiting_done, F.text.casefold().in_({“еще 15”, “ещё 15”, “another 15”}))
+async def motivation_more_15(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(user, getattr(m.from_user, “language_code”, None) if m.from_user else None)
 
+    await state.set_state(MotStates.waiting_done)
     await m.answer(
         _t(
             lang,
-            "Погнали 🥇\nПоставь таймер на 15 минут и просто делай.\nПосле — напиши «Готово».",
-            "Погнали 🥇\nПостав таймер на 15 хв і просто роби.\nПісля — напиши «Готово».",
-            "Let’s go 🥇\nSet a 15-min timer and just do it.\nAfter — reply “Done”.",
+            “Погнали 🥇\nПоставь таймер на 15 минут и просто делай.\nПосле — напиши «Готово».”,
+            “Погнали 🥇\nПостав таймер на 15 хв і просто роби.\nПісля — напиши «Готово».”,
+            “Let’s go 🥇\nSet a 15-min timer and just do it.\nAfter — reply “Done”.”,
         )
     )
 
 
-@router.message(F.text.casefold().in_({"стоп", "stop"}))
-async def motivation_stop(m: Message, session: AsyncSession):
+@router.message(MotStates.waiting_done, F.text.casefold().in_({“стоп”, “stop”}))
+async def motivation_stop(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    lang = _user_lang(user, getattr(m.from_user, “language_code”, None) if m.from_user else None)
 
+    await state.clear()
     await m.answer(
         _t(
             lang,
-            "Зафиксировал ✅\n\nОдин честный шаг сделан.\nХочешь — возьми 🪶 Цитату (новая) для закрепления.",
-            "Зафіксував ✅\n\nОдин чесний крок зроблено.\nХочеш — візьми 🪶 Цитату (нова) для закріплення.",
-            "Locked ✅\n\nOne honest step is done.\nIf you want — grab 🪶 New quote to seal it.",
+            “Зафиксировал ✅\n\nОдин честный шаг сделан.\nХочешь — возьми 🪶 Новую цитату для закрепления.”,
+            “Зафіксував ✅\n\nОдин чесний крок зроблено.\nХочеш — візьми 🪶 Нову цитату для закріплення.”,
+            “Locked ✅\n\nOne honest step is done.\nIf you want — grab 🪶 New quote to seal it.”,
         ),
         reply_markup=_kb(lang),
     )
@@ -353,15 +357,15 @@ async def motivation_comeback_reply(m: Message, session: AsyncSession, state: FS
     user = await _get_user(session, m.from_user.id) if m.from_user else None
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
-    focus = (m.text or "").strip()
-    await state.clear()
+    focus = (m.text or “”).strip()
+    await state.set_state(MotStates.waiting_done)
 
     await m.answer(
         _t(
             lang,
-            f"Ок. Возвращаем «{focus}» ✅\n\nСейчас — один микро-шаг на 2 минуты.\nЕсли хочешь, я дам толчок: нажми ⚡ Святой прыжок (15 минут).",
-            f"Ок. Повертаємо «{focus}» ✅\n\nЗараз — один мікро-крок на 2 хвилини.\nЯкщо хочеш, дам поштовх: натисни ⚡ Святий стрибок (15 хв).",
-            f"Ok. We bring back “{focus}” ✅\n\nNow — one 2-minute micro step.\nIf you want a push: tap ⚡ Holy jump (15 min).",
+            f”Ок. Возвращаем «{focus}» ✅\n\nСейчас — один микро-шаг на 2 минуты.\nЕсли хочешь, я дам толчок: нажми ⚡ Фокус (15 минут).”,
+            f”Ок. Повертаємо «{focus}» ✅\n\nЗараз — один мікро-крок на 2 хвилини.\nЯкщо хочеш, дам поштовх: натисни ⚡ Фокус (15 хв).”,
+            f”Ok. We bring back “{focus}” ✅\n\nNow — one 2-minute micro step.\nIf you want a push: tap ⚡ Focus (15 min).”,
         ),
         reply_markup=_kb(lang),
     )
@@ -395,6 +399,17 @@ async def motivation_streak(m: Message, session: AsyncSession):
         )
 
     await m.answer(msg, reply_markup=_kb(lang))
+
+
+@router.message(MotStates.waiting_done, F.text)
+async def motivation_waiting_done_any(m: Message, session: AsyncSession, state: FSMContext):
+    user = await _get_user(session, m.from_user.id) if m.from_user else None
+    lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
+    await state.clear()
+    await m.answer(
+        _t(lang, "Выбери кнопку 👇", "Обери кнопку 👇", "Choose a button 👇"),
+        reply_markup=_kb(lang),
+    )
 
 
 @router.message(F.text.in_(set(BTN_QUOTE.values())))
