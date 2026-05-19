@@ -515,6 +515,22 @@ def _strip_cmd_prefix(text: str) -> str:
     return s.strip()
 
 
+_RE_EXPLICIT_WEIGHT = re.compile(
+    r"\b\d+(?:[.,]\d+)?\s*(?:г|гр|г\.|grams?|kg|кг|мл|ml|oz|lb|lbs|фунт|унц|ounce)\b",
+    re.IGNORECASE,
+)
+_RE_EXPLICIT_COUNT = re.compile(
+    r"\b\d+\s*(?:шт(?:ук)?|яиц|яйц|яйцо|яйца|кусок|куска|ломтик|стакан|чашк|кружк|порци|тарелк|миск|"
+    r"egg|piece|slice|cup|bowl|glass|tbsp|tsp|ложк|ст\.?\s*л|чайн)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_explicit_quantity(text: str) -> bool:
+    """Return True if text has an explicit weight, volume, or count."""
+    return bool(_RE_EXPLICIT_WEIGHT.search(text) or _RE_EXPLICIT_COUNT.search(text))
+
+
 def _is_root_menu_text(text: str) -> bool:
     return any(
         fn(text)
@@ -998,6 +1014,7 @@ async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None
         "1) If the user lists MULTIPLE items, you MUST calculate the nutrition for EACH item and return the SUM TOTAL. "
         "2) If the exact weight is not specified, assume REALISTIC restaurant/home serving sizes (e.g., standard shawarma is 350-400g (~600-800 kcal), 1 slice of pizza is ~200-250 kcal, 1 burger is 400-600 kcal). "
         "3) NEVER artificially lower the calories. Use highly accurate USDA or standard nutritional database values. Fast food and street food are very calorie-dense—reflect this accurately. "
+        "4) For high-protein athlete foods (chicken breast, beef, fish, cottage cheese, eggs), use the actual weight given; if no weight given, assume a typical athlete meal portion: chicken/beef/fish ~200-300 g, cottage cheese ~250 g, eggs 2-3 pcs. Do NOT assume 80-100 g for a full serving. "
         "Return ONLY a valid JSON object with keys: kcal (number, TOTAL sum), p (number, TOTAL protein), f (number, TOTAL fat), c (number, TOTAL carbs), "
         "title (string, a short comma-separated list of the recognized items in the target language), and confidence (number 0.0-1.0). "
         f"Ensure all text fields are in {lang_name}."
@@ -1549,6 +1566,26 @@ async def cal_text_in_mode(
         )
         return
 
+    # If no explicit quantity for a simple food name — ask user for portion first
+    if not _has_explicit_quantity(payload) and len(payload.split()) <= 5 and "," not in payload:
+        await state.update_data(cal_last_text_query=payload)
+        await state.set_state(CaloriesFSM.waiting_portion)
+        await message.answer(
+            _tr(
+                lang_code,
+                f"⚖️ «{payload}» — сколько граммов / штук / порций?\n"
+                "Например: 200 г, 2 кусочка, 1 тарелка\n"
+                "/cancel — пропустить",
+                f"⚖️ «{payload}» — скільки грамів / штук / порцій?\n"
+                "Наприклад: 200 г, 2 кусочки, 1 тарілка\n"
+                "/cancel — пропустити",
+                f"⚖️ «{payload}» — how many grams / pieces / portions?\n"
+                "E.g.: 200 g, 2 pieces, 1 serving\n"
+                "/cancel — skip",
+            )
+        )
+        return
+
     res = await analyze_text(payload, lang_code=lang_code, session=session, user=user)
     if _kcal_is_invalid(res):
         await message.answer(
@@ -1627,10 +1664,16 @@ async def cal_portion_in_mode(
     data = await state.get_data()
     last_file_id = data.get("cal_last_photo_file_id")
     last_photo_res = data.get("cal_last_photo_res") if isinstance(data.get("cal_last_photo_res"), dict) else None
+    original_food = data.get("cal_last_text_query")
 
     payload = _strip_cmd_prefix(text)
     if not payload:
         return
+
+    # Combine original food name with user-specified portion
+    if original_food and not last_file_id:
+        payload = f"{original_food} {payload}"
+        await state.update_data(cal_last_text_query=None)
 
     res = await analyze_text(payload, lang_code=lang_code, session=session, user=user)
     if _kcal_is_invalid(res):
