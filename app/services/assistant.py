@@ -66,9 +66,11 @@ from app.services.media.vision_parse import (
 )
 
 from app.keyboards import (
+    is_about_btn,
     is_admin_btn,
     is_back_btn,
     is_data_privacy_btn,
+    is_journal_add_btn,
     is_journal_btn,
     is_journal_history_btn,
     is_journal_range_btn,
@@ -80,6 +82,8 @@ from app.keyboards import (
     is_music_btn,
     is_premium_card_btn,
     is_premium_info_btn,
+    is_premium_refund_btn,
+    is_premium_renew_btn,
     is_premium_stars_btn,
     is_privacy_btn,
     is_report_bug_btn,
@@ -87,9 +91,12 @@ from app.keyboards import (
     is_root_calories_btn,
     is_root_journal_btn,
     is_root_media_btn,
+    is_root_motivation_btn,
     is_root_premium_btn,
     is_root_proactive_btn,
+    is_root_profile_btn,
     is_root_reminders_btn,
+    is_root_settings_btn,
     is_root_stats_btn,
 )
 
@@ -1417,9 +1424,13 @@ def _is_menu_click(text: str) -> bool:
             is_root_media_btn,
             is_root_premium_btn,
             is_root_proactive_btn,
+            is_root_motivation_btn,
+            is_root_profile_btn,
+            is_root_settings_btn,
             is_report_bug_btn,
             is_admin_btn,
             is_journal_btn,
+            is_journal_add_btn,
             is_journal_today_btn,
             is_journal_week_btn,
             is_journal_history_btn,
@@ -1430,9 +1441,12 @@ def _is_menu_click(text: str) -> bool:
             is_premium_info_btn,
             is_premium_card_btn,
             is_premium_stars_btn,
+            is_premium_renew_btn,
+            is_premium_refund_btn,
             is_language_btn,
             is_privacy_btn,
             is_data_privacy_btn,
+            is_about_btn,
             is_back_btn,
         )
     )

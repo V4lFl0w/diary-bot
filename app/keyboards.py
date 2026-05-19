@@ -607,6 +607,17 @@ ROOT_PROACTIVE_TXT = {
         "proactivity",
     )
 }
+ROOT_MOTIVATION_TXT = {
+    _norm_btn(x)
+    for x in (
+        "🥇 мотивация",
+        "мотивация",
+        "🥇 мотивація",
+        "мотивація",
+        "🥇 motivation",
+        "motivation",
+    )
+}
 REPORT_TXT = {
     _norm_btn(x)
     for x in (
@@ -740,6 +751,28 @@ PREMIUM_STARS_TXT = {
         "pay via stars",
     )
 }
+PREMIUM_RENEW_TXT = {
+    _norm_btn(x)
+    for x in (
+        "🔄 продлить подписку",
+        "продлить подписку",
+        "🔄 продовжити підписку",
+        "продовжити підписку",
+        "🔄 renew subscription",
+        "renew subscription",
+    )
+}
+PREMIUM_REFUND_TXT = {
+    _norm_btn(x)
+    for x in (
+        "💸 возврат средств",
+        "возврат средств",
+        "💸 повернення коштів",
+        "повернення коштів",
+        "💸 refund",
+        "refund",
+    )
+}
 
 # settings submenu
 LANGUAGE_TXT = {
@@ -836,6 +869,10 @@ def is_root_proactive_btn(text: str) -> bool:
     return _norm_btn(text) in ROOT_PROACTIVE_TXT
 
 
+def is_root_motivation_btn(text: str) -> bool:
+    return _norm_btn(text) in ROOT_MOTIVATION_TXT
+
+
 def is_report_bug_btn(text: str) -> bool:
     return _norm_btn(text) in REPORT_TXT
 
@@ -916,6 +953,14 @@ def is_premium_card_btn(text: str) -> bool:
 
 def is_premium_stars_btn(text: str) -> bool:
     return _norm_btn(text) in PREMIUM_STARS_TXT
+
+
+def is_premium_renew_btn(text: str) -> bool:
+    return _norm_btn(text) in PREMIUM_RENEW_TXT
+
+
+def is_premium_refund_btn(text: str) -> bool:
+    return _norm_btn(text) in PREMIUM_REFUND_TXT
 
 
 # -------------- settings submenu matchers --------------
@@ -1053,6 +1098,7 @@ __all__ = [
     "is_root_premium_btn",
     "is_root_settings_btn",
     "is_root_proactive_btn",
+    "is_root_motivation_btn",
     "is_report_bug_btn",
     "is_report_btn",
     "is_admin_btn",
@@ -1085,9 +1131,12 @@ __all__ = [
     "is_premium_info_btn",
     "is_premium_card_btn",
     "is_premium_stars_btn",
+    "is_premium_renew_btn",
+    "is_premium_refund_btn",
     # settings submenu
     "is_language_btn",
     "is_privacy_btn",
+    "is_data_privacy_btn",
     "is_policy_btn",
     # shared
     "is_back_btn",
