@@ -22,6 +22,9 @@ except Exception:
 
 router = Router(name="motivation")
 
+# last user message per tg_id — used to personalise the quote prompt
+_last_context: dict[int, str] = {}
+
 _STATIC_QUOTES: list[dict[str, str]] = [
     {"ru": "Действие — единственный ответ на тревогу.", "uk": "Дія — єдина відповідь на тривогу.", "en": "Action is the only answer to anxiety."},
     {"ru": "Ты не обязан чувствовать себя готовым. Начни сейчас.", "uk": "Ти не зобов'язаний відчувати себе готовим. Почни зараз.", "en": "You don't have to feel ready. Start now."},
@@ -186,6 +189,8 @@ async def motivation_support_reply(m: Message, session: AsyncSession, state: FSM
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     txt = (m.text or "").strip()
+    if m.from_user:
+        _last_context[m.from_user.id] = txt
     await state.set_state(MotStates.waiting_done)
 
     if not is_premium_active(user):
@@ -273,6 +278,8 @@ async def motivation_jump_reply(m: Message, session: AsyncSession, state: FSMCon
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     task = (m.text or "").strip()
+    if m.from_user:
+        _last_context[m.from_user.id] = task
     await state.set_state(MotStates.waiting_done)
 
     await m.answer(
@@ -358,6 +365,8 @@ async def motivation_comeback_reply(m: Message, session: AsyncSession, state: FS
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
     focus = (m.text or “”).strip()
+    if m.from_user:
+        _last_context[m.from_user.id] = focus
     await state.set_state(MotStates.waiting_done)
 
     await m.answer(
@@ -424,12 +433,14 @@ async def motivation_quote(m: Message, session: AsyncSession):
 
     wait_msg = await m.answer("⏳")
 
+    ctx = _last_context.get(m.from_user.id, "") if m.from_user else ""
+    ctx_line = f"\nКонтекст пользователя: «{ctx}»." if ctx else ""
     prompt = (
         "Сгенерируй одну мощную, хлесткую и нестандартную мысль для фокуса и дисциплины. "
         "СТРОГО ЗАПРЕЩЕНО использовать банальности вроде 'никогда не сдавайся', 'верь в себя', 'следуй за мечтой'. "
         "Стиль: стоицизм, суровый прагматизм, глубокая психология. "
-        "Максимум 1-2 предложения. Без приветствий, кавычек, хэштегов и лишней воды. Только сама суть. "
-        f"ОТВЕЧАЙ СТРОГО НА ЯЗЫКЕ: {lang}"
+        "Максимум 1-2 предложения. Без приветствий, кавычек, хэштегов и лишней воды. Только сама суть."
+        f"{ctx_line} ОТВЕЧАЙ СТРОГО НА ЯЗЫКЕ: {lang}"
     )
 
     reply = await run_assistant(user, prompt, lang, session=session)
