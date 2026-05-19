@@ -48,11 +48,11 @@ def _random_quote(lang: str) -> str:
     return random.choice(_STATIC_QUOTES).get(lang, random.choice(_STATIC_QUOTES)["ru"])
 
 # Кнопки — человеческие и понятные
-BTN_SUPPORT = {"ru": "💬 Поддержка (1 строка)", "uk": "💬 Підтримка (1 рядок)", "en": "💬 Support (1 line)"}
-BTN_JUMP = {"ru": "⚡ Святой прыжок (15 минут)", "uk": "⚡ Святий стрибок (15 хв)", "en": "⚡ Holy jump (15 min)"}
-BTN_COMEBACK = {"ru": "🔄 Вернуться (без вины)", "uk": "🔄 Повернутися (без провини)", "en": "🔄 Come back (no guilt)"}
-BTN_QUOTE = {"ru": "🪶 Цитата (новая)", "uk": "🪶 Цитата (нова)", "en": "🪶 Quote (new)"}
-BTN_STREAK = {"ru": "🏆 Серия (дни)", "uk": "🏆 Серія (дні)", "en": "🏆 Streak (days)"}
+BTN_SUPPORT = {"ru": "💬 Выговориться", "uk": "💬 Виговоритись", "en": "💬 Speak out"}
+BTN_JUMP = {"ru": "⚡ Фокус (15 минут)", "uk": "⚡ Фокус (15 хв)", "en": "⚡ Focus (15 min)"}
+BTN_COMEBACK = {"ru": "🔄 Начать заново", "uk": "🔄 Почати заново", "en": "🔄 Start over"}
+BTN_QUOTE = {"ru": "🪶 Новая цитата", "uk": "🪶 Нова цитата", "en": "🪶 New quote"}
+BTN_STREAK = {"ru": "🏆 Моя серия", "uk": "🏆 Моя серія", "en": "🏆 My streak"}
 BTN_BACK = {"ru": "⬅️ Назад", "uk": "⬅️ Назад", "en": "⬅️ Back"}
 
 OPEN_TRIGGERS = (
@@ -176,9 +176,9 @@ async def motivation_support_start(m: Message, session: AsyncSession, state: FSM
     await m.answer(
         _t(
             lang,
-            "💬 Поддержка\n\nНапиши ОДНУ строку: что сейчас внутри?\n(пример: «страшно», «злюсь», «пусто», «давит»)\n\nОтмена: /cancel",
-            "💬 Підтримка\n\nНапиши ОДИН рядок: що зараз всередині?\n(приклад: «страшно», «злюсь», «порожньо», «тисне»)\n\nСкасування: /cancel",
-            "💬 Support\n\nWrite ONE line: what’s inside right now?\n(example: “scared”, “angry”, “empty”, “pressure”)\n\nCancel: /cancel",
+            “💬 Выговориться\n\nНапиши ОДНУ строку: что сейчас внутри?\n(пример: «страшно», «злюсь», «пусто», «давит»)\n\nОтмена: /cancel”,
+            “💬 Виговоритись\n\nНапиши ОДИН рядок: що зараз всередині?\n(приклад: «страшно», «злюсь», «порожньо», «тисне»)\n\nСкасування: /cancel”,
+            “💬 Speak out\n\nWrite ONE line: what’s inside right now?\n(example: “scared”, “angry”, “empty”, “pressure”)\n\nCancel: /cancel”,
         )
     )
 
@@ -265,9 +265,9 @@ async def motivation_jump_start(m: Message, session: AsyncSession, state: FSMCon
     await m.answer(
         _t(
             lang,
-            "⚡ Святой прыжок (15 минут)\n\nВыбери ОДНУ мини-задачу на 15 минут и напиши её одной строкой.\nПример: «делаю: 2 звонка» / «делаю: черновик 1 экрана»\n\nОтмена: /cancel",
-            "⚡ Святий стрибок (15 хв)\n\nОбери ОДНУ міні-задачу на 15 хв і напиши одним рядком.\nПриклад: «роблю: 2 дзвінки» / «роблю: чернетку 1 екрану»\n\nСкасування: /cancel",
-            "⚡ Holy jump (15 min)\n\nPick ONE mini task for 15 minutes and write it in one line.\nExample: “doing: 2 calls” / “doing: draft 1 screen”\n\nCancel: /cancel",
+            “⚡ Фокус (15 минут)\n\nВыбери ОДНУ мини-задачу на 15 минут и напиши её одной строкой.\nПример: «делаю: 2 звонка» / «делаю: черновик 1 экрана»\n\nОтмена: /cancel”,
+            “⚡ Фокус (15 хв)\n\nОбери ОДНУ міні-задачу на 15 хв і напиши одним рядком.\nПриклад: «роблю: 2 дзвінки» / «роблю: чернетку 1 екрану»\n\nСкасування: /cancel”,
+            “⚡ Focus (15 min)\n\nPick ONE mini task for 15 minutes and write it in one line.\nExample: “doing: 2 calls” / “doing: draft 1 screen”\n\nCancel: /cancel”,
         )
     )
 
@@ -285,9 +285,9 @@ async def motivation_jump_reply(m: Message, session: AsyncSession, state: FSMCon
     await m.answer(
         _t(
             lang,
-            f"Принято ✅\n\nТвоя задача: «{task}»\n\nСделай старт на 2 минуты прямо сейчас.\nПотом напиши: «Готово» — я закреплю смысл и дам следующий шаг.\n\nЕсли тяжко — нажми 💬 Поддержка.",
-            f"Прийнято ✅\n\nТвоя задача: «{task}»\n\nПочни з 2 хвилин просто зараз.\nПотім напиши: «Готово» — я закріплю сенс і дам наступний крок.\n\nЯкщо важко — натисни 💬 Підтримка.",
-            f"Accepted ✅\n\nYour task: “{task}”\n\nStart with 2 minutes right now.\nThen reply: “Done” — I’ll lock the win and give the next step.\n\nIf it’s heavy — tap 💬 Support.",
+            f”Принято ✅\n\nТвоя задача: «{task}»\n\nСделай старт на 2 минуты прямо сейчас.\nПотом напиши: «Готово» — я закреплю смысл и дам следующий шаг.\n\nЕсли тяжко — нажми 💬 Выговориться.”,
+            f”Прийнято ✅\n\nТвоя задача: «{task}»\n\nПочни з 2 хвилин просто зараз.\nПотім напиши: «Готово» — я закріплю сенс і дам наступний крок.\n\nЯкщо важко — натисни 💬 Виговоритись.”,
+            f”Accepted ✅\n\nYour task: “{task}”\n\nStart with 2 minutes right now.\nThen reply: “Done” — I’ll lock the win and give the next step.\n\nIf it’s heavy — tap 💬 Speak out.”,
         ),
         reply_markup=_kb(lang),
     )
@@ -352,9 +352,9 @@ async def motivation_comeback_start(m: Message, session: AsyncSession, state: FS
     await m.answer(
         _t(
             lang,
-            "🔄 Вернуться (без вины)\n\nОдна строка: что сейчас важно вернуть под контроль?\nПример: «сон», «деньги», «проект», «отношения», «здоровье»\n\nОтмена: /cancel",
-            "🔄 Повернутися (без провини)\n\nОдин рядок: що важливо повернути під контроль?\nПриклад: «сон», «гроші», «проєкт», «стосунки», «здоров’я»\n\nСкасування: /cancel",
-            "🔄 Come back (no guilt)\n\nOne line: what do you want back under control?\nExample: sleep, money, project, relationships, health\n\nCancel: /cancel",
+            "🔄 Начать заново\n\nОдна строка: что сейчас важно вернуть под контроль?\nПример: «сон», «деньги», «проект», «отношения», «здоровье»\n\nОтмена: /cancel",
+            "🔄 Почати заново\n\nОдин рядок: що важливо повернути під контроль?\nПриклад: «сон», «гроші», «проєкт», «стосунки», «здоров’я»\n\nСкасування: /cancel",
+            "🔄 Start over\n\nOne line: what do you want back under control?\nExample: sleep, money, project, relationships, health\n\nCancel: /cancel",
         )
     )
 

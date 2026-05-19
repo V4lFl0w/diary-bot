@@ -827,6 +827,13 @@ ABOUT_TXT = {
 MOTIVATION_SUPPORT_TXT = {
     _norm_btn(x)
     for x in (
+        "💬 выговориться",
+        "выговориться",
+        "💬 виговоритись",
+        "виговоритись",
+        "💬 speak out",
+        "speak out",
+        # old names (backward compat)
         "💬 поддержка (1 строка)",
         "поддержка (1 строка)",
         "💬 підтримка (1 рядок)",
@@ -838,6 +845,13 @@ MOTIVATION_SUPPORT_TXT = {
 MOTIVATION_JUMP_TXT = {
     _norm_btn(x)
     for x in (
+        "⚡ фокус (15 минут)",
+        "фокус (15 минут)",
+        "⚡ фокус (15 хв)",
+        "фокус (15 хв)",
+        "⚡ focus (15 min)",
+        "focus (15 min)",
+        # old names (backward compat)
         "⚡ святой прыжок (15 минут)",
         "святой прыжок (15 минут)",
         "⚡ святий стрибок (15 хв)",
@@ -849,6 +863,13 @@ MOTIVATION_JUMP_TXT = {
 MOTIVATION_COMEBACK_TXT = {
     _norm_btn(x)
     for x in (
+        "🔄 начать заново",
+        "начать заново",
+        "🔄 почати заново",
+        "почати заново",
+        "🔄 start over",
+        "start over",
+        # old names (backward compat)
         "🔄 вернуться (без вины)",
         "вернуться (без вины)",
         "🔄 повернутися (без провини)",
@@ -860,6 +881,13 @@ MOTIVATION_COMEBACK_TXT = {
 MOTIVATION_QUOTE_TXT = {
     _norm_btn(x)
     for x in (
+        "🪶 новая цитата",
+        "новая цитата",
+        "🪶 нова цитата",
+        "нова цитата",
+        "🪶 new quote",
+        "new quote",
+        # old names (backward compat)
         "🪶 цитата (новая)",
         "цитата (новая)",
         "🪶 цитата (нова)",
@@ -871,6 +899,13 @@ MOTIVATION_QUOTE_TXT = {
 MOTIVATION_STREAK_TXT = {
     _norm_btn(x)
     for x in (
+        "🏆 моя серия",
+        "моя серия",
+        "🏆 моя серія",
+        "моя серія",
+        "🏆 my streak",
+        "my streak",
+        # old names (backward compat)
         "🏆 серия (дни)",
         "серия (дни)",
         "🏆 серія (дні)",
