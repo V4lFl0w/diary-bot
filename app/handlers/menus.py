@@ -46,6 +46,8 @@ from app.services.daily_limits import (
     get_daily_reset_eta_text,
     get_daily_limit,
     get_daily_used,
+    get_voice_seconds_limit,
+    VOICE_SECONDS_LIMIT,
 )
 
 router = Router(name="menus")
@@ -322,6 +324,25 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
     photo_slot_line = await slot_line("vision", vis_used, vis_total, "photo")
     web_slot_line = await slot_line("assistant_web", web_used, web_total, "web")
 
+    voice_sec = get_voice_seconds_limit(user)
+
+    def _fmt_sec(s: int) -> str:
+        if s >= 60:
+            return f"{s // 60} {tr('мин', 'хв', 'min')}"
+        return f"{s} {tr('сек', 'сек', 'sec')}"
+
+    voice_line = (
+        tr("🎙 Голос (макс. на запрос)", "🎙 Голос (макс. на запит)", "🎙 Voice (max per request)")
+        + f": {_fmt_sec(voice_sec)}"
+    )
+    voice_plan_hint = (
+        tr(
+            f"   free={_fmt_sec(VOICE_SECONDS_LIMIT['free'])} · basic={_fmt_sec(VOICE_SECONDS_LIMIT['basic'])} · pro={_fmt_sec(VOICE_SECONDS_LIMIT['pro'])} · max={_fmt_sec(VOICE_SECONDS_LIMIT['max'])}",
+            f"   free={_fmt_sec(VOICE_SECONDS_LIMIT['free'])} · basic={_fmt_sec(VOICE_SECONDS_LIMIT['basic'])} · pro={_fmt_sec(VOICE_SECONDS_LIMIT['pro'])} · max={_fmt_sec(VOICE_SECONDS_LIMIT['max'])}",
+            f"   free={_fmt_sec(VOICE_SECONDS_LIMIT['free'])} · basic={_fmt_sec(VOICE_SECONDS_LIMIT['basic'])} · pro={_fmt_sec(VOICE_SECONDS_LIMIT['pro'])} · max={_fmt_sec(VOICE_SECONDS_LIMIT['max'])}",
+        )
+    )
+
     lines = [
         tr("👤 <b>Твой профиль</b>", "👤 <b>Твій профіль</b>", "👤 <b>Your profile</b>"),
         f"ID: <code>{m.from_user.id}</code>",
@@ -335,6 +356,14 @@ async def open_profile_menu(m: Message, session: AsyncSession, state: FSMContext
         f"🔥 {tr('Калории', 'Калорії', 'Calories')}: {calories_used}/{calories_total}",
         f"📒 {tr('Дневник', 'Щоденник', 'Journal')}: {journal_used}/{journal_total}",
         f"⏰ {tr('Напоминания', 'Нагадування', 'Reminders')}: {reminders_used}/{reminders_total}",
+        "",
+        tr(
+            "🎙 <b>Голосовые лимиты:</b>",
+            "🎙 <b>Голосові ліміти:</b>",
+            "🎙 <b>Voice limits:</b>",
+        ),
+        voice_line,
+        f"<i>{voice_plan_hint}</i>",
         "",
         tr(
             "🤖 <b>ИИ за последние 24 часа:</b>",
