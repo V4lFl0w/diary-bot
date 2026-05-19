@@ -743,7 +743,7 @@ async def remind_waiting_time(m: Message, state: FSMContext, session: AsyncSessi
     )
 
 
-@router.message(F.voice, StateFilter(None))
+@router.message(F.voice, StateFilter(None), F.from_user.id.func(lambda uid: uid not in _pending))
 async def remind_parse_voice(m: Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
     """Перехват голоса для создания напоминаний. Если не подходит — отдаем в Журнал/Ассистент"""
     if not m.from_user:
@@ -769,7 +769,7 @@ async def remind_parse_voice(m: Message, state: FSMContext, session: AsyncSessio
     await remind_parse(new_m, state, session, lang)
 
 
-@router.message(F.text.func(_should_parse))
+@router.message(F.text.func(_should_parse), F.from_user.id.func(lambda uid: uid not in _pending))
 async def remind_parse(m: Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
     if not m.from_user:
         return
