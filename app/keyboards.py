@@ -823,6 +823,63 @@ ABOUT_TXT = {
     )
 }
 
+# motivation submenu (defined in handlers/motivation.py)
+MOTIVATION_SUPPORT_TXT = {
+    _norm_btn(x)
+    for x in (
+        "💬 поддержка (1 строка)",
+        "поддержка (1 строка)",
+        "💬 підтримка (1 рядок)",
+        "підтримка (1 рядок)",
+        "💬 support (1 line)",
+        "support (1 line)",
+    )
+}
+MOTIVATION_JUMP_TXT = {
+    _norm_btn(x)
+    for x in (
+        "⚡ святой прыжок (15 минут)",
+        "святой прыжок (15 минут)",
+        "⚡ святий стрибок (15 хв)",
+        "святий стрибок (15 хв)",
+        "⚡ holy jump (15 min)",
+        "holy jump (15 min)",
+    )
+}
+MOTIVATION_COMEBACK_TXT = {
+    _norm_btn(x)
+    for x in (
+        "🔄 вернуться (без вины)",
+        "вернуться (без вины)",
+        "🔄 повернутися (без провини)",
+        "повернутися (без провини)",
+        "🔄 come back (no guilt)",
+        "come back (no guilt)",
+    )
+}
+MOTIVATION_QUOTE_TXT = {
+    _norm_btn(x)
+    for x in (
+        "🪶 цитата (новая)",
+        "цитата (новая)",
+        "🪶 цитата (нова)",
+        "цитата (нова)",
+        "🪶 quote (new)",
+        "quote (new)",
+    )
+}
+MOTIVATION_STREAK_TXT = {
+    _norm_btn(x)
+    for x in (
+        "🏆 серия (дни)",
+        "серия (дни)",
+        "🏆 серія (дні)",
+        "серія (дні)",
+        "🏆 streak (days)",
+        "streak (days)",
+    )
+}
+
 BACK_TXT = {_norm_btn(x) for x in ("⬅️ назад", "назад", "⬅️ back", "back")}
 
 
@@ -1063,6 +1120,32 @@ def is_media_btn(text: str) -> bool:
 # -------------- shared --------------
 
 
+# -------------- motivation submenu matchers --------------
+
+
+def is_motivation_support_btn(text: str) -> bool:
+    return _norm_btn(text) in MOTIVATION_SUPPORT_TXT
+
+
+def is_motivation_jump_btn(text: str) -> bool:
+    return _norm_btn(text) in MOTIVATION_JUMP_TXT
+
+
+def is_motivation_comeback_btn(text: str) -> bool:
+    return _norm_btn(text) in MOTIVATION_COMEBACK_TXT
+
+
+def is_motivation_quote_btn(text: str) -> bool:
+    return _norm_btn(text) in MOTIVATION_QUOTE_TXT
+
+
+def is_motivation_streak_btn(text: str) -> bool:
+    return _norm_btn(text) in MOTIVATION_STREAK_TXT
+
+
+# -------------- shared --------------
+
+
 def is_back_btn(text: str) -> bool:
     return _norm_btn(text) in BACK_TXT
 
@@ -1127,6 +1210,12 @@ __all__ = [
     # media submenu
     "is_meditation_btn",
     "is_music_btn",
+    # motivation submenu
+    "is_motivation_support_btn",
+    "is_motivation_jump_btn",
+    "is_motivation_comeback_btn",
+    "is_motivation_quote_btn",
+    "is_motivation_streak_btn",
     # premium submenu
     "is_premium_info_btn",
     "is_premium_card_btn",
