@@ -263,6 +263,37 @@ def _fmt_local(dt_utc: datetime, tz_name: str) -> str:
     return to_local(dt_utc, tz_name).strftime("%Y-%m-%d %H:%M")
 
 
+_MONTH_SHORT: dict[str, list[str]] = {
+    "ru": ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"],
+    "uk": ["січ", "лют", "бер", "кві", "тра", "чер", "лип", "сер", "вер", "жов", "лис", "гру"],
+    "en": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+}
+_DOW_SHORT: dict[str, list[str]] = {
+    "ru": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
+    "uk": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"],
+    "en": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+}
+
+
+def _fmt_human(dt_utc: datetime, tz_name: str, lang: str, now_local: datetime) -> str:
+    """Human-readable datetime: 'Сегодня, 14:00' / 'Завтра, 14:00' / 'Пн, 15 янв, 14:00'."""
+    loc = to_local(dt_utc, tz_name)
+    time_str = loc.strftime("%H:%M")
+    ld = loc.date()
+    nd = now_local.date()
+    months = _MONTH_SHORT.get(lang[:2], _MONTH_SHORT["ru"])
+    days = _DOW_SHORT.get(lang[:2], _DOW_SHORT["ru"])
+    if ld == nd:
+        lbl = {"ru": "Сегодня", "uk": "Сьогодні", "en": "Today"}.get(lang[:2], "Сегодня")
+    elif ld == nd + timedelta(days=1):
+        lbl = {"ru": "Завтра", "uk": "Завтра", "en": "Tomorrow"}.get(lang[:2], "Завтра")
+    elif (ld - nd).days < 7:
+        lbl = days[loc.weekday()]
+    else:
+        lbl = f"{days[loc.weekday()]}, {loc.day} {months[loc.month - 1]}"
+    return f"{lbl}, {time_str}"
+
+
 def _rid_of(r: Reminder) -> int:
     for name in ("id", "reminder_id", "rid"):
         v = getattr(r, name, None)
@@ -292,6 +323,7 @@ def _next_run_of(r: Reminder) -> Optional[datetime]:
 def _desc_line(lang: str, r: Reminder, tz_name: str, now_utc: datetime) -> str:
     status = "✅" if _active_of(r) else "⏸️"
     title = _title_of(r)
+    now_local = to_local(now_utc, tz_name)
 
     when = "-"
     nr = _next_run_of(r)
@@ -300,12 +332,12 @@ def _desc_line(lang: str, r: Reminder, tz_name: str, now_utc: datetime) -> str:
     if nr:
         if nr.tzinfo is None:
             nr = nr.replace(tzinfo=timezone.utc)
-        when = _fmt_local(nr, tz_name)
+        when = _fmt_human(nr, tz_name, lang, now_local)
         if nr <= now_utc and _active_of(r):
             when += " ⚠️"
     elif cron and _active_of(r):
         nxt = compute_next_run(cron, now_utc, tz_name) if cron else None
-        when = _fmt_local(nxt, tz_name) if nxt else "-"
+        when = _fmt_human(nxt, tz_name, lang, now_local) if nxt else "-"
 
     return f"{status} {title} — {when}"
 
