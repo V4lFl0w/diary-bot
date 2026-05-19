@@ -1009,15 +1009,17 @@ async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None
         lang_name = "English"
 
     prompt = (
-        f"Act as a professional nutritionist and precise calorie calculator. Analyze this food text in {lang_name}: '{text}'. "
+        f"Act as a precise calorie calculator using exact USDA nutritional database values. Analyze this food text in {lang_name}: '{text}'. "
         "CRITICAL RULES: "
-        "1) If the user lists MULTIPLE items, you MUST calculate the nutrition for EACH item and return the SUM TOTAL. "
-        "2) If the exact weight is not specified, assume REALISTIC restaurant/home serving sizes (e.g., standard shawarma is 350-400g (~600-800 kcal), 1 slice of pizza is ~200-250 kcal, 1 burger is 400-600 kcal). "
-        "3) NEVER artificially lower the calories. Use highly accurate USDA or standard nutritional database values. Fast food and street food are very calorie-dense—reflect this accurately. "
-        "4) For high-protein athlete foods (chicken breast, beef, fish, cottage cheese, eggs), use the actual weight given; if no weight given, assume a typical athlete meal portion: chicken/beef/fish ~200-300 g, cottage cheese ~250 g, eggs 2-3 pcs. Do NOT assume 80-100 g for a full serving. "
-        "Return ONLY a valid JSON object with keys: kcal (number, TOTAL sum), p (number, TOTAL protein), f (number, TOTAL fat), c (number, TOTAL carbs), "
-        "title (string, a short comma-separated list of the recognized items in the target language), and confidence (number 0.0-1.0). "
-        f"Ensure all text fields are in {lang_name}."
+        "1) Use EXACT USDA/standard database values — never round up, never add a 'safety margin'. "
+        "2) If the exact weight is NOT given, use REALISTIC HOME portions (NOT restaurant sizes): "
+        "chicken breast 120-150 g, beef/pork 120-150 g, fish fillet 120-150 g, cooked pasta 180 g, cooked rice 150 g, "
+        "cottage cheese 150 g, eggs count exactly as stated (default 1 egg = 60 g). "
+        "3) If MULTIPLE items are listed, calculate each separately then sum. "
+        "4) If weight IS explicitly given by the user, use that exact weight — do not adjust it. "
+        "Return ONLY valid JSON with keys: kcal (integer, total), p (float, total protein g), f (float, total fat g), c (float, total carbs g), "
+        "title (string, recognized items in the target language), confidence (float 0.0-1.0). "
+        f"All text in {lang_name}."
     )
 
     if _sess is not None and _usr is not None:
