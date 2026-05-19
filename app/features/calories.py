@@ -305,6 +305,22 @@ def _format_cal_total(lang_code: str, res: Dict[str, Any]) -> str:
     return f"🔥 {kcal} ккал  |  🥩 {lp}: {p}  🥑 {lf}: {f}  🍞 {lc}: {c}"
 
 
+def _format_cal_breakdown(lang_code: str, res: Dict[str, Any]) -> str:
+    """Total КБЖУ line + per-item breakdown when 2+ items are present."""
+    items = res.get("items") or []
+    total_line = _format_cal_total(lang_code, res)
+    if len(items) < 2:
+        return total_line
+    ln = _normalize_lang(lang_code)
+    sep = "─" * 20
+    lines = []
+    for itm in items:
+        name = itm.get("name", "")
+        kcal = int(round(float(itm.get("kcal", 0))))
+        lines.append(f"• {name}: {kcal} ккал" if ln != "en" else f"• {name}: {kcal} kcal")
+    return "\n".join(lines) + f"\n{sep}\n{total_line}"
+
+
 def _human_confidence(conf: float, lang: str) -> str:
     if conf >= 0.85:
         return _tr(lang, "Высокая точность", "Висока точність", "High accuracy")
@@ -1017,8 +1033,11 @@ async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None
         "cottage cheese 150 g, eggs count exactly as stated (default 1 egg = 60 g). "
         "3) If MULTIPLE items are listed, calculate each separately then sum. "
         "4) If weight IS explicitly given by the user, use that exact weight — do not adjust it. "
-        "Return ONLY valid JSON with keys: kcal (integer, total), p (float, total protein g), f (float, total fat g), c (float, total carbs g), "
-        "title (string, recognized items in the target language), confidence (float 0.0-1.0). "
+        "Return ONLY valid JSON with keys: "
+        "kcal (integer, total), p (float, total protein g), f (float, total fat g), c (float, total carbs g), "
+        "title (string, recognized items in the target language), confidence (float 0.0-1.0), "
+        "items (array of objects, one per product, each with: name (string in target language, include portion/weight), "
+        "kcal (integer), p (float), f (float), c (float)). "
         f"All text in {lang_name}."
     )
 
@@ -1031,10 +1050,10 @@ async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None
                 "https://api.openai.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
-                    "model": "gpt-4o-mini",  # Дешевый и быстрый
+                    "model": "gpt-4o-mini",
                     "messages": [{"role": "user", "content": prompt}],
                     "response_format": {"type": "json_object"},
-                    "max_tokens": 200,
+                    "max_tokens": 500,
                 },
             )
             r.raise_for_status()
@@ -1043,13 +1062,27 @@ async def analyze_text(text: str, lang_code: str = "ru", session=None, user=None
             result = json.loads(content)
 
             # Валидация ответа
+            raw_items = result.get("items")
+            items: list[dict] = []
+            if isinstance(raw_items, list):
+                for itm in raw_items:
+                    if isinstance(itm, dict) and itm.get("name"):
+                        items.append({
+                            "name": str(itm.get("name", "")),
+                            "kcal": int(round(float(itm.get("kcal", 0)))),
+                            "p": round(float(itm.get("p", 0)), 1),
+                            "f": round(float(itm.get("f", 0)), 1),
+                            "c": round(float(itm.get("c", 0)), 1),
+                        })
+
             out = {
                 "kcal": float(result.get("kcal", 0)),
                 "p": float(result.get("p", 0)),
                 "f": float(result.get("f", 0)),
                 "c": float(result.get("c", 0)),
-                "confidence": float(result.get("confidence", 0.8)),  # Доверяем AI, если он вернул JSON
+                "confidence": float(result.get("confidence", 0.8)),
                 "title": result.get("title", text),
+                "items": items,
             }
             if _sess is not None and _usr is not None and key:
                 await cache_set_json(_sess, namespace, key, out, ttl_sec=7 * 24 * 60 * 60)
@@ -1598,7 +1631,7 @@ async def cal_text_in_mode(
 
     await add_daily_usage(session, user, "calories_text_daily", 1)
 
-    out = _format_cal_total(lang_code, res)
+    out = _format_cal_breakdown(lang_code, res)
     await message.answer(out)
 
 
@@ -1644,7 +1677,7 @@ async def cal_voice_in_mode(
 
     assert user is not None
     await add_daily_usage(session, user, "calories_voice_daily", 1)
-    out = _format_cal_total(lang_code, res)
+    out = _format_cal_breakdown(lang_code, res)
     await message.answer(f"🗣 <i>«{text}»</i>\n\n{out}", parse_mode="HTML")
 
 
