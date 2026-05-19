@@ -518,8 +518,12 @@ async def unrecognized_text_fallback(message: Message, session: AsyncSession, st
 
     await state.update_data(_pending_text=text)
 
-    prompt = {"ru": "Куда отправить?", "uk": "Куди надіслати?", "en": "Where to send?"}.get(lang, "Куда отправить?")
-    await message.answer(prompt, reply_markup=_route_kb(lang))
+    prompt = {
+        "ru": "Куда отправить?\n\n<i>Нажми /start чтобы вернуться в главное меню, /help — список функций</i>",
+        "uk": "Куди надіслати?\n\n<i>Натисни /start щоб повернутись у головне меню, /help — список функцій</i>",
+        "en": "Where to send?\n\n<i>Tap /start to return to the main menu, /help — list all features</i>",
+    }.get(lang, "Куда отправить?\n\n<i>Нажми /start чтобы вернуться в главное меню</i>")
+    await message.answer(prompt, reply_markup=_route_kb(lang), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "route:journal")
