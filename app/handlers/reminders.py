@@ -613,6 +613,9 @@ def _clean_reminder_title(raw: str) -> str:
         flags=re.IGNORECASE,
     ).strip()
 
+    # strip personal pronouns left by trigger: "мне", "мені", "me"
+    s = re.sub(r"^(мне|мені|me)\s+", "", s, flags=re.IGNORECASE).strip()
+
     s = re.sub(r"\s+", " ", s).strip(" .,:;!-–—")
 
     bad_exact = {

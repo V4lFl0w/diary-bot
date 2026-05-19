@@ -390,6 +390,10 @@ def _extract_what(
     m = re.search(rf"{_TRIGGERS}\s+(?:me\s+to\s+)?", text_norm)
     if m:
         start = m.end()
+        # skip personal pronouns immediately after trigger: "напомни мне", "нагадай мені", "remind me"
+        pronoun_m = re.match(r"(?:мне|мені|me)\s+", text_norm[start:], re.IGNORECASE)
+        if pronoun_m:
+            start += pronoun_m.end()
     elif allow_without_trigger:
         start = 0
     else:
