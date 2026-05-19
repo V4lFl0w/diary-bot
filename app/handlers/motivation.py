@@ -161,7 +161,7 @@ async def motivation_open(m: Message, session: AsyncSession, state: FSMContext):
         lang,
         "🥇 Мотивация\n\nЯ здесь, чтобы быстро вернуть тебе энергию и ясность.\nЧтобы о твоём следующем шаге говорили всем: «как он(а) это смог(ла)?»\n\nВыбери, что нужно прямо сейчас:",
         "🥇 Мотивація\n\nЯ тут, щоб швидко повернути тобі енергію й ясність.\nЩоб про твій наступний крок казали всім: «як він(вона) це зміг(змогла)?»\n\nОбери, що треба просто зараз:",
-        "🥇 Motivation\n\nI’m here to quickly bring back your energy and clarity.\nSo everyone thinks about your next step: “how did he/she do that?”\n\nPick what you need right now:",
+        "🥇 Motivation\n\nI’m here to quickly bring back your energy and clarity.\nSo everyone thinks about your next step: 'how did he/she do that?'\n\nPick what you need right now:",
     )
 
     await m.answer(text, reply_markup=_kb(lang))
@@ -176,9 +176,9 @@ async def motivation_support_start(m: Message, session: AsyncSession, state: FSM
     await m.answer(
         _t(
             lang,
-            “💬 Выговориться\n\nНапиши ОДНУ строку: что сейчас внутри?\n(пример: «страшно», «злюсь», «пусто», «давит»)\n\nОтмена: /cancel”,
-            “💬 Виговоритись\n\nНапиши ОДИН рядок: що зараз всередині?\n(приклад: «страшно», «злюсь», «порожньо», «тисне»)\n\nСкасування: /cancel”,
-            “💬 Speak out\n\nWrite ONE line: what’s inside right now?\n(example: “scared”, “angry”, “empty”, “pressure”)\n\nCancel: /cancel”,
+            "💬 Выговориться\n\nНапиши ОДНУ строку: что сейчас внутри?\n(пример: «страшно», «злюсь», «пусто», «давит»)\n\nОтмена: /cancel",
+            "💬 Виговоритись\n\nНапиши ОДИН рядок: що зараз всередині?\n(приклад: «страшно», «злюсь», «порожньо», «тисне»)\n\nСкасування: /cancel",
+            "💬 Speak out\n\nWrite ONE line: what’s inside right now?\n(example: 'scared', 'angry', 'empty', 'pressure')\n\nCancel: /cancel",
         )
     )
 
@@ -265,9 +265,9 @@ async def motivation_jump_start(m: Message, session: AsyncSession, state: FSMCon
     await m.answer(
         _t(
             lang,
-            “⚡ Фокус (15 минут)\n\nВыбери ОДНУ мини-задачу на 15 минут и напиши её одной строкой.\nПример: «делаю: 2 звонка» / «делаю: черновик 1 экрана»\n\nОтмена: /cancel”,
-            “⚡ Фокус (15 хв)\n\nОбери ОДНУ міні-задачу на 15 хв і напиши одним рядком.\nПриклад: «роблю: 2 дзвінки» / «роблю: чернетку 1 екрану»\n\nСкасування: /cancel”,
-            “⚡ Focus (15 min)\n\nPick ONE mini task for 15 minutes and write it in one line.\nExample: “doing: 2 calls” / “doing: draft 1 screen”\n\nCancel: /cancel”,
+            "⚡ Фокус (15 минут)\n\nВыбери ОДНУ мини-задачу на 15 минут и напиши её одной строкой.\nПример: «делаю: 2 звонка» / «делаю: черновик 1 экрана»\n\nОтмена: /cancel",
+            "⚡ Фокус (15 хв)\n\nОбери ОДНУ міні-задачу на 15 хв і напиши одним рядком.\nПриклад: «роблю: 2 дзвінки» / «роблю: чернетку 1 екрану»\n\nСкасування: /cancel",
+            "⚡ Focus (15 min)\n\nPick ONE mini task for 15 minutes and write it in one line.\nExample: 'doing: 2 calls' / 'doing: draft 1 screen'\n\nCancel: /cancel",
         )
     )
 
@@ -285,59 +285,59 @@ async def motivation_jump_reply(m: Message, session: AsyncSession, state: FSMCon
     await m.answer(
         _t(
             lang,
-            f”Принято ✅\n\nТвоя задача: «{task}»\n\nСделай старт на 2 минуты прямо сейчас.\nПотом напиши: «Готово» — я закреплю смысл и дам следующий шаг.\n\nЕсли тяжко — нажми 💬 Выговориться.”,
-            f”Прийнято ✅\n\nТвоя задача: «{task}»\n\nПочни з 2 хвилин просто зараз.\nПотім напиши: «Готово» — я закріплю сенс і дам наступний крок.\n\nЯкщо важко — натисни 💬 Виговоритись.”,
-            f”Accepted ✅\n\nYour task: “{task}”\n\nStart with 2 minutes right now.\nThen reply: “Done” — I’ll lock the win and give the next step.\n\nIf it’s heavy — tap 💬 Speak out.”,
+            f"Принято ✅\n\nТвоя задача: «{task}»\n\nСделай старт на 2 минуты прямо сейчас.\nПотом напиши: «Готово» — я закреплю смысл и дам следующий шаг.\n\nЕсли тяжко — нажми 💬 Выговориться.",
+            f"Прийнято ✅\n\nТвоя задача: «{task}»\n\nПочни з 2 хвилин просто зараз.\nПотім напиши: «Готово» — я закріплю сенс і дам наступний крок.\n\nЯкщо важко — натисни 💬 Виговоритись.",
+            f"Accepted ✅\n\nYour task: '{task}'\n\nStart with 2 minutes right now.\nThen reply: 'Done' — I’ll lock the win and give the next step.\n\nIf it’s heavy — tap 💬 Speak out.",
         ),
         reply_markup=_kb(lang),
     )
 
 
-@router.message(MotStates.waiting_done, F.text.casefold().in_({“готово”, “done”}))
+@router.message(MotStates.waiting_done, F.text.casefold().in_({'готово', 'done'}))
 async def motivation_done(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, “language_code”, None) if m.from_user else None)
+    lang = _user_lang(user, getattr(m.from_user, 'language_code', None) if m.from_user else None)
 
     await state.clear()
     await m.answer(
         _t(
             lang,
-            “Красавчик ✅\nТеперь самое важное: не потерять импульс.\n\nВыбери:\n1) ещё 15 минут (продолжаю)\n2) закрываю и фиксирую (стоп)\n\nНапиши: «ещё 15» или «стоп».”,
-            “Красень ✅\nТепер головне: не втратити імпульс.\n\nОбери:\n1) ще 15 хв (продовжую)\n2) закриваю і фіксую (стоп)\n\nНапиши: «ще 15» або «стоп».”,
-            “Nice ✅\nNow the key: keep the impulse.\n\nChoose:\n1) another 15 min (continue)\n2) stop and lock it (stop)\n\nReply: “another 15” or “stop”.”,
+            "Красавчик ✅\nТеперь самое важное: не потерять импульс.\n\nВыбери:\n1) ещё 15 минут (продолжаю)\n2) закрываю и фиксирую (стоп)\n\nНапиши: «ещё 15» или «стоп».",
+            "Красень ✅\nТепер головне: не втратити імпульс.\n\nОбери:\n1) ще 15 хв (продовжую)\n2) закриваю і фіксую (стоп)\n\nНапиши: «ще 15» або «стоп».",
+            "Nice ✅\nNow the key: keep the impulse.\n\nChoose:\n1) another 15 min (continue)\n2) stop and lock it (stop)\n\nReply: 'another 15' or 'stop'.",
         ),
         reply_markup=_kb(lang),
     )
 
 
-@router.message(MotStates.waiting_done, F.text.casefold().in_({“еще 15”, “ещё 15”, “another 15”}))
+@router.message(MotStates.waiting_done, F.text.casefold().in_({'еще 15', 'ещё 15', 'another 15'}))
 async def motivation_more_15(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, “language_code”, None) if m.from_user else None)
+    lang = _user_lang(user, getattr(m.from_user, 'language_code', None) if m.from_user else None)
 
     await state.set_state(MotStates.waiting_done)
     await m.answer(
         _t(
             lang,
-            “Погнали 🥇\nПоставь таймер на 15 минут и просто делай.\nПосле — напиши «Готово».”,
-            “Погнали 🥇\nПостав таймер на 15 хв і просто роби.\nПісля — напиши «Готово».”,
-            “Let’s go 🥇\nSet a 15-min timer and just do it.\nAfter — reply “Done”.”,
+            "Погнали 🥇\nПоставь таймер на 15 минут и просто делай.\nПосле — напиши «Готово».",
+            "Погнали 🥇\nПостав таймер на 15 хв і просто роби.\nПісля — напиши «Готово».",
+            "Let’s go 🥇\nSet a 15-min timer and just do it.\nAfter — reply 'Done'.",
         )
     )
 
 
-@router.message(MotStates.waiting_done, F.text.casefold().in_({“стоп”, “stop”}))
+@router.message(MotStates.waiting_done, F.text.casefold().in_({'стоп', 'stop'}))
 async def motivation_stop(m: Message, session: AsyncSession, state: FSMContext):
     user = await _get_user(session, m.from_user.id) if m.from_user else None
-    lang = _user_lang(user, getattr(m.from_user, “language_code”, None) if m.from_user else None)
+    lang = _user_lang(user, getattr(m.from_user, 'language_code', None) if m.from_user else None)
 
     await state.clear()
     await m.answer(
         _t(
             lang,
-            “Зафиксировал ✅\n\nОдин честный шаг сделан.\nХочешь — возьми 🪶 Новую цитату для закрепления.”,
-            “Зафіксував ✅\n\nОдин чесний крок зроблено.\nХочеш — візьми 🪶 Нову цитату для закріплення.”,
-            “Locked ✅\n\nOne honest step is done.\nIf you want — grab 🪶 New quote to seal it.”,
+            "Зафиксировал ✅\n\nОдин честный шаг сделан.\nХочешь — возьми 🪶 Новую цитату для закрепления.",
+            "Зафіксував ✅\n\nОдин чесний крок зроблено.\nХочеш — візьми 🪶 Нову цитату для закріплення.",
+            "Locked ✅\n\nOne honest step is done.\nIf you want — grab 🪶 New quote to seal it.",
         ),
         reply_markup=_kb(lang),
     )
@@ -364,7 +364,7 @@ async def motivation_comeback_reply(m: Message, session: AsyncSession, state: FS
     user = await _get_user(session, m.from_user.id) if m.from_user else None
     lang = _user_lang(user, getattr(m.from_user, "language_code", None) if m.from_user else None)
 
-    focus = (m.text or “”).strip()
+    focus = (m.text or "").strip()
     if m.from_user:
         _last_context[m.from_user.id] = focus
     await state.set_state(MotStates.waiting_done)
@@ -372,9 +372,9 @@ async def motivation_comeback_reply(m: Message, session: AsyncSession, state: FS
     await m.answer(
         _t(
             lang,
-            f”Ок. Возвращаем «{focus}» ✅\n\nСейчас — один микро-шаг на 2 минуты.\nЕсли хочешь, я дам толчок: нажми ⚡ Фокус (15 минут).”,
-            f”Ок. Повертаємо «{focus}» ✅\n\nЗараз — один мікро-крок на 2 хвилини.\nЯкщо хочеш, дам поштовх: натисни ⚡ Фокус (15 хв).”,
-            f”Ok. We bring back “{focus}” ✅\n\nNow — one 2-minute micro step.\nIf you want a push: tap ⚡ Focus (15 min).”,
+            f"Ок. Возвращаем «{focus}» ✅\n\nСейчас — один микро-шаг на 2 минуты.\nЕсли хочешь, я дам толчок: нажми ⚡ Фокус (15 минут).",
+            f"Ок. Повертаємо «{focus}» ✅\n\nЗараз — один мікро-крок на 2 хвилини.\nЯкщо хочеш, дам поштовх: натисни ⚡ Фокус (15 хв).",
+            f"Ok. We bring back '{focus}' ✅\n\nNow — one 2-minute micro step.\nIf you want a push: tap ⚡ Focus (15 min).",
         ),
         reply_markup=_kb(lang),
     )
