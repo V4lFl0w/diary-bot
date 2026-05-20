@@ -678,7 +678,11 @@ def _has_any_time_hint(text: str) -> bool:
 # ---------------------------------------------------------------------
 
 
-@router.message(ReminderFSM.waiting_time, F.text)
+@router.message(
+    ReminderFSM.waiting_time,
+    F.text,
+    F.from_user.id.func(lambda uid: uid not in _pending),
+)
 async def remind_waiting_time(m: Message, state: FSMContext, session: AsyncSession, lang: Optional[str] = None) -> None:
     if not m.from_user:
         return
@@ -1279,7 +1283,7 @@ async def reminders_pending_input(m: Message, session: AsyncSession, lang: Optio
 
 
 @router.callback_query(F.data.startswith("rem:"))
-async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Optional[str] = None) -> None:
+async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, state: FSMContext, lang: Optional[str] = None) -> None:
     if not c.from_user:
         return
 
@@ -1525,6 +1529,7 @@ async def reminders_callbacks(c: CallbackQuery, session: AsyncSession, lang: Opt
         rid = int(parts[2])
 
         _pending[c.from_user.id] = {"action": action, "rid": rid, "ts": monotonic()}
+        await state.clear()
 
         prompt = _tr(
             lang_code,
