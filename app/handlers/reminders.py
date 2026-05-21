@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from aiogram import F, Router
+from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -1125,6 +1126,39 @@ async def reminders_menu(m: Message, session: AsyncSession, lang: Optional[str] 
 # PENDING INPUT HANDLER (перенести/изменить) ТЕКСТ + ГОЛОС
 # ---------------------------------------------------------------------
 
+_WRITTEN_NUMS: dict[str, str] = {
+    # Russian
+    "один": "1", "одну": "1", "одного": "1", "одним": "1",
+    "два": "2", "две": "2", "двух": "2",
+    "три": "3", "трёх": "3", "трех": "3",
+    "четыре": "4", "четырёх": "4", "четырех": "4",
+    "пять": "5", "шесть": "6", "семь": "7", "восемь": "8",
+    "девять": "9", "десять": "10", "одиннадцать": "11",
+    "двенадцать": "12", "тринадцать": "13", "четырнадцать": "14",
+    "пятнадцать": "15", "шестнадцать": "16", "семнадцать": "17",
+    "восемнадцать": "18", "девятнадцать": "19", "двадцать": "20",
+    "тридцать": "30", "сорок": "40", "пятьдесят": "50",
+    "полчаса": "30 минут", "полтора часа": "90 минут",
+    # Ukrainian
+    "одну": "1", "один": "1",
+    "чотири": "4",
+    "п'ять": "5", "шість": "6", "сім": "7", "вісім": "8",
+    "дев'ять": "9", "п'ятнадцять": "15",
+    "двадцять": "20", "тридцять": "30",
+    # English
+    "one": "1", "two": "2", "three": "3", "four": "4",
+    "five": "5", "six": "6", "seven": "7", "eight": "8",
+    "nine": "9", "ten": "10", "fifteen": "15",
+    "twenty": "20", "thirty": "30", "half an hour": "30 minutes",
+}
+
+
+def _normalize_written_nums(text: str) -> str:
+    t = text
+    for word, digit in _WRITTEN_NUMS.items():
+        t = re.sub(rf"\b{re.escape(word)}\b", digit, t, flags=re.IGNORECASE)
+    return t
+
 
 @router.message(F.voice & F.from_user.id.func(lambda uid: uid in _pending))
 async def reminders_pending_voice(m: Message, session: AsyncSession, lang: Optional[str] = None) -> None:
@@ -1201,6 +1235,16 @@ async def reminders_pending_input(m: Message, session: AsyncSession, lang: Optio
     if not text:
         return
 
+    try:
+        from app.services.assistant import _is_menu_click
+        if _is_menu_click(text):
+            _pending.pop(tg_id, None)
+            raise SkipHandler()
+    except SkipHandler:
+        raise
+    except Exception:
+        pass
+
     if action == "edit":
         r.title = text
         session.add(r)
@@ -1219,7 +1263,8 @@ async def reminders_pending_input(m: Message, session: AsyncSession, lang: Optio
         return
 
     if action == "move":
-        fake = f"напомни tmp {text}"
+        text_for_parse = _normalize_written_nums(text)
+        fake = f"напомни tmp {text_for_parse}"
         parsed = parse_any(fake, user_tz=tz_name, now=now_local)
         pr = getattr(parsed, "reminder", None) if parsed else None
 

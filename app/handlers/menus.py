@@ -497,6 +497,15 @@ async def unrecognized_text_fallback(message: Message, session: AsyncSession, st
     if not getattr(message, "from_user", None):
         raise SkipHandler()
 
+    try:
+        from app.handlers.reminders import _pending as _reminders_pending
+        if message.from_user.id in _reminders_pending:
+            raise SkipHandler()
+    except SkipHandler:
+        raise
+    except Exception:
+        pass
+
     text = (message.text or "").strip()
     if len(text) <= 3:
         raise SkipHandler()
