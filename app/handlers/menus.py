@@ -510,6 +510,15 @@ async def unrecognized_text_fallback(message: Message, session: AsyncSession, st
     if len(text) <= 3:
         raise SkipHandler()
 
+    try:
+        from app.handlers.reminders import _should_parse as _reminders_should_parse
+        if _reminders_should_parse(text):
+            raise SkipHandler()
+    except SkipHandler:
+        raise
+    except Exception:
+        pass
+
     if _is_menu_click(text):
         raise SkipHandler()
 

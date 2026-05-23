@@ -677,9 +677,17 @@ def _parse_once_datetime(
         now_wd = base.weekday()
         target_wd = 6 if wd == 0 else (wd - 1)
         days_ahead = (target_wd - now_wd) % 7
-        # If user explicitly says "в <weekday>" and today is that weekday, treat as NEXT week (unless "today" present).
-        # Example: "в четверг в 14:00" (next week if today is Thursday), but "чт в 9:05" -> today (nearest).
-        if days_ahead == 0 and not re.search(rf"\b{_RE_TODAY}\b", text_norm):
+
+        # "следующий/next/наступний" → next-week occurrence: Monday of next week + target offset
+        _next_mod = re.search(
+            r"\b(следующий|следующую|следующая|следующее|следующей"
+            r"|наступний|наступну|наступна|наступного|next)\b",
+            text_norm, re.I,
+        )
+        if _next_mod:
+            days_ahead = (7 - now_wd) + target_wd
+        elif days_ahead == 0 and not re.search(rf"\b{_RE_TODAY}\b", text_norm):
+            # If user explicitly says "в <weekday>" and today is that weekday, treat as NEXT week.
             if re.search(r"\bв\s+(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)\b", text_norm):
                 days_ahead = 7
 
